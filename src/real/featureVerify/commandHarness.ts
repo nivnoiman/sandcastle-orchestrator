@@ -2,12 +2,14 @@ import { join } from "node:path";
 import type { TargetRepo } from "../../model/runModel.js";
 import { integrationBase } from "../../project/projectConfig.js";
 import { runWithIdleTimeout, type CommandRunner } from "../commandRunner.js";
-import { execRequest, removeContainer, SANDBOX_WORKDIR, stageContainerName, startContainer } from "../docker.js";
-import { agentAuthEnv, checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
+import { execRequest, removeContainer, SANDBOX_WORKDIR, stageContainerName, startContainer, withContainerEnvFile } from "../docker.js";
+import { checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
-import { claudeCommand, claudeHomeMounts, hydrateHomeCommand, outputTail, withContainerEnvFile } from "../sandboxRunner.js";
+import { outputTail } from "../sandboxRunner.js";
+import { runVerifyAgent } from "./verifyAgent.js";
+import { resolveAgent } from "../agents/index.js";
 import {
   claimVerifyWorktree,
   COMPOSE_OUTPUT_TAIL,
@@ -91,7 +93,8 @@ export class CommandVerifyHarness implements VerifyHarness {
     const container = stageContainerName("fvcheck", this.deps.parentNumber, this.stamp());
     const env: Record<string, string> = { SANDCASTLE_REPORT_PATH: CONTAINER_REPORT_PATH, JEST_MAX_WORKERS: this.deps.config.jestWorkers };
     for (const repo of this.deps.involvedRepos) Object.assign(env, this.sandboxEnv(repo));
-    Object.assign(env, agentAuthEnv(this.deps.config));
+    const { provider } = resolveAgent(this.deps.config, "feature-verify");
+    Object.assign(env, provider.authEnv(this.deps.config));
     this.claim(
       `container ${container}`,
       () =>
@@ -103,7 +106,7 @@ export class CommandVerifyHarness implements VerifyHarness {
             mounts: [
               { hostPath: scratch, containerPath: SANDBOX_WORKDIR },
               ...worktrees.map((entry) => ({ hostPath: entry.path, containerPath: `${READONLY_SOURCE_ROOT}/${entry.repo}`, readonly: true })),
-              ...claudeHomeMounts(this.deps.layout),
+              ...provider.homeMounts(this.deps.layout),
             ],
             envFile,
           }),
@@ -142,14 +145,7 @@ export class CommandVerifyHarness implements VerifyHarness {
       this.deps.log("[feature-verify] verify.agent is off — the green commands are the report");
       return;
     }
-    await this.exec(hydrateHomeCommand(), "agent home hydration");
-    const idle = this.deps.config.idleTimeoutSeconds;
-    this.deps.log(`[feature-verify] agent starting (idle budget ${idle}s, model ${this.deps.config.reviewModel})`);
-    await runWithIdleTimeout(
-      this.deps.runner,
-      execRequest(container, claudeCommand(this.deps.config.reviewModel), { input: prompt, onOutput: () => undefined }),
-      idle,
-    );
+    await runVerifyAgent(this.deps, container, prompt, (command, label) => this.exec(command, label));
   }
 
   readReport(): string | undefined {

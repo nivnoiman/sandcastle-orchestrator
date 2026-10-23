@@ -16,19 +16,16 @@ import {
   SANDBOX_WORKDIR,
   stageContainerName,
   startContainer,
+  withContainerEnvFile,
 } from "../docker.js";
-import { agentAuthEnv, envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
+import { resolveAgent } from "../agents/index.js";
+import { envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { integrationBase, knownRepos, type VerifyService } from "../../project/projectConfig.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
-import {
-  claudeCommand,
-  claudeHomeMounts,
-  hydrateHomeCommand,
-  outputTail,
-  withContainerEnvFile,
-} from "../sandboxRunner.js";
+import { outputTail } from "../sandboxRunner.js";
+import { runVerifyAgent } from "./verifyAgent.js";
 import { composeServiceEnv, credentialKeys, localMongoUri, MONGO_ALIAS, serviceBaseUrl } from "./composeEnv.js";
 import { messageOf } from "../../messageOf.js";
 
@@ -193,14 +190,7 @@ export class DockerComposeHarness implements VerifyHarness {
   async runAgent(prompt: string): Promise<void> {
     const container = this.agentContainer;
     if (!container) throw new Error("runAgent was called before up() — there is no feature verify agent container");
-    const idle = this.deps.config.idleTimeoutSeconds;
-    await this.exec(container, hydrateHomeCommand(), "agent home hydration");
-    this.deps.log(`[feature-verify] agent starting (idle budget ${idle}s, model ${this.deps.config.reviewModel})`);
-    await runWithIdleTimeout(
-      this.deps.runner,
-      execRequest(container, claudeCommand(this.deps.config.reviewModel), { input: prompt, onOutput: () => undefined }),
-      idle,
-    );
+    await runVerifyAgent(this.deps, container, prompt, (command, label) => this.exec(container, command, label));
   }
 
   readReport(): string | undefined {
@@ -285,7 +275,8 @@ export class DockerComposeHarness implements VerifyHarness {
     for (const service of facts.services) {
       if (service.baseUrl) env[`SANDCASTLE_${envKeySuffix(service.repo)}_URL`] = service.baseUrl;
     }
-    Object.assign(env, agentAuthEnv(this.deps.config));
+    const { provider } = resolveAgent(this.deps.config, "feature-verify");
+    Object.assign(env, provider.authEnv(this.deps.config));
 
     this.claim(
       `container ${container}`,
@@ -302,7 +293,7 @@ export class DockerComposeHarness implements VerifyHarness {
                 containerPath: service.sourcePath,
                 readonly: true,
               })),
-              ...claudeHomeMounts(this.deps.layout),
+              ...provider.homeMounts(this.deps.layout),
             ],
             envFile,
             network,

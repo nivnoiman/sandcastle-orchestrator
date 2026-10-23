@@ -10,6 +10,11 @@ Orchestration Issue must have, see README, Publish contract. Vocabulary used thr
 Orchestration Issue (the parent), Work Item (a sub-issue), Stage Chain, Worker, Parked,
 Held, Control Plane, Run Queue, Global Cap.
 
+Where this document says "Claude Code" or `claude -p`, read "the stage's agent provider".
+Agent CLIs are pluggable per stage (`src/real/agents/`). The design and the Codex specifics,
+such as token refresh, failure parsing and skill delivery, are in
+[design/agent-providers.md](design/agent-providers.md).
+
 A project is configured by `.sandcastle/config.json` at the root of the consuming repo.
 The CLI finds it with `--config=<path>`, then `SANDCASTLE_CONFIG`, then by walking up from
 the current directory to the first `.sandcastle/config.json`. `--config` and

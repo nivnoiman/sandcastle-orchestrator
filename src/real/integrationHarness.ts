@@ -8,13 +8,13 @@ import { bootstrapScript, checkCommand, type OrchestratorConfig } from "./env.js
 import type { FileSystemPort } from "./fileSystem.js";
 import { integrationBase } from "../project/projectConfig.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "./paths.js";
+import { describeAgent, snapshotCredential, syncBackCredential, type ResolvedAgent } from "./agents/index.js";
+import { ensureFreshLogin } from "./authProbe.js";
 import {
   CHECK_OUTPUT_TAIL,
   CheckFailure,
   claimWorkspaceCommand,
-  claudeCommand,
   copyWorkspaceCommand,
-  hydrateHomeCommand,
   outputTail,
   startWorktreeContainer,
   type WorkspaceMode,
@@ -29,6 +29,8 @@ export interface IntegrationWorkspace {
 }
 
 export interface IntegrationHarness {
+  /** The agent can invoke a named command itself (Claude's `Skill` tool); absent means yes. */
+  readonly skillTool?: boolean;
   checkout(repo: TargetRepo): IntegrationWorkspace;
   runAgent(workspace: IntegrationWorkspace, prompt: string): Promise<void>;
   commitsSince(workspace: IntegrationWorkspace): string[];
@@ -47,7 +49,7 @@ export interface IntegrationGit {
 
 export interface IntegrationAgent {
   stage: string;
-  model: string;
+  agent: ResolvedAgent;
   requiredCommands: readonly string[];
 }
 
@@ -81,12 +83,17 @@ export class DockerIntegrationHarness implements IntegrationHarness {
     return { repo, worktree, baseline, checks: checkCommand(this.deps.config, repo) };
   }
 
+  get skillTool(): boolean {
+    return this.deps.agent.agent.provider.skillTool;
+  }
+
   async runAgent(workspace: IntegrationWorkspace, prompt: string): Promise<void> {
-    await this.inSandbox(workspace, "bind", async (container, log) => {
+    const { agent } = this.deps.agent;
+    await ensureFreshLogin(this.deps, agent);
+    await this.inSandbox(workspace, "bind", agent, async (container, log) => {
       await this.assertCommands(container, log);
-      const { model } = this.deps.agent;
-      this.deps.log(`[${this.deps.agent.stage}] ${workspace.repo}: agent starting (idle budget ${this.deps.config.idleTimeoutSeconds}s, model ${model})`);
-      await this.exec(container, claudeCommand(model), log, prompt);
+      this.deps.log(`[${this.deps.agent.stage}] ${workspace.repo}: agent starting (idle budget ${this.deps.config.idleTimeoutSeconds}s, model ${describeAgent(agent)})`);
+      await this.exec(container, agent.provider.command(agent.model), log, prompt);
     });
   }
 
@@ -116,7 +123,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
   }
 
   async runChecks(workspace: IntegrationWorkspace): Promise<void> {
-    await this.inSandbox(workspace, "copy", async (container, log) => {
+    await this.inSandbox(workspace, "copy", undefined, async (container, log) => {
       this.deps.log(`[${this.deps.agent.stage}] ${workspace.repo}: re-running ${workspace.checks}`);
       const tail = outputTail(CHECK_OUTPUT_TAIL);
       try {
@@ -156,16 +163,25 @@ export class DockerIntegrationHarness implements IntegrationHarness {
   private async inSandbox(
     workspace: IntegrationWorkspace,
     mode: WorkspaceMode,
+    agent: ResolvedAgent | undefined,
     work: (container: string, log: (chunk: string) => void) => Promise<void>,
   ): Promise<void> {
     const container = this.containerName();
-    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: workspace.repo, worktree: workspace.worktree, workspace: mode });
+    const provider = (agent ?? this.deps.agent.agent).provider;
+    const login = agent ? snapshotCredential(this.deps.fs, this.deps.layout, provider) : undefined;
+    const gitControl = startWorktreeContainer(this.deps, {
+      name: container,
+      repo: workspace.repo,
+      worktree: workspace.worktree,
+      workspace: mode,
+      provider,
+    });
     const writer = this.deps.logs?.begin(this.deps.parentNumber, this.deps.agent.stage);
     const log = (chunk: string): void => writer?.write(chunk);
     log(`--- ${this.deps.agent.stage} ${workspace.repo} (${mode}) ---\n`);
     let outcome = "failure";
     try {
-      await this.exec(container, hydrateHomeCommand(), log);
+      await this.exec(container, provider.hydrateCommand(), log);
       execAsRoot(this.deps.runner, container, claimWorkspaceCommand(mode));
       if (mode === "copy") await this.exec(container, copyWorkspaceCommand(), log);
       await this.exec(container, bootstrapScript(this.deps.config, workspace.repo), log);
@@ -173,6 +189,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
       outcome = "success";
     } finally {
       writer?.finish(outcome);
+      syncBackCredential(this.deps, container, login);
       this.removeQuietly(container);
       assertGitControlUnchanged(this.deps.fs, gitControl);
     }

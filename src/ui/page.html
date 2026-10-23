@@ -1152,7 +1152,25 @@ function transcriptTurns(text) {
   return turns;
 }
 
+function describeCodexEvent(event) {
+  if (event.type === "thread.started") return { kind: "meta", text: `codex thread ${event.thread_id || ""}`.trim() };
+  if (event.type === "error") return { kind: "err", text: `error: ${textOf(event.message)}` };
+  if (event.type === "turn.failed") return { kind: "err", text: `turn failed: ${textOf(event.error && event.error.message)}` };
+  if (event.type === "turn.completed") {
+    const usage = event.usage || {};
+    return { kind: "result", text: `turn done · ${usage.input_tokens ?? "?"} in · ${usage.output_tokens ?? "?"} out` };
+  }
+  if (event.type !== "item.completed" || !event.item) return null;
+  const item = event.item;
+  if (item.type === "agent_message") return { kind: "", text: textOf(item.text).trim() };
+  if (item.type === "command_execution") return { kind: "tool", text: `→ $ ${firstLine(item.command)} (exit ${item.exit_code ?? "?"})` };
+  if (item.type === "file_change") return { kind: "tool", text: `→ edit ${(item.changes || []).map((change) => change.path).join(", ")}` };
+  if (item.type === "error") return { kind: "err", text: `error: ${textOf(item.message)}` };
+  return null;
+}
+
 function describeEvent(event) {
+  if (typeof event.type === "string" && /^(thread|turn|item)\.|^error$/.test(event.type)) return describeCodexEvent(event);
   if (event.type === "system") return { kind: "meta", text: `system: ${event.subtype || ""} ${event.model || ""}`.trim() };
   if (event.type === "rate_limit_event") {
     const info = event.rate_limit_info || {};

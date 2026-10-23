@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
+import { parseAgents, type AgentsConfig } from "./agentsConfig.js";
 
 /** The per-project folder at the project root: `config.json` (committed) and, by default, the project's state. */
 export const PROJECT_FOLDER = ".sandcastle";
@@ -69,6 +70,7 @@ export interface ProjectConfig {
   repos: Record<string, RepoConfig>;
   verify: VerifyStrategy;
   ui: UiConfig;
+  agents: AgentsConfig;
 }
 
 type Json = Record<string, unknown>;
@@ -259,6 +261,7 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
     repos,
     verify: parseVerify(raw["verify"], repos),
     ui: parseUi(raw["ui"]),
+    agents: parseAgents(raw["agents"]),
   };
 }
 

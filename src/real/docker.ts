@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import type { CommandRunner, StartRequest } from "./commandRunner.js";
+import type { FileSystemPort } from "./fileSystem.js";
 import { toDockerPath } from "./paths.js";
 import { activeProject } from "../project/projectConfig.js";
 import { messageOf } from "../messageOf.js";
@@ -95,6 +97,21 @@ export function renderEnvFile(env: Readonly<Record<string, string>>): string {
       return `${key}=${value}`;
     })
     .join("\n");
+}
+
+export function withContainerEnvFile<T>(
+  fs: FileSystemPort,
+  env: Readonly<Record<string, string>>,
+  use: (envFile: string) => T,
+): T {
+  const directory = fs.makeTempDirectory("sandcastle-env-");
+  const envFile = join(directory, "container.env");
+  fs.writePrivateText(envFile, renderEnvFile(env));
+  try {
+    return use(envFile);
+  } finally {
+    fs.removeDirectory(directory);
+  }
 }
 
 export function assertDockerReady(runner: CommandRunner, image: string): void {
