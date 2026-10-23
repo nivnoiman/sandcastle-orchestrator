@@ -93,11 +93,13 @@ async function choosePort(): Promise<number> {
   }
 }
 
-/** Owner-only on POSIX; `wx` never overwrites a secret file that appeared after the existence check. */
-function writeSecret(path: string, content: string): void {
-  writeFileSync(path, content, { mode: 0o600, flag: "wx" });
+const OWNER_ONLY_MODE = 0o600;
+const CREATE_ONLY_NEVER_OVERWRITE_FLAG = "wx";
+
+function writeOwnerOnlySecretIfStillAbsent(path: string, content: string): void {
+  writeFileSync(path, content, { mode: OWNER_ONLY_MODE, flag: CREATE_ONLY_NEVER_OVERWRITE_FLAG });
   try {
-    chmodSync(path, 0o600);
+    chmodSync(path, OWNER_ONLY_MODE);
   } catch (cause) {
     console.error(`[init][warn] could not restrict ${path} to the owner — ${messageOf(cause)}`);
   }
@@ -123,7 +125,7 @@ for (const secret of SECRET_FILES) {
   const target = join(folder, secret.target);
   if (existsSync(target)) continue;
   const example = join(TOOL_DIR, secret.example);
-  writeSecret(target, existsSync(example) ? readFileSync(example, "utf8") : "");
+  writeOwnerOnlySecretIfStillAbsent(target, existsSync(example) ? readFileSync(example, "utf8") : "");
   created.push(target);
 }
 

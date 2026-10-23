@@ -30,8 +30,7 @@ export function memoryProjectSuffix(): string {
   return join("projects", project.memoryProject ?? claudeProjectSlug(project.projectRoot), "memory");
 }
 
-/** Agent worktrees live outside every repo (`~/.sandcastle/worktrees/<project>`) so the project's own tooling never scans them. */
-function defaultWorktreesDir(home: string): string {
+function worktreesDirOutsideEveryRepo(home: string): string {
   return join(home, PROJECT_FOLDER, "worktrees", activeProject().name);
 }
 
@@ -40,7 +39,7 @@ export function layoutFrom(sandcastleDir: string, home: string, overrides: Parti
   const layout: SandcastleLayout = {
     sandcastleDir,
     workspaceRoot: overrides.workspaceRoot ?? dirname(sandcastleDir),
-    worktreesDir: overrides.worktreesDir ?? defaultWorktreesDir(home),
+    worktreesDir: overrides.worktreesDir ?? worktreesDirOutsideEveryRepo(home),
     homeDir: overrides.homeDir ?? home,
     claudeDir,
     memoryDir: overrides.memoryDir ?? join(claudeDir, memoryProjectSuffix()),

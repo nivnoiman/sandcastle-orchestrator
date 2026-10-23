@@ -62,8 +62,7 @@ operating a run (JSON out; also: sandcastle ops <command>)
 The project is --config, else SANDCASTLE_CONFIG, else the nearest .sandcastle/config.json at or above the cwd
 (init ignores --config: it always targets the cwd). Inside a project, run any command without arguments for its own usage.`;
 
-/** Maps argv (flags may come before the command) to the brain script and its arguments, or undefined for an unknown command. */
-function route(argv, commandIndex) {
+function brainScriptForCommand(argv, commandIndex) {
   const command = argv[commandIndex];
   const rest = argv.filter((_, index) => index !== commandIndex);
   if (command === "ops") return { script: OPS_SCRIPT, args: rest };
@@ -81,7 +80,7 @@ if (command === undefined || command === "help") {
   process.exit(0);
 }
 
-const target = route(argv, commandIndex);
+const target = brainScriptForCommand(argv, commandIndex);
 if (target === undefined) {
   console.error(`sandcastle: unknown command "${command}"\n\n${USAGE}`);
   process.exit(2);
@@ -98,13 +97,10 @@ const child = spawn(process.execPath, [TSX_CLI, join(BRAIN, target.script), ...t
   env: { ...process.env, INIT_CWD: process.cwd() },
 });
 
-/**
- * Ctrl+C already reaches the child (same terminal process group / console), so SIGINT is only held here — forwarding it
- * too would read as a second Ctrl+C and force-stop a run. Every other signal is relayed.
- */
-const RELAYED = process.platform === "win32" ? ["SIGTERM", "SIGBREAK"] : ["SIGTERM", "SIGHUP", "SIGQUIT"];
-process.on("SIGINT", () => {});
-for (const signal of RELAYED) {
+const SIGNALS_RELAYED_TO_CHILD = process.platform === "win32" ? ["SIGTERM", "SIGBREAK"] : ["SIGTERM", "SIGHUP", "SIGQUIT"];
+const holdSigintSinceChildSharesTerminalAndRelayWouldForceStop = () => {};
+process.on("SIGINT", holdSigintSinceChildSharesTerminalAndRelayWouldForceStop);
+for (const signal of SIGNALS_RELAYED_TO_CHILD) {
   process.on(signal, () => {
     if (child.exitCode === null && child.signalCode === null) child.kill(signal);
   });
