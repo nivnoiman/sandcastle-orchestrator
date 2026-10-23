@@ -66,12 +66,16 @@ export class AttemptLogStore {
     return (this.deps.now ?? ((): Date => new Date()))().toISOString();
   }
 
+  private firstAttemptWithoutLeftoverTranscript(directory: string, stage: string, firstCandidate: number): number {
+    let attempt = firstCandidate;
+    while (this.deps.fs.exists(join(directory, `${stage}-${attempt}.jsonl`))) attempt += 1;
+    return attempt;
+  }
+
   begin(itemNumber: number, stage: string): AttemptWriter {
     const key = `${itemNumber}-${stage}`;
     const directory = join(parentLogsDir(this.deps.layout, this.deps.parentNumber), String(itemNumber));
-    let attempt = (this.counts.get(key) ?? 0) + 1;
-    // Skip transcripts an earlier process left behind (e.g. a supervisor restart) instead of truncating them.
-    while (this.deps.fs.exists(join(directory, `${stage}-${attempt}.jsonl`))) attempt += 1;
+    const attempt = this.firstAttemptWithoutLeftoverTranscript(directory, stage, (this.counts.get(key) ?? 0) + 1);
     this.counts.set(key, attempt);
     const id = attemptId(itemNumber, stage, attempt);
     const file = join(directory, `${stage}-${attempt}.jsonl`);

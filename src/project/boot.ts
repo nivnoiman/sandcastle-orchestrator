@@ -5,9 +5,10 @@ import { sandcastleDirFrom } from "../real/paths.js";
 import { CONFIG_FILE, readProjectConfig, setActiveProject, type ProjectConfig } from "./projectConfig.js";
 import { messageOf } from "../messageOf.js";
 
-/** `npm run` switches cwd to the tool folder; INIT_CWD is where the user actually ran it. */
+const NPM_RUN_CALLER_CWD_VAR = "INIT_CWD";
+
 function invocationDir(env: NodeJS.ProcessEnv): string {
-  return env["INIT_CWD"] || process.cwd();
+  return env[NPM_RUN_CALLER_CWD_VAR] || process.cwd();
 }
 
 export function configPathFrom(args: readonly string[], env: NodeJS.ProcessEnv = process.env, cwd = invocationDir(env)): string {

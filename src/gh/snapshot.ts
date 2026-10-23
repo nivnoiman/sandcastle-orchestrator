@@ -72,13 +72,17 @@ function toIssueSnapshot(issue: GqlIssue): IssueSnapshot {
   };
 }
 
+function isDependenciesApiMissing(cause: unknown): boolean {
+  const stderr = String((cause as { stderr?: unknown }).stderr ?? "");
+  return DEPENDENCIES_UNAVAILABLE.test(`${messageOf(cause)} ${stderr}`);
+}
+
 async function fetchBlockedBy(repo: string, issueNumber: number): Promise<number[] | null> {
   let raw: string;
   try {
     raw = await gh(["api", `repos/${repo}/issues/${issueNumber}/dependencies/blocked_by`]);
   } catch (cause) {
-    // Only "no dependencies API here" falls back to the body; a transient failure must not unblock an item.
-    if (DEPENDENCIES_UNAVAILABLE.test(`${messageOf(cause)} ${String((cause as { stderr?: unknown }).stderr ?? "")}`)) return null;
+    if (isDependenciesApiMissing(cause)) return null;
     throw new Error(`could not read the blocked-by dependencies of #${issueNumber} on ${repo}: ${messageOf(cause)}`);
   }
   const parsed: unknown = JSON.parse(raw);
