@@ -8,7 +8,16 @@ import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
 import { messageOf } from "../messageOf.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
-export const DEFAULT_UI_PORT = Number(process.env["SANDCASTLE_UI_PORT"] ?? 7777);
+export const DEFAULT_UI_PORT = uiPortFrom(process.env["SANDCASTLE_UI_PORT"]);
+
+function uiPortFrom(raw: string | undefined): number {
+  if (raw === undefined || raw.trim().length === 0) return 7777;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`SANDCASTLE_UI_PORT="${raw}" is not a tcp port`);
+  }
+  return port;
+}
 export const UI_HOST = "127.0.0.1";
 export const SANDCASTLE_HEADER = "x-sandcastle";
 

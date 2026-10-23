@@ -325,7 +325,12 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
     this.attemptContainers.delete(attempt);
     this.deps.log(`#${itemNumber} cancelled — removing ${container}`);
-    removeContainer(this.deps.runner, container);
+    try {
+      removeContainer(this.deps.runner, container);
+    } catch (cause) {
+      this.attemptContainers.set(attempt, container);
+      this.deps.log(`[warn] could not remove ${container} on cancel — the stage teardown retries it: ${messageOf(cause)}`);
+    }
   }
 
   runChecks(request: VerifyRequest): void {
@@ -764,9 +769,6 @@ export class DockerSandboxRunner implements SandboxRunner {
       await this.hydrateHome(container);
       await this.prepareWorkspace(container, workspace);
       await work(container);
-    } catch (cause) {
-      if (isAgentIdleTimeout(cause)) remove();
-      throw cause;
     } finally {
       try {
         remove();

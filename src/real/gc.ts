@@ -99,7 +99,7 @@ function managedWorktrees(deps: GcDeps, repo: TargetRepo, sink: FailureSink): st
   if (!deps.fs.exists(cwd)) return [];
   try {
     const { stdout } = deps.runner.run({ command: "git", args: ["worktree", "list", "--porcelain"], cwd });
-    const managed = comparablePath(deps.layout.worktreesDir);
+    const managed = `${comparablePath(deps.layout.worktreesDir).replace(/\/+$/, "")}/`;
     return stdout
       .split(/\r?\n/)
       .filter((line) => line.startsWith("worktree "))

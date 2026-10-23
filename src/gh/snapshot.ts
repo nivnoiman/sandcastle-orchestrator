@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { messageOf } from "../messageOf.js";
 
 const exec = promisify(execFile);
+const DEPENDENCIES_UNAVAILABLE = /HTTP 404|HTTP 410|Not Found/i;
 
 export interface IssueSnapshot {
   number: number;
@@ -71,13 +73,19 @@ function toIssueSnapshot(issue: GqlIssue): IssueSnapshot {
 }
 
 async function fetchBlockedBy(repo: string, issueNumber: number): Promise<number[] | null> {
+  let raw: string;
   try {
-    const raw = await gh(["api", `repos/${repo}/issues/${issueNumber}/dependencies/blocked_by`]);
-    const parsed = JSON.parse(raw) as { number: number }[];
-    return parsed.map((issue) => issue.number);
-  } catch {
-    return null;
+    raw = await gh(["api", `repos/${repo}/issues/${issueNumber}/dependencies/blocked_by`]);
+  } catch (cause) {
+    // Only "no dependencies API here" falls back to the body; a transient failure must not unblock an item.
+    if (DEPENDENCIES_UNAVAILABLE.test(`${messageOf(cause)} ${String((cause as { stderr?: unknown }).stderr ?? "")}`)) return null;
+    throw new Error(`could not read the blocked-by dependencies of #${issueNumber} on ${repo}: ${messageOf(cause)}`);
   }
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return null;
+  return parsed
+    .map((issue: unknown) => (typeof issue === "object" && issue !== null ? (issue as { number?: unknown }).number : undefined))
+    .filter((number): number is number => typeof number === "number");
 }
 
 export async function fetchRunSnapshot(repo: string, parentNumber: number): Promise<RunSnapshot> {
@@ -87,7 +95,7 @@ export async function fetchRunSnapshot(repo: string, parentNumber: number): Prom
     "api", "graphql",
     "-H", "GraphQL-Features: sub_issues",
     "-f", `query=${SUB_ISSUES_QUERY}`,
-    "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${parentNumber}`,
+    "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${parentNumber}`,
   ]);
   const parent = (JSON.parse(raw) as GqlParentResponse).data.repository.issue;
   if (!parent) throw new Error(`issue #${parentNumber} not found on ${repo}`);

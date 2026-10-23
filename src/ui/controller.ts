@@ -281,7 +281,7 @@ export class UiController {
       throw new OperatorError(`#${parent} is already running — wait for its run to settle before starting it again`);
     }
     const wasQueued = this.queue.parents().includes(parent);
-    if (wasQueued) this.takeQueued(parent);
+    if (wasQueued) this.changeQueue(() => this.takeQueued(parent));
     try {
       await this.launch(parent, cap);
     } catch (cause) {

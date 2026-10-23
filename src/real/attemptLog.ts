@@ -68,10 +68,12 @@ export class AttemptLogStore {
 
   begin(itemNumber: number, stage: string): AttemptWriter {
     const key = `${itemNumber}-${stage}`;
-    const attempt = (this.counts.get(key) ?? 0) + 1;
+    const directory = join(parentLogsDir(this.deps.layout, this.deps.parentNumber), String(itemNumber));
+    let attempt = (this.counts.get(key) ?? 0) + 1;
+    // Skip transcripts an earlier process left behind (e.g. a supervisor restart) instead of truncating them.
+    while (this.deps.fs.exists(join(directory, `${stage}-${attempt}.jsonl`))) attempt += 1;
     this.counts.set(key, attempt);
     const id = attemptId(itemNumber, stage, attempt);
-    const directory = join(parentLogsDir(this.deps.layout, this.deps.parentNumber), String(itemNumber));
     const file = join(directory, `${stage}-${attempt}.jsonl`);
     this.deps.fs.makeDirectory(directory);
     this.deps.fs.writeText(file, "");
