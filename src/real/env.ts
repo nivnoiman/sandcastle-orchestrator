@@ -25,6 +25,7 @@ const REWORK_LIMIT = /^\d+$/;
 export interface OrchestratorConfig {
   ghToken: string;
   anthropicApiKey: string | undefined;
+  claudeOauthToken: string | undefined;
   model: string;
   reviewModel: string;
   imageTag: string;
@@ -205,6 +206,7 @@ export function loadOrchestratorConfig(
   return {
     ghToken,
     anthropicApiKey: values["ANTHROPIC_API_KEY"] || undefined,
+    claudeOauthToken: values["CLAUDE_CODE_OAUTH_TOKEN"] || undefined,
     model: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL,
     reviewModel: values["SANDCASTLE_REVIEW_MODEL"] || DEFAULT_REVIEW_MODEL,
     imageTag: values["SANDCASTLE_IMAGE"] || project.imageTag,
@@ -223,6 +225,14 @@ export function loadOrchestratorConfig(
     verify: project.verify,
     verifyServices: verifyServices(values, project.verify),
   };
+}
+
+/** Agent credentials beyond the mounted ~/.claude login: an API key, a `claude setup-token` OAuth token, or both. */
+export function agentAuthEnv(config: Pick<OrchestratorConfig, "anthropicApiKey" | "claudeOauthToken">): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = config.anthropicApiKey;
+  if (config.claudeOauthToken) env["CLAUDE_CODE_OAUTH_TOKEN"] = config.claudeOauthToken;
+  return env;
 }
 
 export function stageModel(config: OrchestratorConfig, stage: AgentStage): string {

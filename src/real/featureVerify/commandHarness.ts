@@ -3,7 +3,7 @@ import type { TargetRepo } from "../../model/runModel.js";
 import { integrationBase } from "../../project/projectConfig.js";
 import { runWithIdleTimeout, type CommandRunner } from "../commandRunner.js";
 import { execRequest, removeContainer, SANDBOX_WORKDIR, stageContainerName, startContainer } from "../docker.js";
-import { checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
+import { agentAuthEnv, checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
@@ -91,7 +91,7 @@ export class CommandVerifyHarness implements VerifyHarness {
     const container = stageContainerName("fvcheck", this.deps.parentNumber, this.stamp());
     const env: Record<string, string> = { SANDCASTLE_REPORT_PATH: CONTAINER_REPORT_PATH, JEST_MAX_WORKERS: this.deps.config.jestWorkers };
     for (const repo of this.deps.involvedRepos) Object.assign(env, this.sandboxEnv(repo));
-    if (this.deps.config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = this.deps.config.anthropicApiKey;
+    Object.assign(env, agentAuthEnv(this.deps.config));
     this.claim(
       `container ${container}`,
       () =>

@@ -1,7 +1,7 @@
 import { agentWaitFrom, type WaitReason } from "./agentFailure.js";
 import { runWithIdleTimeout, type CommandRunner } from "./commandRunner.js";
 import { execRequest, removeContainer, stageContainerName, startContainer, SANDBOX_WORKDIR } from "./docker.js";
-import type { OrchestratorConfig } from "./env.js";
+import { agentAuthEnv, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import type { SandcastleLayout } from "./paths.js";
 import { claudeCommand, claudeHomeMounts, hydrateHomeCommand, withContainerEnvFile } from "./sandboxRunner.js";
@@ -33,7 +33,7 @@ function probeContainerName(deps: AuthProbeDeps): string {
 }
 
 function probeEnv(config: OrchestratorConfig): Record<string, string> {
-  return config.anthropicApiKey ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {};
+  return agentAuthEnv(config);
 }
 
 export async function probeAgentAuth(deps: AuthProbeDeps): Promise<AuthProbeResult> {

@@ -76,6 +76,7 @@ describe("loadOrchestratorConfig", () => {
     const config = loadOrchestratorConfig(fsWith({ [ENV_PATH]: "GH_TOKEN=t" }), testLayout());
     expect(config.ghToken).toBe("t");
     expect(config.anthropicApiKey).toBeUndefined();
+    expect(config.claudeOauthToken).toBeUndefined();
     expect(config.model).toBe("opus");
     expect(config.reviewModel).toBe("sonnet");
     expect(config.imageTag).toBe("sandcastle:demo");

@@ -35,7 +35,7 @@ The hub repo (where issues live) and the code repos can be one repository or sev
 | Node.js 20.11+ and npm | |
 | Docker | Docker Desktop on Windows and macOS |
 | [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
-| [Claude Code](https://docs.claude.com/en/docs/claude-code) | Logged in on the host. Agents reuse its credentials through a read-only mount, or set `ANTHROPIC_API_KEY`. |
+| [Claude Code](https://docs.claude.com/en/docs/claude-code) | Logged in on the host with your Claude subscription or an API key. See [Agent login](#agent-login). |
 | Agent skills | Installed in `~/.claude`, see [Agent skills](#agent-skills) |
 
 ## Install
@@ -145,7 +145,7 @@ Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `77
 |---|---|---|
 | `config.json` | yes | Project config |
 | `.gitignore` | yes | `*`, `!.gitignore`, `!config.json`. Everything else stays local. |
-| `.env.orchestrator` | no | sandcastle's own secrets (`GH_TOKEN`, optional `ANTHROPIC_API_KEY`, overrides). Read by the host only, never visible to agents. |
+| `.env.orchestrator` | no | sandcastle's own secrets (`GH_TOKEN`, optional `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, overrides). Read by the host only, never visible to agents. |
 | `.env.sandbox` | no | Your app's env, copied into each agent worktree as `.env`. Agents can read it. `.env.sandbox.<repo>` overrides it for one repo. |
 | `logs/` | no | Attempt transcripts and saved leftovers |
 | `.orchestrator.lock` | no | Held while a run is live |
@@ -267,13 +267,25 @@ Hard rules when you step in by hand:
 - Resolve conflicts in `~/.sandcastle/worktrees/<project>/<repo>/<branch>`, never in your working checkout.
 - Integration pull requests are merged by a human.
 
+## Agent login
+
+Agents run Claude Code inside the containers. Pick one way to log them in:
+
+| Method | Setup | Billing |
+|---|---|---|
+| Host login (default) | Log in to Claude Code on the host. `~/.claude/.credentials.json` is mounted read-only into each container. Works on Windows and Linux. | Your Claude subscription |
+| OAuth token | Run `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`. Needed on macOS, where the login lives in the Keychain. | Your Claude subscription |
+| API key | Set `ANTHROPIC_API_KEY` in `.sandcastle/.env.orchestrator`. | Anthropic API usage |
+
+With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach the model with whichever login is configured.
+
 ## Security model
 
 Agents run Claude Code with `--dangerously-skip-permissions` inside their containers, read the issue text you label, and hold real credentials. Treat that as the trust boundary.
 
 - **Only label issues written by people you trust.** Issue bodies reach the agents verbatim. A hostile body is a prompt injection into an agent that can push code. Comments are not read.
 - **`GH_TOKEN` is a fine-grained PAT** scoped to exactly the repos under `repos`, with contents and pull requests write and nothing else. Never a classic token, never org-wide.
-- **Agents see your Claude credentials** (a read-only mount of `~/.claude`, copied into the container). Prefer a dedicated `ANTHROPIC_API_KEY` with a spend limit if that matters to you.
+- **Agents see your Claude credentials** (a read-only mount of `~/.claude` copied into the container, or the token / key from `.env.orchestrator`). Use a dedicated `claude setup-token` token or an `ANTHROPIC_API_KEY` with a spend limit if that matters to you.
 - **Containers have network access** (npm, GitHub, Anthropic). There is no egress filter.
 - **The host is guarded against the shared `.git`.** Each container mounts the repo's `.git` so it can commit. Host git runs with hooks and fsmonitor disabled, and the orchestrator refuses a stage (restoring the file) if a container changed `.git/config` or `.git/info/attributes`.
 - **`.env.sandbox` is readable by agents.** Put only throwaway dev values there.

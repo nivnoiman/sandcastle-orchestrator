@@ -24,6 +24,7 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
   return {
     ghToken: "gh-token",
     anthropicApiKey: undefined,
+    claudeOauthToken: undefined,
     model: "opus",
     reviewModel: "sonnet",
     imageTag: "sandcastle:demo",

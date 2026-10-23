@@ -96,6 +96,7 @@ try {
     {
       ghToken: "smoke-not-a-real-token",
       anthropicApiKey: undefined,
+      claudeOauthToken: undefined,
       model: "opus",
       reviewModel: "sonnet",
       imageTag: image,

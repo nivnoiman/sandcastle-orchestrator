@@ -412,7 +412,7 @@ boundary that exists:
   `git config --global core.autocrlf true` in the container. The worktree is a Windows
   checkout with CRLF on disk; without it a container opens on a "modified" tree it never
   touched, and agent commits churn line endings.
-- **Secrets never reach the argv.** `GH_TOKEN` / `ANTHROPIC_API_KEY` go in through
+- **Secrets never reach the argv.** `GH_TOKEN` / `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` go in through
   `docker run --env-file`, a 0600 temp file (with its temp directory) deleted right
   after the container starts, not `-e K=V`, which is readable in host `ps` and
   `docker inspect`. `CommandFailure` also redacts `KEY=value` argv entries defensively,

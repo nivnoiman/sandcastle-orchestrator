@@ -33,7 +33,7 @@ import {
   type ContainerSpec,
   type Mount,
 } from "./docker.js";
-import { bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
+import { agentAuthEnv, bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
 import type { PullRequestOps } from "./ghClient.js";
@@ -189,7 +189,7 @@ export function containerEnv(config: OrchestratorConfig, gitDir: string): Record
     GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
     JEST_MAX_WORKERS: config.jestWorkers,
   };
-  if (config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = config.anthropicApiKey;
+  Object.assign(env, agentAuthEnv(config));
   return env;
 }
 

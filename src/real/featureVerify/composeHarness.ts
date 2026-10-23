@@ -17,7 +17,7 @@ import {
   stageContainerName,
   startContainer,
 } from "../docker.js";
-import { envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
+import { agentAuthEnv, envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { integrationBase, knownRepos, type VerifyService } from "../../project/projectConfig.js";
@@ -285,7 +285,7 @@ export class DockerComposeHarness implements VerifyHarness {
     for (const service of facts.services) {
       if (service.baseUrl) env[`SANDCASTLE_${envKeySuffix(service.repo)}_URL`] = service.baseUrl;
     }
-    if (this.deps.config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = this.deps.config.anthropicApiKey;
+    Object.assign(env, agentAuthEnv(this.deps.config));
 
     this.claim(
       `container ${container}`,
