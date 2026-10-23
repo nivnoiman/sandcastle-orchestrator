@@ -698,6 +698,15 @@ export interface PolishPromptContext {
   pullRequestUrl: string;
   checks: string;
   notesFile: string;
+  /** The agent has Claude's `Skill` tool and subagents; otherwise it reads the command file and runs its passes itself. */
+  skillTool?: boolean;
+}
+
+function polishCommandStep(context: PolishPromptContext): string {
+  if (context.skillTool ?? true) {
+    return `**1. Run the global \`/polish\` command as written**, with fixed point \`${context.fixedPoint}\`: invoke it through the \`Skill\` tool (\`skill: "polish"\`, \`args: "${context.fixedPoint}"\`). If it is not listed, read \`~/.claude/commands/polish.md\` and follow it verbatim. It orchestrates three fresh subagents (simplify → review+fix → strip comments) and commits between stages — keep its commit messages.`;
+  }
+  return `**1. Run the global \`/polish\` command as written**, with fixed point \`${context.fixedPoint}\`: read \`~/.claude/commands/polish.md\` and follow it verbatim, with \`${context.fixedPoint}\` as its argument. Where it asks for fresh subagents, run its three passes (simplify → review+fix → strip comments) yourself, in order, re-reading the diff from scratch at the start of each, and commit between passes — keep its commit messages.`;
 }
 
 export function buildPolishPrompt(context: PolishPromptContext): string {
@@ -706,7 +715,7 @@ export function buildPolishPrompt(context: PolishPromptContext): string {
     "",
     "## Contract (do these in order — non-negotiable)",
     "",
-    `**1. Run the global \`/polish\` command as written**, with fixed point \`${context.fixedPoint}\`: invoke it through the \`Skill\` tool (\`skill: "polish"\`, \`args: "${context.fixedPoint}"\`). If it is not listed, read \`~/.claude/commands/polish.md\` and follow it verbatim. It orchestrates three fresh subagents (simplify → review+fix → strip comments) and commits between stages — keep its commit messages.`,
+    polishCommandStep(context),
     "",
     `**2. The merge checks are \`${context.checks}\`.** Use them as the command's typecheck + test baseline. The orchestrator re-runs them in a clean container after you; red there drops every commit you made.`,
     "",

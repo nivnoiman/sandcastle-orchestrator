@@ -10,8 +10,8 @@ import {
   salvageIdleTimeout,
   resolveLayout,
   sandboxEnvPreflightRepos,
-  stageModel,
 } from "../../src/real/env.js";
+import { resolveAgent } from "../../src/real/agents/index.js";
 import { memoryProjectSuffix } from "../../src/real/paths.js";
 import { fsWith, SANDCASTLE_DIR, testConfig, testLayout } from "./support.js";
 
@@ -235,12 +235,12 @@ describe("resolveLayout", () => {
   });
 });
 
-describe("stageModel", () => {
+describe("stage models", () => {
   it("runs develop on the main model and fresh-eyes stages on the review model", () => {
     const config = testConfig({ model: "opus", reviewModel: "sonnet" });
-    expect(stageModel(config, "develop")).toBe("opus");
-    expect(stageModel(config, "simplify")).toBe("sonnet");
-    expect(stageModel(config, "review")).toBe("sonnet");
+    expect(resolveAgent(config, "develop").model).toBe("opus");
+    expect(resolveAgent(config, "simplify").model).toBe("sonnet");
+    expect(resolveAgent(config, "review").model).toBe("sonnet");
   });
 
   it("reads SANDCASTLE_REVIEW_MODEL from .env.orchestrator", () => {

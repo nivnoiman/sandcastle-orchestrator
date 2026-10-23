@@ -22,25 +22,34 @@ import {
   type CommandRunner,
 } from "./commandRunner.js";
 import {
+  claudeProvider,
+  defaultAgent,
+  describeAgent,
+  resolveAgent,
+  snapshotCredential,
+  syncBackCredential,
+  type AgentProvider,
+  type ResolvedAgent,
+} from "./agents/index.js";
+import { ensureFreshLogin } from "./authProbe.js";
+import {
   assertDockerReady,
   execAsRoot,
   execRequest,
   removeContainer,
-  renderEnvFile,
   stageContainerName,
   startContainer,
   SANDBOX_WORKDIR,
+  withContainerEnvFile,
   type ContainerSpec,
-  type Mount,
 } from "./docker.js";
-import { agentAuthEnv, bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
+import { bootstrapScript, checkCommand, salvageIdleTimeout, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
 import type { PullRequestOps } from "./ghClient.js";
-import { claudeJsonPath, CONTAINER_HOME, repoRoot, toDockerPath, worktreePath, type SandcastleLayout } from "./paths.js";
+import { CONTAINER_HOME, repoRoot, toDockerPath, worktreePath, type SandcastleLayout } from "./paths.js";
 import { buildResolvePrompt, buildSalvagePrompt, buildStagePrompt, pullRequestTitle } from "./promptBuilder.js";
 import type { RunContext } from "./runContext.js";
-import { containerSkillPath, REQUIRED_SKILLS } from "./skills.js";
 import {
   hasPrSection,
   hasTestFirstCommit,
@@ -57,30 +66,26 @@ import {
 } from "./stageAudit.js";
 import { messageOf } from "../messageOf.js";
 
+export {
+  claudeCommand,
+  claudeHomeMounts,
+  CONTAINER_AUTOCRLF,
+  HOST_CLAUDE_DIR,
+  HOST_CLAUDE_JSON,
+  HYDRATE_COPIED_ENTRIES,
+  hydrateHomeCommand,
+} from "./agents/claude.js";
+export { withContainerEnvFile };
+
 export const CONTAINER_GITDIR = "/home/agent/gitdir";
-export const HOST_CLAUDE_DIR = `${CONTAINER_HOME}/.claude-host`;
-export const HOST_CLAUDE_JSON = `${CONTAINER_HOME}/.claude-host.json`;
 export const CHECK_OUTPUT_TAIL = 4000;
 const VERIFY_STORY_OUTPUT_LIMIT = 3000;
-export const HYDRATE_COPIED_ENTRIES = [
-  "CLAUDE.md",
-  "settings.json",
-  "settings.local.json",
-  ".credentials.json",
-  "agents",
-  "commands",
-  "hooks",
-  "skills",
-] as const;
-export const CONTAINER_AUTOCRLF = "true";
 export const SOURCE_DIR = `${CONTAINER_HOME}/source`;
 export const CONTAINER_LOCAL_ENTRIES = ["node_modules", ".jest-cache"] as const;
 
 export type WorkspaceMode = "bind" | "copy";
 
 const GIT_DIR_MARKER = "/.git/";
-const MODEL_NAME = /^[A-Za-z0-9._-]+$/;
-const CLAUDE_FLAGS = ["--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"];
 const AGENT_IDENTITY = { name: "sandcastle agent", email: "noreply@anthropic.com" };
 
 export interface SandboxRunnerDeps {
@@ -149,24 +154,6 @@ export function verifyReworkStory(request: VerifyRequest, failure: CheckFailure,
   ].join("\n");
 }
 
-export function claudeCommand(model: string): string {
-  if (!MODEL_NAME.test(model)) throw new Error(`refusing to run an unquotable model name: ${JSON.stringify(model)}`);
-  return ["claude", "-p", "--model", model, ...CLAUDE_FLAGS].join(" ");
-}
-
-export function hydrateHomeCommand(): string {
-  const copied = HYDRATE_COPIED_ENTRIES.map((entry) => `./${entry}`).join(" ");
-  return [
-    "set -o pipefail",
-    `rm -rf ${CONTAINER_HOME}/.claude ${CONTAINER_HOME}/.claude.json`,
-    `mkdir -p ${CONTAINER_HOME}/.claude`,
-    `tar -C ${HOST_CLAUDE_DIR} --ignore-failed-read -cf - ${copied} | tar -C ${CONTAINER_HOME}/.claude -xf -`,
-    `cp -a --no-preserve=ownership ${HOST_CLAUDE_JSON} ${CONTAINER_HOME}/.claude.json`,
-    `git config --global core.autocrlf ${CONTAINER_AUTOCRLF}`,
-    ...REQUIRED_SKILLS.map((skill) => `test -f ${containerSkillPath(skill)}`),
-  ].join(" && ");
-}
-
 export function containerGitDir(absoluteGitDir: string): string {
   const normalized = toDockerPath(absoluteGitDir);
   const marker = normalized.lastIndexOf(GIT_DIR_MARKER);
@@ -178,7 +165,11 @@ export function containerGitDir(absoluteGitDir: string): string {
   return `${CONTAINER_GITDIR}/${normalized.slice(marker + GIT_DIR_MARKER.length)}`;
 }
 
-export function containerEnv(config: OrchestratorConfig, gitDir: string): Record<string, string> {
+export function containerEnv(
+  config: OrchestratorConfig,
+  gitDir: string,
+  provider: AgentProvider = defaultAgent(config).provider,
+): Record<string, string> {
   const env: Record<string, string> = {
     GH_TOKEN: config.ghToken,
     GIT_DIR: gitDir,
@@ -189,15 +180,8 @@ export function containerEnv(config: OrchestratorConfig, gitDir: string): Record
     GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
     JEST_MAX_WORKERS: config.jestWorkers,
   };
-  Object.assign(env, agentAuthEnv(config));
+  Object.assign(env, provider.authEnv(config));
   return env;
-}
-
-export function claudeHomeMounts(layout: SandcastleLayout): Mount[] {
-  return [
-    { hostPath: layout.claudeDir, containerPath: HOST_CLAUDE_DIR, readonly: true },
-    { hostPath: claudeJsonPath(layout), containerPath: HOST_CLAUDE_JSON, readonly: true },
-  ];
 }
 
 export function containerSpec(options: {
@@ -208,8 +192,10 @@ export function containerSpec(options: {
   layout: SandcastleLayout;
   envFile: string;
   workspace: WorkspaceMode;
+  provider?: AgentProvider;
 }): ContainerSpec {
   const copied = options.workspace === "copy";
+  const provider = options.provider ?? claudeProvider;
   return {
     name: options.name,
     image: options.image,
@@ -219,7 +205,7 @@ export function containerSpec(options: {
         ? { hostPath: options.worktree, containerPath: SOURCE_DIR, readonly: true }
         : { hostPath: options.worktree, containerPath: SANDBOX_WORKDIR },
       { hostPath: options.repoGitDir, containerPath: CONTAINER_GITDIR },
-      ...claudeHomeMounts(options.layout),
+      ...provider.homeMounts(options.layout),
     ],
     anonymousVolumes: copied ? [] : containerLocalPaths(),
     envFile: options.envFile,
@@ -240,29 +226,14 @@ export function copyWorkspaceCommand(): string {
   return `set -o pipefail && tar -C ${SOURCE_DIR} ${excludes} -cf - . | tar -C ${SANDBOX_WORKDIR} -xf -`;
 }
 
-export function withContainerEnvFile<T>(
-  fs: FileSystemPort,
-  env: Readonly<Record<string, string>>,
-  use: (envFile: string) => T,
-): T {
-  const directory = fs.makeTempDirectory("sandcastle-env-");
-  const envFile = join(directory, "container.env");
-  fs.writePrivateText(envFile, renderEnvFile(env));
-  try {
-    return use(envFile);
-  } finally {
-    fs.removeDirectory(directory);
-  }
-}
-
 /** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
 export function startWorktreeContainer(
   deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
-  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
   const gitControl = snapshotGitControl(deps.fs, repoGitDir);
-  const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)));
+  const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
   withContainerEnvFile(deps.fs, env, (envFile) => {
     startContainer(
       deps.runner,
@@ -274,6 +245,7 @@ export function startWorktreeContainer(
         layout: deps.layout,
         envFile,
         workspace: container.workspace,
+        provider: container.provider,
       }),
     );
   });
@@ -433,11 +405,11 @@ export class DockerSandboxRunner implements SandboxRunner {
     const worktree = this.requireWorktree(request.repo, request.branch);
     const baseline = this.prepareRework(request, worktree);
 
+    const agent = resolveAgent(this.deps.config, request.stage);
     try {
-      await this.inContainer(request.stage, attempt, request, worktree, async (container) => {
+      await this.inContainer(request.stage, attempt, request, worktree, agent, async (container) => {
         await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-        const model = stageModel(this.deps.config, request.stage);
-        await this.runAgent(container, prompt, model, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
+        await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
       });
     } catch (cause) {
       if (!isAgentIdleTimeout(cause)) throw cause;
@@ -461,11 +433,11 @@ export class DockerSandboxRunner implements SandboxRunner {
       `${decision.reason} — running a constrained salvage pass in a fresh container (${budget}s idle budget)`,
     );
     const prompt = buildSalvagePrompt(this.deps.context.promptContext(request));
+    const agent = resolveAgent(this.deps.config, request.stage);
     try {
-      await this.inContainer("salvage", attempt, request, worktree, async (container) => {
+      await this.inContainer("salvage", attempt, request, worktree, agent, async (container) => {
         await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-        const model = stageModel(this.deps.config, request.stage);
-        await this.runAgent(container, prompt, model, budget, request.itemNumber, attempt);
+        await this.runAgent(container, prompt, agent, budget, request.itemNumber, attempt);
       });
     } catch (salvageCause) {
       if (isAgentWait(salvageCause)) throw salvageCause;
@@ -679,9 +651,10 @@ export class DockerSandboxRunner implements SandboxRunner {
       `#${request.itemNumber} resolve: ${request.files.length} conflicting file(s) against ${request.integrationBranch}` +
         ` (${budget}s idle budget)`,
     );
-    await this.inContainer("resolve", attempt, request, worktree, async (container) => {
+    const agent = resolveAgent(this.deps.config, "resolve");
+    await this.inContainer("resolve", attempt, request, worktree, agent, async (container) => {
       await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-      await this.runAgent(container, prompt, this.deps.config.model, budget, request.itemNumber, attempt);
+      await this.runAgent(container, prompt, agent, budget, request.itemNumber, attempt);
     });
     this.assertLive(attempt);
     if (!isRebasedOnto(this.deps.runner, worktree, request.integrationBranch)) {
@@ -713,7 +686,7 @@ export class DockerSandboxRunner implements SandboxRunner {
   private async runVerifyChecks(request: VerifyRequest, attempt: string): Promise<StageResult> {
     const worktree = this.requireWorktree(request.repo, request.branch);
     const checks = checkCommand(this.deps.config, request.repo);
-    await this.inContainer("verify", attempt, request, worktree, async (container) => {
+    await this.inContainer("verify", attempt, request, worktree, undefined, async (container) => {
       await this.bootstrap(container, request.repo, request.itemNumber, attempt);
       this.deps.log(`#${request.itemNumber} verify: ${checks}`);
       const tail = outputTail(CHECK_OUTPUT_TAIL);
@@ -742,13 +715,18 @@ export class DockerSandboxRunner implements SandboxRunner {
     attempt: string,
     request: { itemNumber: number; repo: TargetRepo },
     worktree: string,
+    agent: ResolvedAgent | undefined,
     work: (container: string) => Promise<void>,
     workspace: WorkspaceMode = "bind",
   ): Promise<void> {
     this.ensureDocker();
+    const refresh = agent ? ensureFreshLogin(this.deps, agent) : undefined;
+    if (refresh) await refresh;
     this.assertLive(attempt);
+    const provider = (agent ?? defaultAgent(this.deps.config)).provider;
     const container = this.containerName(stage, request.itemNumber);
-    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: request.repo, worktree, workspace });
+    const login = agent ? snapshotCredential(this.deps.fs, this.deps.layout, provider) : undefined;
+    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: request.repo, worktree, workspace, provider });
 
     this.attemptContainers.set(attempt, container);
     let removed = false;
@@ -766,10 +744,11 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
 
     try {
-      await this.hydrateHome(container);
+      await this.hydrateHome(container, provider);
       await this.prepareWorkspace(container, workspace);
       await work(container);
     } finally {
+      if (this.attemptContainers.get(attempt) === container) syncBackCredential(this.deps, container, login);
       try {
         remove();
       } catch (cause) {
@@ -789,10 +768,10 @@ export class DockerSandboxRunner implements SandboxRunner {
     );
   }
 
-  private async hydrateHome(container: string): Promise<void> {
+  private async hydrateHome(container: string, provider: AgentProvider): Promise<void> {
     await runWithIdleTimeout(
       this.deps.runner,
-      execRequest(container, hydrateHomeCommand(), { onOutput: () => undefined }),
+      execRequest(container, provider.hydrateCommand(), { onOutput: () => undefined }),
       this.deps.config.idleTimeoutSeconds,
     );
   }
@@ -814,23 +793,24 @@ export class DockerSandboxRunner implements SandboxRunner {
   private async runAgent(
     container: string,
     prompt: string,
-    model: string,
+    agent: ResolvedAgent,
     idleSeconds: number,
     itemNumber: number,
     attempt: string,
   ): Promise<void> {
-    this.deps.log(`#${itemNumber} agent starting (idle budget ${idleSeconds}s, model ${model})`);
+    const described = describeAgent(agent);
+    this.deps.log(`#${itemNumber} agent starting (idle budget ${idleSeconds}s, model ${described})`);
     try {
       await runWithIdleTimeout(
         this.deps.runner,
-        execRequest(container, claudeCommand(model), {
+        execRequest(container, agent.provider.command(agent.model), {
           input: prompt,
-          onOutput: this.tee(attempt, `\n--- agent (${model}) ---\n`),
+          onOutput: this.tee(attempt, `\n--- agent (${described}) ---\n`),
         }),
         idleSeconds,
       );
     } catch (cause) {
-      throw agentWaitFrom(cause) ?? transientWaitFrom(cause) ?? cause;
+      throw agentWaitFrom(cause, agent.provider.classify) ?? transientWaitFrom(cause) ?? cause;
     }
   }
 

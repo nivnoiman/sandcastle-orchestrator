@@ -26,8 +26,9 @@ export class AgentWaitError extends Error {
     readonly reason: WaitReason,
     readonly resumeAt: number | undefined,
     readonly detail: string,
+    message?: string,
   ) {
-    super(waitErrorMessage(reason, resumeAt, detail));
+    super(message ?? waitErrorMessage(reason, resumeAt, detail));
     this.name = "AgentWaitError";
   }
 }
@@ -43,7 +44,7 @@ export function rateLimitMessage(resumeAt: number | undefined): string {
   return `five-hour usage limit reached — the window reopens at ${new Date(resumeAt).toISOString()}`;
 }
 
-function jsonLines(text: string): Record<string, unknown>[] {
+export function jsonLines(text: string): Record<string, unknown>[] {
   const events: Record<string, unknown>[] = [];
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -110,10 +111,12 @@ export function classifyAgentOutput(stdout: string, stderr: string): AgentWaitEr
   return undefined;
 }
 
-export function agentWaitFrom(cause: unknown): AgentWaitError | undefined {
+export type AgentOutputClassifier = (stdout: string, stderr: string) => AgentWaitError | undefined;
+
+export function agentWaitFrom(cause: unknown, classify: AgentOutputClassifier = classifyAgentOutput): AgentWaitError | undefined {
   if (cause instanceof AgentWaitError) return cause;
   if (!(cause instanceof CommandFailure)) return undefined;
-  return classifyAgentOutput(cause.stdout, cause.stderr);
+  return classify(cause.stdout, cause.stderr);
 }
 
 export function transientWaitFrom(cause: unknown): AgentWaitError | undefined {

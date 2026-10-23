@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { RunModel, TargetRepo } from "../model/runModel.js";
+import { agentsInUse, describeAgent } from "./agents/index.js";
 import { probeAgentAuth, type AuthProbeResult } from "./authProbe.js";
 import { syncClaudeHome } from "./claudeSync.js";
 import type { CommandRunner } from "./commandRunner.js";
@@ -12,7 +13,10 @@ import { repoRoot, type SandcastleLayout } from "./paths.js";
 import { missingSkillFiles } from "./skills.js";
 import { messageOf } from "../messageOf.js";
 
-export const CONTAINER_EGRESS_HOSTS = ["api.anthropic.com", "api.github.com"] as const;
+/** api.github.com plus every host the providers in use call. */
+export function containerEgressHosts(config: OrchestratorConfig): string[] {
+  return [...new Set([...agentsInUse(config).flatMap((agent) => agent.provider.egressHosts), "api.github.com"])];
+}
 
 export function containerEgressProbeArgs(image: string, host: string): string[] {
   return [
@@ -166,7 +170,8 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightReport
 
   await record("container network (IPv4)", () => {
     const unreachable: string[] = [];
-    for (const host of CONTAINER_EGRESS_HOSTS) {
+    const hosts = containerEgressHosts(config);
+    for (const host of hosts) {
       try {
         runner.run({ command: "docker", args: containerEgressProbeArgs(config.imageTag, host) });
       } catch (cause) {
@@ -178,14 +183,16 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightReport
         `containers cannot reach ${unreachable.join(", ")} over IPv4 — containers have no IPv6, so a host that still works over IPv6 hides this; check the ISP/firewall for a TCP 443 block`,
       );
     }
-    return `${CONTAINER_EGRESS_HOSTS.join(", ")} answer over IPv4 from inside ${config.imageTag}`;
+    return `${hosts.join(", ")} answer over IPv4 from inside ${config.imageTag}`;
   });
 
   await record("agent auth", async () => {
-    const probe = deps.probe ?? ((): Promise<AuthProbeResult> => probeAgentAuth({ runner, fs, layout, config }));
+    const probe = deps.probe ?? ((): Promise<AuthProbeResult> => probeAgentAuth({ runner, fs, layout, config, log }));
     const result = await probe();
-    if (result.ok) return `a throwaway container answered ${config.model} over the mounted credentials`;
-    throw new Error(`${result.reason ?? "unknown"} — ${result.detail ?? "no detail"}`);
+    const answered = agentsInUse(config).map(describeAgent).join(", ");
+    if (result.ok) return `a throwaway container answered ${answered} over the mounted credentials`;
+    const which = result.provider && result.provider !== "claude" ? `${result.provider}: ` : "";
+    throw new Error(`${which}${result.reason ?? "unknown"} — ${result.detail ?? "no detail"}`);
   });
 
   return { checks, failures: checks.filter((entry) => !entry.ok) };

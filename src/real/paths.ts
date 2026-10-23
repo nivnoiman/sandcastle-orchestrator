@@ -9,6 +9,8 @@ export interface SandcastleLayout {
   worktreesDir: string;
   homeDir: string;
   claudeDir: string;
+  /** Codex CLI home (`auth.json`, `AGENTS.md`); `codexDirOf` defaults it to `<home>/.codex`. */
+  codexDir?: string;
   memoryDir: string;
   repoRoots?: Readonly<Record<TargetRepo, string>>;
 }
@@ -22,6 +24,7 @@ export const LAYOUT_SETTINGS = [
   "SANDCASTLE_WORKTREE_DIR",
   "SANDCASTLE_MEMORY_DIR",
   "SANDCASTLE_CLAUDE_HOME",
+  "SANDCASTLE_CODEX_HOME",
 ] as const;
 
 /** Where Claude Code keeps this project's memories, relative to ~/.claude. */
@@ -45,6 +48,7 @@ export function layoutFrom(sandcastleDir: string, home: string, overrides: Parti
     memoryDir: overrides.memoryDir ?? join(claudeDir, memoryProjectSuffix()),
   };
   if (overrides.repoRoots) layout.repoRoots = overrides.repoRoots;
+  if (overrides.codexDir) layout.codexDir = overrides.codexDir;
   return layout;
 }
 
@@ -52,6 +56,10 @@ export function layoutFrom(sandcastleDir: string, home: string, overrides: Parti
 export function sandcastleDirFrom(env: NodeJS.ProcessEnv = process.env): string {
   const project = activeProject();
   return env["SANDCASTLE_DIR"] || project.stateDir || join(project.projectRoot, PROJECT_FOLDER);
+}
+
+export function codexDirOf(layout: SandcastleLayout): string {
+  return layout.codexDir ?? join(layout.homeDir, ".codex");
 }
 
 export function claudeJsonPath(layout: SandcastleLayout): string {
@@ -77,6 +85,8 @@ export function defaultLayout(
   else overrides.repoRoots = projectRepoRoots();
   const claudeOverride = setting("SANDCASTLE_CLAUDE_HOME");
   if (claudeOverride) overrides.claudeDir = claudeOverride;
+  const codexOverride = setting("SANDCASTLE_CODEX_HOME");
+  if (codexOverride) overrides.codexDir = codexOverride;
   return layoutFrom(sandcastleDirFrom(env), homedir(), overrides);
 }
 

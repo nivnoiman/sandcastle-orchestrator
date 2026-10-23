@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import type { AgentStage } from "../engine/adapters.js";
 import { REWORK_LIMIT_DEFAULT } from "../engine/rework.js";
 import type { TargetRepo } from "../model/runModel.js";
 import {
@@ -9,6 +8,7 @@ import {
   type VerifyService,
   type VerifyStrategy,
 } from "../project/projectConfig.js";
+import type { AgentsConfig } from "../project/agentsConfig.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { defaultLayout, sandcastleDirFrom, TOOL_DIR, type SandcastleLayout } from "./paths.js";
 
@@ -26,6 +26,8 @@ export interface OrchestratorConfig {
   ghToken: string;
   anthropicApiKey: string | undefined;
   claudeOauthToken: string | undefined;
+  codexApiKey: string | undefined;
+  agents: AgentsConfig;
   model: string;
   reviewModel: string;
   imageTag: string;
@@ -207,6 +209,8 @@ export function loadOrchestratorConfig(
     ghToken,
     anthropicApiKey: values["ANTHROPIC_API_KEY"] || undefined,
     claudeOauthToken: values["CLAUDE_CODE_OAUTH_TOKEN"] || undefined,
+    codexApiKey: values["CODEX_API_KEY"] || values["OPENAI_API_KEY"] || undefined,
+    agents: project.agents,
     model: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL,
     reviewModel: values["SANDCASTLE_REVIEW_MODEL"] || DEFAULT_REVIEW_MODEL,
     imageTag: values["SANDCASTLE_IMAGE"] || project.imageTag,
@@ -227,16 +231,12 @@ export function loadOrchestratorConfig(
   };
 }
 
-/** Agent credentials beyond the mounted ~/.claude login: an API key, a `claude setup-token` OAuth token, or both. */
+/** Claude Code credentials beyond the mounted ~/.claude login: an API key, a `claude setup-token` OAuth token, or both. */
 export function agentAuthEnv(config: Pick<OrchestratorConfig, "anthropicApiKey" | "claudeOauthToken">): Record<string, string> {
   const env: Record<string, string> = {};
   if (config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = config.anthropicApiKey;
   if (config.claudeOauthToken) env["CLAUDE_CODE_OAUTH_TOKEN"] = config.claudeOauthToken;
   return env;
-}
-
-export function stageModel(config: OrchestratorConfig, stage: AgentStage): string {
-  return stage === "develop" ? config.model : config.reviewModel;
 }
 
 export function readEnvFileValues(fs: FileSystemPort, sandcastleDir: string, toolDir = TOOL_DIR): Record<string, string> {

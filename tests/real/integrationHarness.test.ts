@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TargetRepo } from "../../src/model/runModel.js";
+import { resolveAgent } from "../../src/real/agents/index.js";
 import { CommandFailure } from "../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import { DockerIntegrationHarness, type IntegrationGit } from "../../src/real/integrationHarness.js";
@@ -36,7 +37,7 @@ function boot(files: Record<string, string> = {}) {
   const fs = fsWith(files, [WORKTREE]);
   const git = new FakeGit();
   const polish = new DockerIntegrationHarness({
-    agent: { stage: "polish", model: testConfig().reviewModel, requiredCommands: POLISH_COMMAND_FILES },
+    agent: { stage: "polish", agent: resolveAgent(testConfig(), "polish"), requiredCommands: POLISH_COMMAND_FILES },
     runner,
     fs,
     layout: testLayout(),

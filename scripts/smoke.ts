@@ -25,17 +25,24 @@ import {
   containerEnv,
   containerGitDir,
   containerSpec,
-  hydrateHomeCommand,
   withContainerEnvFile,
 } from "../src/real/sandboxRunner.js";
+import { isProviderName, PROVIDER_NAMES, type ProviderName } from "../src/project/agentsConfig.js";
+import { providerNamed, snapshotCredential, syncBackCredential } from "../src/real/agents/index.js";
+import { agentWaitFrom } from "../src/real/agentFailure.js";
+import { codexLogin, CODEX_FLAGS } from "../src/real/agents/codex.js";
+import { PROBE_PROMPT } from "../src/real/authProbe.js";
 import { messageOf } from "../src/messageOf.js";
 
 const project = bootProject();
+const usage = `usage: sandcastle smoke [${knownRepos().join("|")}] [--agent=${PROVIDER_NAMES.join("|")}] [--config=path]`;
 const repoArg = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? knownRepos()[0]!;
-if (!isTargetRepo(repoArg)) {
-  console.error(`usage: sandcastle smoke [${knownRepos().join("|")}] [--config=path]`);
+const agentArg = process.argv.slice(2).find((arg) => arg.startsWith("--agent="))?.slice("--agent=".length) ?? "claude";
+if (!isTargetRepo(repoArg) || !isProviderName(agentArg)) {
+  console.error(usage);
   process.exit(2);
 }
+const provider = providerNamed(agentArg);
 const repo = repoArg;
 const branch = `sandcastle/smoke-${Date.now().toString(36)}`;
 const image = process.env["SANDCASTLE_IMAGE"] ?? project.imageTag;
@@ -84,6 +91,41 @@ function cleanup(): void {
   rmSync(scratch, { recursive: true, force: true });
 }
 
+const AGENT_HOME_CHECKS: Record<ProviderName, string[]> = {
+  claude: ["test -w /home/agent/.claude && test ! -w /home/agent/.claude-host"],
+  codex: [
+    "test -w /home/agent/.codex && test ! -w /home/agent/.codex-host",
+    "test -f /home/agent/.agents/skills/tdd/SKILL.md",
+    "echo --- codex exec accepts the sandcastle flags ---",
+    "codex exec --help > /tmp/codex-exec-help.txt",
+    ...CODEX_FLAGS.map((flag) => `grep -q -- '${flag}' /tmp/codex-exec-help.txt`),
+  ],
+};
+
+const codexApiKey = process.env["CODEX_API_KEY"] || process.env["OPENAI_API_KEY"] || undefined;
+
+async function codexCall(): Promise<void> {
+  const login = snapshotCredential(nodeFileSystem, layout, provider);
+  if (!login && !codexApiKey) {
+    log(`\nsmoke: codex call SKIPPED — no ${codexLogin.hostPath(layout)} and no CODEX_API_KEY; run \`codex login\` or export CODEX_API_KEY to test it`);
+    return;
+  }
+  log("\nsmoke: --- codex exec, one tool-free answer ---");
+  try {
+    const answer = await runWithIdleTimeout(
+      runner,
+      execRequest(container, provider.command(undefined), { input: PROBE_PROMPT, onOutput: (chunk) => process.stdout.write(chunk) }),
+      idleSeconds,
+    );
+    if (!/"agent_message"/.test(answer.stdout)) throw new Error("codex exec finished without an agent_message event");
+  } catch (cause) {
+    const waiting = agentWaitFrom(cause, provider.classify);
+    throw waiting ? new Error(`codex ${waiting.reason}: ${waiting.message}`) : cause;
+  } finally {
+    syncBackCredential({ runner, fs: nodeFileSystem, log }, container, login);
+  }
+}
+
 try {
   log(`smoke: image ${image}`);
   assertDockerReady(runner, image);
@@ -97,6 +139,8 @@ try {
       ghToken: "smoke-not-a-real-token",
       anthropicApiKey: undefined,
       claudeOauthToken: undefined,
+      codexApiKey,
+      agents: { default: { provider: provider.name, model: undefined }, roles: {} },
       model: "opus",
       reviewModel: "sonnet",
       imageTag: image,
@@ -113,23 +157,24 @@ try {
       verifyServices: {},
     },
     containerGitDir(resolveGitDir(runner, worktree)),
+    provider,
   );
   withContainerEnvFile(nodeFileSystem, env, (envFile) => {
     startContainer(
       runner,
-      containerSpec({ name: container, image, worktree, repoGitDir: join(repoRoot(layout, repo), ".git"), layout, envFile, workspace: "bind" }),
+      containerSpec({ name: container, image, worktree, repoGitDir: join(repoRoot(layout, repo), ".git"), layout, envFile, workspace: "bind", provider }),
     );
   });
   containerCreated = true;
-  log(`smoke: container ${container} up`);
+  log(`smoke: container ${container} up (agent ${provider.label})`);
 
   const probe = [
     "set -e",
     "echo --- identity ---",
-    "node -v && git --version && gh --version | head -1 && claude --version",
+    `node -v && git --version && gh --version | head -1 && ${provider.name} --version`,
     "echo --- container-local writable home ---",
-    hydrateHomeCommand(),
-    "test -w /home/agent/.claude && test ! -w /home/agent/.claude-host",
+    provider.hydrateCommand(),
+    ...AGENT_HOME_CHECKS[provider.name],
     "echo --- git through the mounted worktree ---",
     "git rev-parse --abbrev-ref HEAD",
     "git log --oneline -1",
@@ -145,7 +190,8 @@ try {
     idleSeconds,
   );
   if (!result.stdout.includes("SMOKE_OK")) throw new Error("probe did not reach SMOKE_OK");
-  log("\nsmoke: PASS — worktree, container, git plumbing and mounts all work");
+  if (provider.name === "codex") await codexCall();
+  log(`\nsmoke: PASS — worktree, container, git plumbing and ${provider.label} mounts all work`);
 } catch (cause) {
   log(`\nsmoke: FAIL — ${messageOf(cause)}`);
   process.exitCode = 1;

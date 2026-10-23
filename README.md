@@ -35,7 +35,7 @@ The hub repo (where issues live) and the code repos can be one repository or sev
 | Node.js 20.11+ and npm | |
 | Docker | Docker Desktop on Windows and macOS |
 | [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
-| [Claude Code](https://docs.claude.com/en/docs/claude-code) | Logged in on the host with your Claude subscription or an API key. See [Agent login](#agent-login). |
+| An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
 | Agent skills | Installed in `~/.claude`, see [Agent skills](#agent-skills) |
 
 ## Install
@@ -50,7 +50,7 @@ git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcas
 |---|---|
 | `npm ci` | Dependencies |
 | `npm link` | A global `sandcastle` command |
-| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, pnpm, yarn, Playwright) |
+| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, pnpm, yarn, Playwright) |
 
 `npm test` runs the suite. It needs no Docker, `gh` or tokens.
 
@@ -128,8 +128,35 @@ A multi-repo example with a compose verify environment is in [`examples/demo/.sa
 | `repos.<name>.checks` | required | The per-item gate. Must be green before an item merges. |
 | `verify` | `{ "strategy": "none" }` | Feature Verify strategy, see below |
 | `ui.port` | `7777` | Control plane port for this project |
+| `agents` | `{ "default": "claude" }` | Which agent CLI runs each stage, see [Agent providers](#agent-providers) |
 
 Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `7777`.
+
+### Agent providers
+
+Every agent stage runs one agent CLI. `agents.default` picks it for all stages, and a role key overrides one stage:
+
+```json
+"agents": {
+  "default": "claude",
+  "review": "codex",
+  "polish": { "provider": "codex", "model": "gpt-5.5-codex" }
+}
+```
+
+| Provider | CLI | Subscription login | API key |
+|---|---|---|---|
+| `claude` (default) | Claude Code | `~/.claude` login or `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` |
+| `codex` | OpenAI Codex CLI | `~/.codex/auth.json` from `codex login` (ChatGPT account) | `CODEX_API_KEY` (or `OPENAI_API_KEY`) |
+
+- Roles: `develop`, `simplify`, `review`, `resolve`, `feature-verify`, `feature-fix`, `polish`. Salvage runs under its stage's role.
+- A value is a provider name or `{ "provider": ..., "model": ... }`.
+- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex without a `model` uses its own default.
+- Skills are the same files for every provider (see [Agent skills](#agent-skills)). Claude invokes them as skills. Codex reads them by path and also finds them in `~/.agents/skills`. Codex has no `Skill` tool or subagents, so polish tells it to run the `/polish` passes itself, in order.
+- Auth holds and re-probes cover every provider in use. One rejected login holds new stages for the whole run.
+- `sandcastle smoke --agent=codex` checks the codex install, home and flags in a container. It makes a real call only when a Codex login or `CODEX_API_KEY` is present.
+
+> **Status:** `claude` is the tested path. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
 
 ### Feature Verify strategies
 
@@ -145,7 +172,7 @@ Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `77
 |---|---|---|
 | `config.json` | yes | Project config |
 | `.gitignore` | yes | `*`, `!.gitignore`, `!config.json`. Everything else stays local. |
-| `.env.orchestrator` | no | sandcastle's own secrets (`GH_TOKEN`, optional `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, overrides). Read by the host only, never visible to agents. |
+| `.env.orchestrator` | no | sandcastle's own secrets (`GH_TOKEN`, optional `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `CODEX_API_KEY`, overrides). Read by the host only, never visible to agents. |
 | `.env.sandbox` | no | Your app's env, copied into each agent worktree as `.env`. Agents can read it. `.env.sandbox.<repo>` overrides it for one repo. |
 | `logs/` | no | Attempt transcripts and saved leftovers |
 | `.orchestrator.lock` | no | Held while a run is live |
@@ -210,7 +237,7 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `sandcastle ui <parent \| fixture.json> [--cap=N] [--port=N] [--dry] [--fail=<item>:<stage>]` | Control plane in the browser. `--dry` simulates that parent. |
 | `sandcastle start <parent> [--cap=N] [--skip-verify]` | Headless real run (spends tokens) |
 | `sandcastle reset <parent> [--apply]` | Clear a killed run's containers, worktrees and labels. Prints the plan without `--apply`. |
-| `sandcastle smoke [repo]` | Non-billed container and git plumbing check |
+| `sandcastle smoke [repo] [--agent=claude\|codex]` | Container, git plumbing and agent-home check. Non-billed, except a codex smoke with a login makes one tiny call. |
 | `sandcastle sync-claude <source ~/.claude>` | Copy skills, memories and credentials into the agent home |
 
 **Operating a run** (JSON out; also available as `sandcastle ops <command>`)
@@ -269,24 +296,29 @@ Hard rules when you step in by hand:
 
 ## Agent login
 
-Agents run Claude Code inside the containers. Pick one way to log them in:
+Log in every provider you use in `agents`, one way each:
 
-| Method | Setup | Billing |
-|---|---|---|
-| Host login (default) | Log in to Claude Code on the host. `~/.claude/.credentials.json` is mounted read-only into each container. Works on Windows and Linux. | Your Claude subscription |
-| OAuth token | Run `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`. Needed on macOS, where the login lives in the Keychain. | Your Claude subscription |
-| API key | Set `ANTHROPIC_API_KEY` in `.sandcastle/.env.orchestrator`. | Anthropic API usage |
+| Provider | Method | Setup | Billing |
+|---|---|---|---|
+| claude | Host login (default) | Log in to Claude Code on the host. `~/.claude/.credentials.json` is mounted read-only into each container. Works on Windows and Linux. | Your Claude subscription |
+| claude | OAuth token | Run `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`. Needed on macOS, where the login lives in the Keychain. | Your Claude subscription |
+| claude | API key | Set `ANTHROPIC_API_KEY` in `.sandcastle/.env.orchestrator`. | Anthropic API usage |
+| codex | Host login | Run `codex login` on the host (set `cli_auth_credentials_store = "file"` in `~/.codex/config.toml` if your OS keyring holds it). `~/.codex/auth.json` is mounted read-only and copied into each container. `SANDCASTLE_CODEX_HOME` points elsewhere. | Your ChatGPT subscription |
+| codex | API key | Set `CODEX_API_KEY` (or `OPENAI_API_KEY`) in `.sandcastle/.env.orchestrator`. | OpenAI API usage |
 
-With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach the model with whichever login is configured.
+With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach every provider in use with whichever login is configured.
+
+**Codex token refresh.** Codex rotates its ChatGPT refresh token when it refreshes, roughly every 8 days, and a reused token logs every copy out. So sandcastle refreshes a login that is close to expiry once, through the probe, before the stage starts. When a container refreshes anyway, sandcastle writes the new `auth.json` back to the host, unless the host file changed in the meantime. With many parallel codex stages, `CODEX_API_KEY` avoids the question entirely.
 
 ## Security model
 
-Agents run Claude Code with `--dangerously-skip-permissions` inside their containers, read the issue text you label, and hold real credentials. Treat that as the trust boundary.
+Agents run their CLI with every approval and CLI sandbox switched off inside their containers: Claude Code with `--dangerously-skip-permissions`, Codex with `--dangerously-bypass-approvals-and-sandbox`. The Docker container is the sandbox. Agents read the issue text you label and hold real credentials. Treat that as the trust boundary.
 
 - **Only label issues written by people you trust.** Issue bodies reach the agents verbatim. A hostile body is a prompt injection into an agent that can push code. Comments are not read.
 - **`GH_TOKEN` is a fine-grained PAT** scoped to exactly the repos under `repos`, with contents and pull requests write and nothing else. Never a classic token, never org-wide.
-- **Agents see your Claude credentials** (a read-only mount of `~/.claude` copied into the container, or the token / key from `.env.orchestrator`). Use a dedicated `claude setup-token` token or an `ANTHROPIC_API_KEY` with a spend limit if that matters to you.
-- **Containers have network access** (npm, GitHub, Anthropic). There is no egress filter.
+- **Agents see the credentials of their own provider, and only those.** A claude container gets a read-only mount of `~/.claude`, copied into the container, plus `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`. A codex container gets `~/.codex` (`auth.json`, `AGENTS.md`), the shared `~/.claude/skills` and `~/.claude/commands`, and `CODEX_API_KEY`. It never sees the Claude login, and a claude container never sees Codex's. Use a dedicated `claude setup-token` token or an API key with a spend limit if that matters to you.
+- **A refreshed Codex login is written back to the host.** This is the one path where a container's output reaches a host credential file. sandcastle accepts it only if it parses as JSON and the host file is unchanged since the container started.
+- **Containers have network access** (npm, GitHub, Anthropic, OpenAI). There is no egress filter.
 - **The host is guarded against the shared `.git`.** Each container mounts the repo's `.git` so it can commit. Host git runs with hooks and fsmonitor disabled, and the orchestrator refuses a stage (restoring the file) if a container changed `.git/config` or `.git/info/attributes`.
 - **`.env.sandbox` is readable by agents.** Put only throwaway dev values there.
 - **`.env.orchestrator` never reaches a container.** The host reads it; it is gitignored.
@@ -294,7 +326,7 @@ Agents run Claude Code with `--dangerously-skip-permissions` inside their contai
 
 ## Agent skills
 
-The stage prompts invoke Claude Code skills that must exist in the host `~/.claude`. Preflight checks them.
+The stage prompts invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. Preflight checks them. Codex containers get a copy of `skills/` and `commands/` only.
 
 | File | Used by |
 |---|---|

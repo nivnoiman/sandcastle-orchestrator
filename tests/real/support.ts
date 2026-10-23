@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { REWORK_LIMIT_DEFAULT } from "../../src/engine/rework.js";
 import type { RunModel, WorkItem } from "../../src/model/runModel.js";
+import { DEFAULT_AGENTS } from "../../src/project/agentsConfig.js";
 import { DEFAULT_MONGO_IMAGE } from "../../src/project/projectConfig.js";
 import { DEFAULT_JEST_WORKERS, type OrchestratorConfig } from "../../src/real/env.js";
 import { TEST_PROJECT } from "../setup.js";
@@ -25,6 +26,8 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
     ghToken: "gh-token",
     anthropicApiKey: undefined,
     claudeOauthToken: undefined,
+    codexApiKey: undefined,
+    agents: DEFAULT_AGENTS,
     model: "opus",
     reviewModel: "sonnet",
     imageTag: "sandcastle:demo",

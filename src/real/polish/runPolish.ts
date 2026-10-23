@@ -119,6 +119,7 @@ async function polishTarget(deps: PolishDeps, target: PolishTarget): Promise<Pol
         pullRequestUrl: target.pullRequest.url,
         checks: workspace.checks,
         notesFile: POLISH_NOTES_FILE,
+        skillTool: deps.harness.skillTool ?? true,
       }),
     collect: (workspace) => {
       notes = deps.harness.takeFile(workspace, POLISH_NOTES_FILE);

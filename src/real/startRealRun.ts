@@ -17,6 +17,7 @@ import {
   type FeatureVerifyStatus,
 } from "./featureVerify/runFeatureVerify.js";
 import type { OrchestratorConfig } from "./env.js";
+import { resolveAgent } from "./agents/index.js";
 import { loadMemories } from "./memories.js";
 import { DockerIntegrationHarness } from "./integrationHarness.js";
 import { idlePolish, POLISH_COMMAND_FILES, runPolish, type PolishStatus } from "./polish/runPolish.js";
@@ -191,7 +192,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       const fix = (briefs: readonly FeatureFixBrief[], round: FeatureRound) =>
         runFeatureFix({
           harness: new DockerIntegrationHarness({
-            agent: { stage: FEATURE_FIX_STAGE, model: config.model, requiredCommands: [] },
+            agent: { stage: FEATURE_FIX_STAGE, agent: resolveAgent(config, "feature-fix"), requiredCommands: [] },
             runner,
             fs,
             layout,
@@ -239,7 +240,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       if (verifyStatus.phase !== "green") return;
       polishStatus = idlePolish("running");
       const harness = new DockerIntegrationHarness({
-        agent: { stage: "polish", model: config.reviewModel, requiredCommands: POLISH_COMMAND_FILES },
+        agent: { stage: "polish", agent: resolveAgent(config, "polish"), requiredCommands: POLISH_COMMAND_FILES },
         runner,
         fs,
         layout,
