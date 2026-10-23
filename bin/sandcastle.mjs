@@ -59,8 +59,8 @@ operating a run (JSON out; also: sandcastle ops <command>)
   cap <N> | pause | resume | stop <parent> | status | resume-parked | resolve-conflict <item>
   logs <item> [stage] | finish
 
-The project is --config, else SANDCASTLE_CONFIG, else the nearest .sandcastle/config.json at or above the cwd.
-Run any command without arguments for its own usage.`;
+The project is --config, else SANDCASTLE_CONFIG, else the nearest .sandcastle/config.json at or above the cwd
+(init ignores --config: it always targets the cwd). Inside a project, run any command without arguments for its own usage.`;
 
 /** Maps argv (flags may come before the command) to the brain script and its arguments, or undefined for an unknown command. */
 function route(argv, commandIndex) {

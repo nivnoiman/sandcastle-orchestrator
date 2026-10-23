@@ -42,7 +42,7 @@ function runScript(manager: PackageManager, script: string): string {
 /** Bootstrap + checks guessed from the package manager and the package.json scripts that exist among typecheck, test, build. */
 export function guessRepoCommands(
   manager: PackageManager | undefined,
-  scripts: Readonly<Record<string, string>>,
+  scripts: Readonly<Record<string, unknown>>,
   yarnBerry = false,
 ): RepoCommands {
   if (manager === undefined) return { bootstrap: "", checks: NO_CHECKS };

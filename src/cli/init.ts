@@ -59,17 +59,17 @@ function detectHub(root: string): string {
   if (fromGh !== undefined && isRepoSlug(fromGh)) return fromGh;
   const remote = capture("git", ["remote", "get-url", "origin"], root);
   const fromRemote = remote === undefined ? undefined : hubFromRemote(remote);
-  if (fromRemote !== undefined) return fromRemote;
+  if (fromRemote !== undefined && isRepoSlug(fromRemote)) return fromRemote;
   return fail("cannot tell which GitHub repo holds the issues (gh repo view and the origin remote both failed) — pass --hub=owner/name");
 }
 
-function packageScripts(root: string): Record<string, string> {
+function packageScripts(root: string): Record<string, unknown> {
   const path = join(root, "package.json");
   if (!existsSync(path)) return {};
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     const scripts = typeof parsed === "object" && parsed !== null ? (parsed as { scripts?: unknown }).scripts : undefined;
-    return typeof scripts === "object" && scripts !== null ? (scripts as Record<string, string>) : {};
+    return typeof scripts === "object" && scripts !== null ? (scripts as Record<string, unknown>) : {};
   } catch (cause) {
     return fail(`${path} is not valid JSON — ${messageOf(cause)}`);
   }
@@ -85,16 +85,17 @@ function portIsFree(port: number): Promise<boolean> {
 
 async function choosePort(): Promise<number> {
   const explicit = flag("port");
-  if (explicit === undefined) return firstFreePort(portIsFree);
   try {
+    if (explicit === undefined) return await firstFreePort(portIsFree);
     return tcpPort(Number(explicit), "--port");
   } catch (cause) {
     return fail(messageOf(cause));
   }
 }
 
+/** Owner-only on POSIX; `wx` never overwrites a secret file that appeared after the existence check. */
 function writeSecret(path: string, content: string): void {
-  writeFileSync(path, content, { mode: 0o600 });
+  writeFileSync(path, content, { mode: 0o600, flag: "wx" });
   try {
     chmodSync(path, 0o600);
   } catch (cause) {

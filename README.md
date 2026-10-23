@@ -54,7 +54,7 @@ git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcas
 
 `npm test` runs the suite. It needs no Docker, `gh` or tokens.
 
-Without `npm link`, every command also runs from the clone as `npm run <script> -- <args> --config=<project root>`.
+Without `npm link`, run commands from the project root as `npm --prefix <sandcastle clone> run <script> -- <args>` (run-operating commands: `npm --prefix <sandcastle clone> run ops -- <command>`). `init` always targets the directory it is run from, so it ignores `--config`.
 
 ## Quick start
 
@@ -197,7 +197,7 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 
 ## Commands
 
-`<parent>` is the Orchestration Issue number. Every command accepts `--config=<path>`; from inside the project it is not needed. Run a command without arguments to print its usage.
+`<parent>` is the Orchestration Issue number. Every command except `init` accepts `--config=<path>`; from inside the project it is not needed. Inside a project, run a command without arguments to print its usage.
 
 **Project**
 
