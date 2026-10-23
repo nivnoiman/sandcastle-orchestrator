@@ -14,6 +14,7 @@ import {
   type ScenarioCounts,
   type VerifyOutcome,
 } from "./verdict.js";
+import { messageOf } from "../../messageOf.js";
 
 export type FeatureVerifyPhase = "idle" | "waiting" | "running" | "fixing" | "green" | "red" | "skipped";
 
@@ -56,10 +57,6 @@ export function idleFeatureVerify(phase: FeatureVerifyPhase = "idle"): FeatureVe
 
 export function involvedRepos(model: RunModel): TargetRepo[] {
   return [...new Set(model.items.map((item) => item.repo))].sort();
-}
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function featurePullRequestTitle(model: RunModel): string {

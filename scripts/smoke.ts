@@ -28,6 +28,7 @@ import {
   hydrateHomeCommand,
   withContainerEnvFile,
 } from "../src/real/sandboxRunner.js";
+import { messageOf } from "../src/messageOf.js";
 
 const project = bootProject();
 const repoArg = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? knownRepos()[0]!;
@@ -62,7 +63,7 @@ function cleanup(): void {
       removeContainer(runner, container);
       log(`cleanup: removed container ${container}`);
     } catch (cause) {
-      log(`cleanup: container ${container} — ${cause instanceof Error ? cause.message : String(cause)}`);
+      log(`cleanup: container ${container} — ${messageOf(cause)}`);
     }
   }
   const cwd = repoRoot(layout, repo);
@@ -71,13 +72,13 @@ function cleanup(): void {
       runner.run({ command: "git", args: ["worktree", "remove", "--force", worktree], cwd });
       log(`cleanup: removed worktree ${worktree}`);
     } catch (cause) {
-      log(`cleanup: worktree ${worktree} — ${cause instanceof Error ? cause.message : String(cause)}`);
+      log(`cleanup: worktree ${worktree} — ${messageOf(cause)}`);
     }
     try {
       runner.run({ command: "git", args: ["branch", "-D", branch], cwd });
       log(`cleanup: deleted local branch ${branch}`);
     } catch (cause) {
-      log(`cleanup: branch ${branch} — ${cause instanceof Error ? cause.message : String(cause)}`);
+      log(`cleanup: branch ${branch} — ${messageOf(cause)}`);
     }
   }
   rmSync(scratch, { recursive: true, force: true });
@@ -145,7 +146,7 @@ try {
   if (!result.stdout.includes("SMOKE_OK")) throw new Error("probe did not reach SMOKE_OK");
   log("\nsmoke: PASS — worktree, container, git plumbing and mounts all work");
 } catch (cause) {
-  log(`\nsmoke: FAIL — ${cause instanceof Error ? cause.message : String(cause)}`);
+  log(`\nsmoke: FAIL — ${messageOf(cause)}`);
   process.exitCode = 1;
 } finally {
   cleanup();

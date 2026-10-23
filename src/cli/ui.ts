@@ -4,7 +4,7 @@ import { STAGE_CHAIN, type StageName } from "../engine/adapters.js";
 import type { PendingStage } from "../engine/fakes.js";
 import { OperatorError } from "../engine/operatorError.js";
 import { fetchSandcastleParents, type ParentSummary } from "../gh/parents.js";
-import { fetchRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { controlPlaneHost } from "../real/controlPlane.js";
@@ -19,6 +19,8 @@ import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js
 import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
 import type { RunMode } from "../ui/state.js";
+import { messageOf } from "../messageOf.js";
+import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 
 const TICK_MS = 250;
 
@@ -38,23 +40,6 @@ const project = bootProject();
 const args = process.argv.slice(2);
 const positional = args.filter((arg) => !arg.startsWith("--"));
 const [source, repoArg] = positional;
-
-function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
-}
-
-function flagNumber(name: string, fallback: number): number {
-  const found = args.find((arg) => arg.startsWith(`--${name}=`));
-  if (!found) return fallback;
-  const value = Number(found.slice(name.length + 3));
-  if (!Number.isInteger(value) || value < 1) fail(`--${name} must be a positive integer, got "${found}"`);
-  return value;
-}
-
-function optionalFlagNumber(name: string): number | undefined {
-  return args.some((arg) => arg.startsWith(`--${name}=`)) ? flagNumber(name, 1) : undefined;
-}
 
 function isStageName(value: string): value is StageName {
   return (STAGE_CHAIN as readonly string[]).includes(value);
@@ -82,27 +67,21 @@ const hubRepo = repoArg ?? project.hubRepo;
 const fixture = /^\d+$/.test(source) ? undefined : source;
 const namedParent = fixture ? undefined : Number(source);
 const mode: RunMode = fixture || args.includes("--dry") ? "dry" : "real";
-const cap = flagNumber("cap", 1);
-const parallelLimit = optionalFlagNumber("parallel");
+const cap = flagNumber(args, "cap", 1);
+const parallelLimit = optionalFlagNumber(args, "parallel");
 const sequential = args.includes("--sequential");
-const globalCapFlag = optionalFlagNumber("global-cap");
+const globalCapFlag = optionalFlagNumber(args, "global-cap");
 
 if (args.includes("--parallel")) fail("--parallel needs a count: --parallel=N");
 if (parallelLimit !== undefined && sequential) fail("--parallel and --sequential cannot both be set");
-const port = flagNumber("port", DEFAULT_UI_PORT);
-const pollIntervalSeconds = flagNumber("interval", 45);
-const idleTimeoutSeconds = optionalFlagNumber("idle-timeout");
+const port = flagNumber(args, "port", DEFAULT_UI_PORT);
+const pollIntervalSeconds = flagNumber(args, "interval", 45);
+const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
 const skipGc = args.includes("--skip-gc");
 const skipVerify = args.includes("--skip-verify");
 const pendingFailures = injectedFailures();
 
 if (pendingFailures.size > 0 && mode !== "dry") fail("--fail only applies to a dry run (add --dry or pass a fixture)");
-
-function isRunSnapshot(value: unknown): value is RunSnapshot {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate["parent"] === "object" && Array.isArray(candidate["subIssues"]);
-}
 
 async function readFixture(path: string): Promise<RunSnapshot> {
   const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -219,7 +198,7 @@ const controller = new UiController({
 });
 
 const server = await startUiServer(controller, port).catch((cause: unknown) => {
-  return fail(cause instanceof Error ? cause.message : String(cause));
+  return fail(messageOf(cause));
 });
 
 const ticker = setInterval(() => controller.tick(), TICK_MS);
@@ -234,7 +213,7 @@ if (mode === "dry") {
   if (target === undefined) console.error("  nothing to simulate — no sandcastle parent to start");
   else {
     await controller.startRun({ parent: target, cap }).catch((cause: unknown) => {
-      console.error(cause instanceof Error ? cause.message : String(cause));
+      console.error(messageOf(cause));
     });
     console.log(`  paced dry run started — #${target} ${summary?.title ?? ""}, cap ${cap}`);
   }

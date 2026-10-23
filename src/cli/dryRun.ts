@@ -1,7 +1,7 @@
 import { bootProject } from "../project/boot.js";
 import { readFile } from "node:fs/promises";
 import { dryRun } from "../engine/dryRunner.js";
-import { fetchRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel } from "../model/runModel.js";
 
 const project = bootProject();
@@ -19,12 +19,6 @@ const workerCap = capArg ? Number(capArg.slice("--cap=".length)) : 1;
 if (!Number.isInteger(workerCap) || workerCap < 1) {
   console.error(`--cap must be a positive integer, got "${capArg}"`);
   process.exit(2);
-}
-
-function isRunSnapshot(value: unknown): value is RunSnapshot {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate["parent"] === "object" && Array.isArray(candidate["subIssues"]);
 }
 
 async function loadSnapshot(fixtureOrIssue: string): Promise<RunSnapshot> {

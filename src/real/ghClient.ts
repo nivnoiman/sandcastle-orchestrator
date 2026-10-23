@@ -2,6 +2,7 @@ import { STAGE_LABELS, type GhClient, type MergedPullRequest, type StageLabel } 
 import type { TargetRepo } from "../model/runModel.js";
 import { integrationBase, repoSlug } from "../project/projectConfig.js";
 import type { CommandRunner } from "./commandRunner.js";
+import { messageOf } from "../messageOf.js";
 
 export function closingComment(mergedPullRequestUrl: string): string {
   return [
@@ -266,7 +267,7 @@ export class RealGhClient implements GhClient, PullRequestOps {
     try {
       write();
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      const reason = messageOf(cause);
       this.pendingLabels.set(itemNumber, [{ description, write }]);
       this.deps.warn(itemNumber, `label mirror failed (${description}), retrying on the next poll: ${reason.slice(0, 200)}`);
     }

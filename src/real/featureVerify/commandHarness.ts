@@ -9,6 +9,7 @@ import type { VerifyWorktrees } from "../gitOps.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
 import { claudeCommand, claudeHomeMounts, hydrateHomeCommand, outputTail, withContainerEnvFile } from "../sandboxRunner.js";
 import {
+  claimVerifyWorktree,
   COMPOSE_OUTPUT_TAIL,
   ComposeFailure,
   CONTAINER_REPORT_PATH,
@@ -169,15 +170,7 @@ export class CommandVerifyHarness implements VerifyHarness {
   }
 
   private claimWorktree(repo: TargetRepo, ref: string): string {
-    let created: string | undefined;
-    this.disposables.push({
-      label: `worktree ${repo} verify/${this.deps.integrationBranch}`,
-      dispose: () => {
-        if (created) this.deps.git.dropWorktree(repo, created);
-      },
-    });
-    created = this.deps.git.createDetachedWorktree(repo, ref, `verify/${this.deps.integrationBranch}`);
-    return created;
+    return claimVerifyWorktree(this.deps.git, this.disposables, this.deps.integrationBranch, repo, ref);
   }
 
   private sandboxEnv(repo: TargetRepo): Record<string, string> {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { messageOf } from "../messageOf.js";
 
 export const CONFIG_FILE = "sandcastle.config.json";
 const DEFAULT_INTEGRATION_BASE = "dev";
@@ -229,7 +230,7 @@ export function readProjectConfig(path: string): ProjectConfig {
     text = readFileSync(absolute, "utf8");
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw new Error(`cannot read ${absolute} — ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+      throw new Error(`cannot read ${absolute} — ${messageOf(cause)}`, { cause });
     }
     throw new Error(`no sandcastle project config at ${absolute} — pass --config=<path to ${CONFIG_FILE}> or set SANDCASTLE_CONFIG`);
   }
@@ -237,12 +238,12 @@ export function readProjectConfig(path: string): ProjectConfig {
   try {
     raw = JSON.parse(text);
   } catch (cause) {
-    throw new Error(`${absolute} is not valid JSON — ${cause instanceof Error ? cause.message : String(cause)}`);
+    throw new Error(`${absolute} is not valid JSON — ${messageOf(cause)}`);
   }
   try {
     return parseProjectConfig(raw, absolute);
   } catch (cause) {
-    throw new Error(`${absolute}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    throw new Error(`${absolute}: ${messageOf(cause)}`);
   }
 }
 

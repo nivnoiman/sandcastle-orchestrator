@@ -1,6 +1,7 @@
 import type { CommandRunner, StartRequest } from "./commandRunner.js";
 import { toDockerPath } from "./paths.js";
 import { activeProject } from "../project/projectConfig.js";
+import { messageOf } from "../messageOf.js";
 
 export interface Mount {
   hostPath: string;
@@ -101,7 +102,7 @@ export function assertDockerReady(runner: CommandRunner, image: string): void {
     runner.run({ command: "docker", args: ["info", "--format", "{{.ServerVersion}}"] });
   } catch (cause) {
     throw new Error(
-      `docker daemon is not reachable (${cause instanceof Error ? cause.message : String(cause)}) — start Docker Desktop before running sandcastle`,
+      `docker daemon is not reachable (${messageOf(cause)}) — start Docker Desktop before running sandcastle`,
     );
   }
   const { stdout } = runner.run({ command: "docker", args: ["images", "-q", image] });

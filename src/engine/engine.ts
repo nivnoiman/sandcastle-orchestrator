@@ -23,6 +23,7 @@ import { resumePlacement, type ResumeEvidence } from "./resume.js";
 import { REWORK_LIMIT_DEFAULT, reworkComment, reworkLimitDetail } from "./rework.js";
 import { LocalSlots, type WorkerSlots } from "./slots.js";
 import { TRANSIENT_BACKOFF_MS, transientBackoffMs, transientSignature } from "./transient.js";
+import { messageOf } from "../messageOf.js";
 
 export { LocalSlots, type WorkerSlots } from "./slots.js";
 export { RunHold, type HoldState } from "./hold.js";
@@ -95,10 +96,6 @@ export interface StallSummary {
 const PENDING_PHASES: readonly ItemPhase[] = ["held", "blocked", "queued"];
 const STARTED_PHASES: readonly ItemPhase[] = ["running", "awaiting", "waiting", "parked"];
 const ADVANCING_PHASES: readonly ItemPhase[] = ["queued", "awaiting", "running", "waiting"];
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 function stageFailureReason(stage: StageName): string {
   return stage === "verify" ? "verify gate red" : `${stage} stage failed`;

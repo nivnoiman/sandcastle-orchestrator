@@ -21,6 +21,12 @@ export interface RunSnapshot {
   subIssues: WorkItemSnapshot[];
 }
 
+export function isRunSnapshot(value: unknown): value is RunSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate["parent"] === "object" && Array.isArray(candidate["subIssues"]);
+}
+
 const SUB_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {

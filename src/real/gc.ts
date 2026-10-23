@@ -18,6 +18,7 @@ import {
 import type { FileSystemPort } from "./fileSystem.js";
 import { removeWorktreeTree } from "./gitOps.js";
 import { repoRoot, toDockerPath, type SandcastleLayout } from "./paths.js";
+import { messageOf } from "../messageOf.js";
 
 export interface GcDeps {
   runner: CommandRunner;
@@ -52,15 +53,15 @@ function comparablePath(path: string): string {
   return toDockerPath(path).toLowerCase();
 }
 
-function messageOf(cause: unknown): string {
-  return (cause instanceof Error ? cause.message : String(cause)).slice(0, 200);
+function shortMessageOf(cause: unknown): string {
+  return messageOf(cause).slice(0, 200);
 }
 
 function orphanContainers(deps: GcDeps, sink: FailureSink): string[] {
   try {
     return listContainersByName(deps.runner, containerPrefix()).filter(isOrchestratorContainer);
   } catch (cause) {
-    sink.failures.push(`docker ps by name failed: ${messageOf(cause)}`);
+    sink.failures.push(`docker ps by name failed: ${shortMessageOf(cause)}`);
     return [];
   }
 }
@@ -69,7 +70,7 @@ function orphanNetworks(deps: GcDeps, sink: FailureSink): string[] {
   try {
     return listNetworksByPrefix(deps.runner, networkPrefix()).filter(isOrchestratorNetwork);
   } catch (cause) {
-    sink.failures.push(`docker network ls failed: ${messageOf(cause)}`);
+    sink.failures.push(`docker network ls failed: ${shortMessageOf(cause)}`);
     return [];
   }
 }
@@ -78,7 +79,7 @@ function orphanVolumes(deps: GcDeps, sink: FailureSink): string[] {
   try {
     return listVolumesByPrefix(deps.runner, volumePrefix()).filter(isOrchestratorVolume);
   } catch (cause) {
-    sink.failures.push(`docker volume ls failed: ${messageOf(cause)}`);
+    sink.failures.push(`docker volume ls failed: ${shortMessageOf(cause)}`);
     return [];
   }
 }
@@ -89,7 +90,7 @@ function pruneWorktreeMetadata(deps: GcDeps, repo: TargetRepo, sink: FailureSink
   try {
     deps.runner.run({ command: "git", args: ["worktree", "prune"], cwd });
   } catch (cause) {
-    sink.failures.push(`[${repo}] git worktree prune failed: ${messageOf(cause)}`);
+    sink.failures.push(`[${repo}] git worktree prune failed: ${shortMessageOf(cause)}`);
   }
 }
 
@@ -105,7 +106,7 @@ function managedWorktrees(deps: GcDeps, repo: TargetRepo, sink: FailureSink): st
       .map((line) => line.slice("worktree ".length).trim())
       .filter((path) => comparablePath(path).startsWith(managed));
   } catch (cause) {
-    sink.failures.push(`[${repo}] git worktree list failed: ${messageOf(cause)}`);
+    sink.failures.push(`[${repo}] git worktree list failed: ${shortMessageOf(cause)}`);
     return [];
   }
 }
@@ -118,7 +119,7 @@ function removeManagedWorktrees(deps: GcDeps, repo: TargetRepo, report: GcReport
       removeWorktreeTree(deps, cwd, path);
       report.worktrees.push(path);
     } catch (cause) {
-      report.failures.push(`[${repo}] git worktree remove ${path} failed: ${messageOf(cause)}`);
+      report.failures.push(`[${repo}] git worktree remove ${path} failed: ${shortMessageOf(cause)}`);
     }
   }
 }
@@ -143,7 +144,7 @@ export function collectOrphans(deps: GcDeps): GcReport {
       removeContainer(deps.runner, name);
       report.containers.push(name);
     } catch (cause) {
-      report.failures.push(`docker rm -f ${name} failed: ${messageOf(cause)}`);
+      report.failures.push(`docker rm -f ${name} failed: ${shortMessageOf(cause)}`);
     }
   }
 
@@ -153,7 +154,7 @@ export function collectOrphans(deps: GcDeps): GcReport {
       removeNetwork(deps.runner, name);
       report.networks.push(name);
     } catch (cause) {
-      report.failures.push(`docker network rm ${name} failed: ${messageOf(cause)}`);
+      report.failures.push(`docker network rm ${name} failed: ${shortMessageOf(cause)}`);
     }
   }
 
@@ -163,7 +164,7 @@ export function collectOrphans(deps: GcDeps): GcReport {
       removeVolume(deps.runner, name);
       report.volumes.push(name);
     } catch (cause) {
-      report.failures.push(`docker volume rm ${name} failed: ${messageOf(cause)}`);
+      report.failures.push(`docker volume rm ${name} failed: ${shortMessageOf(cause)}`);
     }
   }
 

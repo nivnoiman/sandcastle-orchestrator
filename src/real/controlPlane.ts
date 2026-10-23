@@ -10,6 +10,7 @@ import { collectOrphans, type GcReport } from "./gc.js";
 import { acquireLock, processIsAlive } from "./lock.js";
 import type { SandcastleLayout } from "./paths.js";
 import { VerifyMutex } from "./verifyMutex.js";
+import { messageOf } from "../messageOf.js";
 
 export interface ControlPlaneOptions {
   hubRepo: string;
@@ -61,10 +62,6 @@ interface LivePlane {
   engines: Set<Engine>;
   leases: number;
   teardown(): void;
-}
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function realControlPlaneDeps(options: ControlPlaneOptions): ControlPlaneDeps {

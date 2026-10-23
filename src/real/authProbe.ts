@@ -5,6 +5,7 @@ import type { OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import type { SandcastleLayout } from "./paths.js";
 import { claudeCommand, claudeHomeMounts, hydrateHomeCommand, withContainerEnvFile } from "./sandboxRunner.js";
+import { messageOf } from "../messageOf.js";
 
 export const PROBE_ITEM_NUMBER = 0;
 export const PROBE_TIMEOUT_SECONDS = 180;
@@ -58,7 +59,7 @@ export async function probeAgentAuth(deps: AuthProbeDeps): Promise<AuthProbeResu
   } catch (cause) {
     const waiting = agentWaitFrom(cause);
     if (waiting) return { ok: false, reason: waiting.reason, detail: waiting.detail };
-    return { ok: false, reason: "other", detail: cause instanceof Error ? cause.message : String(cause) };
+    return { ok: false, reason: "other", detail: messageOf(cause) };
   } finally {
     removeProbeContainer(deps, container);
   }
@@ -69,7 +70,7 @@ function removeProbeContainer(deps: AuthProbeDeps, container: string): void {
     removeContainer(deps.runner, container);
   } catch (cause) {
     deps.log?.(
-      `[auth] the probe container ${container} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) —` +
+      `[auth] the probe container ${container} could not be removed (${messageOf(cause)}) —` +
         " the next gc collects it",
     );
   }

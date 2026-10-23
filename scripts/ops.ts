@@ -12,6 +12,7 @@ import { findItem, finishReport, launchPlan, parkedToRetry, queueReport, statusR
 import { runPreflight, type PreflightReport } from "../src/real/preflight.js";
 import { DEFAULT_UI_PORT } from "../src/ui/server.js";
 import type { UiState } from "../src/ui/state.js";
+import { messageOf } from "../src/messageOf.js";
 
 const USAGE = [
   "usage: npm run ops -- <command> [args]",
@@ -79,10 +80,6 @@ const port = flagNumber("port", DEFAULT_UI_PORT);
 const project = bootProject();
 const hubRepo = flag("repo") ?? project.hubRepo;
 const base = `http://127.0.0.1:${port}`;
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 function print(payload: unknown): void {
   console.log(JSON.stringify(payload, null, 2));

@@ -30,6 +30,7 @@ import {
   withContainerEnvFile,
 } from "../sandboxRunner.js";
 import { composeServiceEnv, credentialKeys, localMongoUri, MONGO_ALIAS, serviceBaseUrl } from "./composeEnv.js";
+import { messageOf } from "../../messageOf.js";
 
 export const REPORT_FILE = "report.md";
 export const CONTAINER_REPORT_PATH = `${SANDBOX_WORKDIR}/${REPORT_FILE}`;
@@ -87,10 +88,6 @@ export interface Disposable {
   dispose: () => void;
 }
 
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 /** Disposes everything claimed so far, newest first; a failed disposal is logged, never thrown. */
 export function tearDown(disposables: Disposable[], log: (message: string) => void): void {
   const pending = disposables.splice(0, disposables.length).reverse();
@@ -102,6 +99,25 @@ export function tearDown(disposables: Disposable[], log: (message: string) => vo
       log(`[feature-verify][warn] could not tear down ${entry.label}: ${messageOf(cause)}`);
     }
   }
+}
+
+/** Claims a detached verify worktree, registering its disposal before creation so a half-made claim still tears down. */
+export function claimVerifyWorktree(
+  git: VerifyWorktrees,
+  disposables: Disposable[],
+  integrationBranch: string,
+  repo: TargetRepo,
+  ref: string,
+): string {
+  let created: string | undefined;
+  disposables.push({
+    label: `worktree ${repo} verify/${integrationBranch}`,
+    dispose: () => {
+      if (created) git.dropWorktree(repo, created);
+    },
+  });
+  created = git.createDetachedWorktree(repo, ref, `verify/${integrationBranch}`);
+  return created;
 }
 
 export class ComposeFailure extends Error {
@@ -332,14 +348,7 @@ export class DockerComposeHarness implements VerifyHarness {
   }
 
   private claimWorktree(repo: TargetRepo, ref: string): string {
-    let created: string | undefined;
-    this.disposables.push({
-      label: `worktree ${repo} verify/${this.deps.integrationBranch}`,
-      dispose: () => {
-        if (created) this.deps.git.dropWorktree(repo, created);
-      },
-    });
-    created = this.deps.git.createDetachedWorktree(repo, ref, `verify/${this.deps.integrationBranch}`);
+    const created = claimVerifyWorktree(this.deps.git, this.disposables, this.deps.integrationBranch, repo, ref);
     this.worktrees.set(repo, created);
     return created;
   }

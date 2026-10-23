@@ -5,6 +5,7 @@ import { isOperatorError } from "../engine/operatorError.js";
 import { parseAttemptId } from "../real/attemptLog.js";
 import type { UiController } from "./controller.js";
 import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
+import { messageOf } from "../messageOf.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
 export const DEFAULT_UI_PORT = Number(process.env["SANDCASTLE_UI_PORT"] ?? 7777);
@@ -68,7 +69,7 @@ function statusFor(cause: unknown): number {
 }
 
 function fail(response: Response, cause: unknown): void {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = messageOf(cause);
   response.status(statusFor(cause)).json({ ok: false, error: message });
 }
 

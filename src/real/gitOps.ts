@@ -6,6 +6,7 @@ import type { CommandRunner } from "./commandRunner.js";
 import { resolveSandboxEnvFile } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { repoRoot, worktreePath, type SandcastleLayout } from "./paths.js";
+import { messageOf } from "../messageOf.js";
 
 export type GitBranchOps = Omit<GitOps, "runChecks">;
 
@@ -186,7 +187,7 @@ export class RealGitOps implements GitBranchOps {
     } catch (cause) {
       const files = this.conflictedPaths(target);
       this.abortRebase(target);
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      const reason = messageOf(cause);
       if (files.length > 0) throw new RebaseConflictError(repo, branch, integrationBranch, files, reason);
       throw new Error(`[${repo}] ${branch} does not rebase cleanly onto ${integrationBranch}: ${reason}`);
     }
@@ -223,7 +224,7 @@ export class RealGitOps implements GitBranchOps {
       removeWorktreeTree(this.deps, cwd, target);
     } catch (cause) {
       throw new Error(
-        `stale worktree ${target} could not be removed by git (${cause instanceof Error ? cause.message : String(cause)}). ` +
+        `stale worktree ${target} could not be removed by git (${messageOf(cause)}). ` +
           `Remove it with "git worktree remove --force" from ${cwd} — never delete it with rm -rf: it can contain a node_modules junction.`,
       );
     }
@@ -246,7 +247,7 @@ export class RealGitOps implements GitBranchOps {
     try {
       return unmergedPaths(this.git(cwd, ["status", "--porcelain"]).stdout);
     } catch (cause) {
-      this.deps.log(`[warn] could not list conflicting files in ${cwd}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      this.deps.log(`[warn] could not list conflicting files in ${cwd}: ${messageOf(cause)}`);
       return [];
     }
   }

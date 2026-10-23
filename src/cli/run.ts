@@ -3,7 +3,9 @@ import { dryRun } from "../engine/dryRunner.js";
 import { fetchRunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
 import { startRealRun } from "../real/startRealRun.js";
+import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 import { epilogueLines, featureVerifyLines, polishLines, stallLine } from "./report.js";
+import { messageOf } from "../messageOf.js";
 
 const USAGE = [
   "usage: npm run start -- <parent-issue> [owner/repo] [--cap=N] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--dry-run]",
@@ -20,28 +22,15 @@ const args = process.argv.slice(2);
 const positional = args.filter((arg) => !arg.startsWith("--"));
 const [parentArg, repoArg] = positional;
 
-function flagNumber(name: string, fallback: number): number {
-  const found = args.find((arg) => arg.startsWith(`--${name}=`));
-  if (!found) return fallback;
-  const value = Number(found.slice(name.length + 3));
-  if (!Number.isInteger(value) || value < 1) fail(`--${name} must be a positive integer, got "${found}"`);
-  return value;
-}
-
-function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
-}
-
 if (!parentArg || !/^\d+$/.test(parentArg)) {
   console.error(USAGE);
   process.exit(2);
 }
 
 const parentNumber = Number(parentArg);
-const workerCap = flagNumber("cap", 1);
-const intervalSeconds = flagNumber("interval", 45);
-const idleTimeoutSeconds = args.some((arg) => arg.startsWith("--idle-timeout=")) ? flagNumber("idle-timeout", 600) : undefined;
+const workerCap = flagNumber(args, "cap", 1);
+const intervalSeconds = flagNumber(args, "interval", 45);
+const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
 const skipGc = args.includes("--skip-gc");
 const skipVerify = args.includes("--skip-verify");
 const isDryRun = args.includes("--dry-run");
@@ -56,7 +45,7 @@ function loadModel(snapshotRepo: string, issue: number): Promise<RunModel> {
 }
 
 const model = await loadModel(hubRepo, parentNumber).catch((cause: unknown) => {
-  fail(cause instanceof Error ? cause.message : String(cause));
+  fail(messageOf(cause));
 });
 
 if (isDryRun) {
@@ -88,7 +77,7 @@ const run = await (async () => {
       },
     });
   } catch (cause) {
-    return fail(cause instanceof Error ? cause.message : String(cause));
+    return fail(messageOf(cause));
   }
 })();
 

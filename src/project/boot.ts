@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import { sandcastleDirFrom } from "../real/paths.js";
 import { CONFIG_FILE, readProjectConfig, setActiveProject, type ProjectConfig } from "./projectConfig.js";
+import { messageOf } from "../messageOf.js";
 
 /** `npm run` switches cwd to the tool folder; INIT_CWD is where the user actually ran it. */
 function invocationDir(env: NodeJS.ProcessEnv): string {
@@ -31,7 +32,7 @@ export function bootProject(args: readonly string[] = process.argv.slice(2)): Pr
     mkdirSync(sandcastleDirFrom(), { recursive: true });
     return project;
   } catch (cause) {
-    console.error(cause instanceof Error ? cause.message : String(cause));
+    console.error(messageOf(cause));
     process.exit(2);
   }
 }

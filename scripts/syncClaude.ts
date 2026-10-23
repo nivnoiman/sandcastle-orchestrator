@@ -3,6 +3,7 @@ import { syncClaudeHome } from "../src/real/claudeSync.js";
 import { readEnvFileValues } from "../src/real/env.js";
 import { nodeFileSystem } from "../src/real/fileSystem.js";
 import { defaultLayout, sandcastleDirFrom } from "../src/real/paths.js";
+import { messageOf } from "../src/messageOf.js";
 
 bootProject();
 const fileValues = readEnvFileValues(nodeFileSystem, sandcastleDirFrom());
@@ -23,6 +24,6 @@ try {
   for (const entry of report.copied) console.log(`  copied  ${entry}`);
   for (const entry of report.absent) console.log(`  absent  ${entry}`);
 } catch (cause) {
-  console.error(cause instanceof Error ? cause.message : String(cause));
+  console.error(messageOf(cause));
   process.exit(1);
 }
