@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { assertGitControlUnchanged, snapshotGitControl } from "./gitGuard.js";
+import { assertGitControlUnchanged, snapshotGitControl, type GitControlSnapshot } from "./gitGuard.js";
 import type {
   SandboxRunner,
   ResolveRequest,
@@ -33,7 +33,7 @@ import {
   type ContainerSpec,
   type Mount,
 } from "./docker.js";
-import { bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
+import { agentAuthEnv, bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
 import type { PullRequestOps } from "./ghClient.js";
@@ -55,6 +55,7 @@ import {
   unfixableReason,
   type FreshEyesStage,
 } from "./stageAudit.js";
+import { messageOf } from "../messageOf.js";
 
 export const CONTAINER_GITDIR = "/home/agent/gitdir";
 export const HOST_CLAUDE_DIR = `${CONTAINER_HOME}/.claude-host`;
@@ -122,7 +123,7 @@ export class CheckFailure extends Error {
     readonly outputTail: string,
     cause: unknown,
   ) {
-    super(`checks failed (${checks}): ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`checks failed (${checks}): ${messageOf(cause)}`);
     this.name = "CheckFailure";
   }
 }
@@ -188,7 +189,7 @@ export function containerEnv(config: OrchestratorConfig, gitDir: string): Record
     GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
     JEST_MAX_WORKERS: config.jestWorkers,
   };
-  if (config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = config.anthropicApiKey;
+  Object.assign(env, agentAuthEnv(config));
   return env;
 }
 
@@ -254,6 +255,31 @@ export function withContainerEnvFile<T>(
   }
 }
 
+/** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
+export function startWorktreeContainer(
+  deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode },
+): GitControlSnapshot {
+  const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
+  const gitControl = snapshotGitControl(deps.fs, repoGitDir);
+  const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)));
+  withContainerEnvFile(deps.fs, env, (envFile) => {
+    startContainer(
+      deps.runner,
+      containerSpec({
+        name: container.name,
+        image: deps.config.imageTag,
+        worktree: container.worktree,
+        repoGitDir,
+        layout: deps.layout,
+        envFile,
+        workspace: container.workspace,
+      }),
+    );
+  });
+  return gitControl;
+}
+
 export function outputTail(limit: number): { append: (chunk: string) => void; text: () => string } {
   let collected = "";
   return {
@@ -299,7 +325,12 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
     this.attemptContainers.delete(attempt);
     this.deps.log(`#${itemNumber} cancelled — removing ${container}`);
-    removeContainer(this.deps.runner, container);
+    try {
+      removeContainer(this.deps.runner, container);
+    } catch (cause) {
+      this.attemptContainers.set(attempt, container);
+      this.deps.log(`[warn] could not remove ${container} on cancel — the stage teardown retries it: ${messageOf(cause)}`);
+    }
   }
 
   runChecks(request: VerifyRequest): void {
@@ -374,7 +405,7 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private describe(cause: unknown): string {
-    const reason = (cause instanceof Error ? cause.message : String(cause)).slice(0, 400);
+    const reason = messageOf(cause).slice(0, 400);
     if (cause instanceof CheckFailure) {
       return cause.outputTail.length === 0 ? reason : `${reason}\n--- last output ---\n${cause.outputTail}`;
     }
@@ -392,7 +423,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     try {
       this.deps.onComplete(completion);
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      const reason = messageOf(cause);
       this.deps.log(`[error] engine rejected completion of ${completion.stage} #${completion.itemNumber}: ${reason}`);
     }
   }
@@ -438,7 +469,7 @@ export class DockerSandboxRunner implements SandboxRunner {
       });
     } catch (salvageCause) {
       if (isAgentWait(salvageCause)) throw salvageCause;
-      const reason = salvageCause instanceof Error ? salvageCause.message : String(salvageCause);
+      const reason = messageOf(salvageCause);
       throw new Error(`${request.stage} idle-timed out; salvage pass also failed: ${reason.slice(0, 300)}`);
     }
   }
@@ -717,23 +748,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     this.ensureDocker();
     this.assertLive(attempt);
     const container = this.containerName(stage, request.itemNumber);
-    const repoGitDir = join(repoRoot(this.deps.layout, request.repo), ".git");
-    const gitControl = snapshotGitControl(this.deps.fs, repoGitDir);
-    const env = containerEnv(this.deps.config, containerGitDir(resolveGitDir(this.deps.runner, worktree)));
-    withContainerEnvFile(this.deps.fs, env, (envFile) => {
-      startContainer(
-        this.deps.runner,
-        containerSpec({
-          name: container,
-          image: this.deps.config.imageTag,
-          worktree,
-          repoGitDir,
-          layout: this.deps.layout,
-          envFile,
-          workspace,
-        }),
-      );
-    });
+    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: request.repo, worktree, workspace });
 
     this.attemptContainers.set(attempt, container);
     let removed = false;
@@ -754,14 +769,11 @@ export class DockerSandboxRunner implements SandboxRunner {
       await this.hydrateHome(container);
       await this.prepareWorkspace(container, workspace);
       await work(container);
-    } catch (cause) {
-      if (isAgentIdleTimeout(cause)) remove();
-      throw cause;
     } finally {
       try {
         remove();
       } catch (cause) {
-        this.deps.log(`[warn] could not remove container ${container}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        this.deps.log(`[warn] could not remove container ${container}: ${messageOf(cause)}`);
       }
       assertGitControlUnchanged(this.deps.fs, gitControl);
     }

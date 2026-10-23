@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { messageOf } from "../messageOf.js";
 
 const exec = promisify(execFile);
+const DEPENDENCIES_UNAVAILABLE = /HTTP 404|HTTP 410|Not Found/i;
 
 export interface IssueSnapshot {
   number: number;
@@ -19,6 +21,12 @@ export interface RunSnapshot {
   repo: string;
   parent: IssueSnapshot;
   subIssues: WorkItemSnapshot[];
+}
+
+export function isRunSnapshot(value: unknown): value is RunSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate["parent"] === "object" && Array.isArray(candidate["subIssues"]);
 }
 
 const SUB_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -64,14 +72,24 @@ function toIssueSnapshot(issue: GqlIssue): IssueSnapshot {
   };
 }
 
+function isDependenciesApiMissing(cause: unknown): boolean {
+  const stderr = String((cause as { stderr?: unknown }).stderr ?? "");
+  return DEPENDENCIES_UNAVAILABLE.test(`${messageOf(cause)} ${stderr}`);
+}
+
 async function fetchBlockedBy(repo: string, issueNumber: number): Promise<number[] | null> {
+  let raw: string;
   try {
-    const raw = await gh(["api", `repos/${repo}/issues/${issueNumber}/dependencies/blocked_by`]);
-    const parsed = JSON.parse(raw) as { number: number }[];
-    return parsed.map((issue) => issue.number);
-  } catch {
-    return null;
+    raw = await gh(["api", `repos/${repo}/issues/${issueNumber}/dependencies/blocked_by`]);
+  } catch (cause) {
+    if (isDependenciesApiMissing(cause)) return null;
+    throw new Error(`could not read the blocked-by dependencies of #${issueNumber} on ${repo}: ${messageOf(cause)}`);
   }
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return null;
+  return parsed
+    .map((issue: unknown) => (typeof issue === "object" && issue !== null ? (issue as { number?: unknown }).number : undefined))
+    .filter((number): number is number => typeof number === "number");
 }
 
 export async function fetchRunSnapshot(repo: string, parentNumber: number): Promise<RunSnapshot> {
@@ -81,7 +99,7 @@ export async function fetchRunSnapshot(repo: string, parentNumber: number): Prom
     "api", "graphql",
     "-H", "GraphQL-Features: sub_issues",
     "-f", `query=${SUB_ISSUES_QUERY}`,
-    "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${parentNumber}`,
+    "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${parentNumber}`,
   ]);
   const parent = (JSON.parse(raw) as GqlParentResponse).data.repository.issue;
   if (!parent) throw new Error(`issue #${parentNumber} not found on ${repo}`);

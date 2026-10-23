@@ -14,7 +14,7 @@ const apply = args.includes("--apply");
 const [issueArg, repoArg] = args.filter((arg) => !arg.startsWith("--"));
 
 if (!issueArg || !/^\d+$/.test(issueArg)) {
-  console.error("usage: npm run reset -- <parent-issue-number> [owner/repo] [--apply]");
+  console.error("usage: sandcastle reset <parent-issue-number> [owner/repo] [--apply]");
   process.exit(2);
 }
 

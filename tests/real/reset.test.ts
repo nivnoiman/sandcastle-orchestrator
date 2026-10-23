@@ -5,13 +5,13 @@ import { CommandFailure } from "../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import { lockPath } from "../../src/real/lock.js";
 import { applyReset, planReset, type ResetDeps, type ResetIssue } from "../../src/real/reset.js";
-import { fsWith, repoDir, SANDCASTLE_DIR, testLayout, testRunModel, testWorkItem } from "./support.js";
+import { fsWith, repoDir, WORKTREES_DIR, testLayout, testRunModel, testWorkItem } from "./support.js";
 
 const API = repoDir("api");
 const LOCK = lockPath(testLayout());
 const BRANCH_17 = "feat/17-toy-slice";
 const BRANCH_18 = "feat/18-toy-slice-b";
-const MANAGED_WORKTREE = join(SANDCASTLE_DIR, "worktrees", "api", "feat-17-toy-slice");
+const MANAGED_WORKTREE = join(WORKTREES_DIR, "api", "feat-17-toy-slice");
 
 const MODEL = testRunModel([
   testWorkItem({ number: 17, title: "toy slice" }),

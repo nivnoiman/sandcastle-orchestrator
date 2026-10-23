@@ -230,6 +230,11 @@ describe("container composition", () => {
     expect(env["GH_TOKEN"]).toBe("gh-token");
   });
 
+  it("passes CLAUDE_CODE_OAUTH_TOKEN only when one is configured", () => {
+    expect(containerEnv(testConfig(), CONTAINER_GIT_DIR)["CLAUDE_CODE_OAUTH_TOKEN"]).toBeUndefined();
+    expect(containerEnv(testConfig({ claudeOauthToken: "oat-x" }), CONTAINER_GIT_DIR)["CLAUDE_CODE_OAUTH_TOKEN"]).toBe("oat-x");
+  });
+
   it("passes ANTHROPIC_API_KEY only when one is configured", () => {
     expect(containerEnv(testConfig(), CONTAINER_GIT_DIR)["ANTHROPIC_API_KEY"]).toBeUndefined();
     expect(containerEnv(testConfig({ anthropicApiKey: "sk-x" }), CONTAINER_GIT_DIR)["ANTHROPIC_API_KEY"]).toBe("sk-x");

@@ -49,7 +49,7 @@ function legacyRun(state: UiState): UiRun | undefined {
   };
 }
 
-const NO_RUN = "no run has started on this control plane — start one with: npm run ops -- launch <parent> --cap=N";
+const NO_RUN = "no run has started on this control plane — start one with: sandcastle launch <parent> --cap=N";
 
 function knownRuns(state: UiState): UiRun[] {
   const runs = state.runs ?? [];

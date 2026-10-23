@@ -23,6 +23,7 @@ import { idlePolish, POLISH_COMMAND_FILES, runPolish, type PolishStatus } from "
 import { assertPreflight } from "./preflight.js";
 import { collectResumeEvidence } from "./resumeEvidence.js";
 import { RunContext } from "./runContext.js";
+import { messageOf } from "../messageOf.js";
 
 export interface ParentRunOptions {
   model: RunModel;
@@ -221,7 +222,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           warn,
         });
       } catch (cause) {
-        const reason = cause instanceof Error ? cause.message : String(cause);
+        const reason = messageOf(cause);
         verifyStatus = { ...idleFeatureVerify("red"), reason };
         warn(model.parentNumber, `feature verify crashed: ${reason}`);
       }
@@ -252,7 +253,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       try {
         polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, log, warn });
       } catch (cause) {
-        const reason = cause instanceof Error ? cause.message : String(cause);
+        const reason = messageOf(cause);
         polishStatus = idlePolish("reverted", reason);
         warn(model.parentNumber, `polish crashed: ${reason}`);
       }

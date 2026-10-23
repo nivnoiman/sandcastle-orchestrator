@@ -10,11 +10,12 @@ import { TOOL_DIR } from "../src/real/paths.js";
 import { nodeFileSystem } from "../src/real/fileSystem.js";
 import { findItem, finishReport, launchPlan, parkedToRetry, queueReport, statusReport, waitingItems } from "../src/real/ops.js";
 import { runPreflight, type PreflightReport } from "../src/real/preflight.js";
-import { DEFAULT_UI_PORT } from "../src/ui/server.js";
+import { resolveUiPort } from "../src/ui/server.js";
 import type { UiState } from "../src/ui/state.js";
+import { messageOf } from "../src/messageOf.js";
 
 const USAGE = [
-  "usage: npm run ops -- <command> [args]",
+  "usage: sandcastle <command> [args]   (or: sandcastle ops <command>, npm run ops -- <command>)",
   "",
   "  preflight <parent>                 every start-time check, without taking the lock",
   "  launch <parent>... [--cap=N] [--parallel=N | --sequential] [--global-cap=N]",
@@ -36,7 +37,8 @@ const USAGE = [
   "  finish [--parent=N]                assert the run is complete and print its integration → base pull requests",
   "",
   "  --parent=N picks the run; it may be left out while only one run exists or only one parent is live",
-  "  --config=path (default SANDCASTLE_CONFIG or ./sandcastle.config.json), --port=N (default 7777 or SANDCASTLE_UI_PORT),",
+  "  --config=path (default SANDCASTLE_CONFIG, else the nearest .sandcastle/config.json at or above the cwd),",
+  "  --port=N (default SANDCASTLE_UI_PORT, then ui.port in the project config, then 7777),",
   "  --repo=owner/name (default the project's hubRepo)",
   "Every command prints one JSON object and exits 0 on success, 1 on failure.",
 ].join("\n");
@@ -75,14 +77,16 @@ if (!command) {
   process.exit(2);
 }
 
-const port = flagNumber("port", DEFAULT_UI_PORT);
 const project = bootProject();
+const port = (() => {
+  try {
+    return resolveUiPort(args, process.env, project.ui.port);
+  } catch (cause) {
+    return die(messageOf(cause));
+  }
+})();
 const hubRepo = flag("repo") ?? project.hubRepo;
 const base = `http://127.0.0.1:${port}`;
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 function print(payload: unknown): void {
   console.log(JSON.stringify(payload, null, 2));
@@ -99,7 +103,7 @@ async function fetchOrExplain(url: string, init: RequestInit): Promise<Response>
   } catch (cause) {
     throw new Error(
       `no control plane is answering on ${base} (${messageOf(cause)}) —` +
-        " start one with: npm run ops -- launch <parent> --cap=N",
+        " start one with: sandcastle launch <parent> --cap=N",
     );
   }
 }
@@ -225,7 +229,7 @@ async function launch(): Promise<void> {
     cap,
     settings,
     queueSettings: after.queueSettings,
-    note: after.queueSettings.paused && after.queue.length > 0 ? "the queue is paused, npm run ops -- queue-resume starts it" : undefined,
+    note: after.queueSettings.paused && after.queue.length > 0 ? "the queue is paused, sandcastle queue-resume starts it" : undefined,
     url: base,
     logFile,
   });

@@ -21,15 +21,12 @@ import {
   type UiQueueSettings,
   type UiState,
 } from "./state.js";
+import { messageOf } from "../messageOf.js";
 
 export type { AttemptReader, Session } from "./parentRunSlot.js";
 
 export const FEED_LIMIT = 200;
 export const ADDED_PARENT_LIMIT = 25;
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 export interface StartSessionRequest {
   model: RunModel;
@@ -159,12 +156,7 @@ export class UiController {
       this.publish();
       return { input: entry.input, number: summary.number, title: summary.title, ok: true };
     } catch (cause) {
-      return {
-        input: entry.input,
-        number: entry.number,
-        ok: false,
-        error: messageOf(cause),
-      };
+      return { input: entry.input, number: entry.number, ok: false, error: messageOf(cause) };
     }
   }
 
@@ -289,7 +281,7 @@ export class UiController {
       throw new OperatorError(`#${parent} is already running — wait for its run to settle before starting it again`);
     }
     const wasQueued = this.queue.parents().includes(parent);
-    if (wasQueued) this.takeQueued(parent);
+    if (wasQueued) this.changeQueue(() => this.takeQueued(parent));
     try {
       await this.launch(parent, cap);
     } catch (cause) {

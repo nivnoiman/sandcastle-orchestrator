@@ -1,32 +1,25 @@
 import { join } from "node:path";
-import { assertGitControlUnchanged, snapshotGitControl } from "./gitGuard.js";
+import { assertGitControlUnchanged } from "./gitGuard.js";
 import type { TargetRepo } from "../model/runModel.js";
 import type { AttemptLogStore } from "./attemptLog.js";
 import { runWithIdleTimeout, type CommandRunner } from "./commandRunner.js";
-import { execAsRoot, execRequest, removeContainer, stageContainerName, startContainer } from "./docker.js";
+import { execAsRoot, execRequest, removeContainer, stageContainerName } from "./docker.js";
 import { bootstrapScript, checkCommand, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
-import { resolveGitDir } from "./gitOps.js";
 import { integrationBase } from "../project/projectConfig.js";
-import { CONTAINER_HOME, repoRoot, type SandcastleLayout } from "./paths.js";
+import { CONTAINER_HOME, type SandcastleLayout } from "./paths.js";
 import {
   CHECK_OUTPUT_TAIL,
   CheckFailure,
   claimWorkspaceCommand,
   claudeCommand,
-  containerEnv,
-  containerGitDir,
-  containerSpec,
   copyWorkspaceCommand,
   hydrateHomeCommand,
   outputTail,
-  withContainerEnvFile,
+  startWorktreeContainer,
   type WorkspaceMode,
 } from "./sandboxRunner.js";
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
+import { messageOf } from "../messageOf.js";
 
 export interface IntegrationWorkspace {
   repo: TargetRepo;
@@ -166,23 +159,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
     work: (container: string, log: (chunk: string) => void) => Promise<void>,
   ): Promise<void> {
     const container = this.containerName();
-    const repoGitDir = join(repoRoot(this.deps.layout, workspace.repo), ".git");
-    const gitControl = snapshotGitControl(this.deps.fs, repoGitDir);
-    const env = containerEnv(this.deps.config, containerGitDir(resolveGitDir(this.deps.runner, workspace.worktree)));
-    withContainerEnvFile(this.deps.fs, env, (envFile) => {
-      startContainer(
-        this.deps.runner,
-        containerSpec({
-          name: container,
-          image: this.deps.config.imageTag,
-          worktree: workspace.worktree,
-          repoGitDir,
-          layout: this.deps.layout,
-          envFile,
-          workspace: mode,
-        }),
-      );
-    });
+    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: workspace.repo, worktree: workspace.worktree, workspace: mode });
     const writer = this.deps.logs?.begin(this.deps.parentNumber, this.deps.agent.stage);
     const log = (chunk: string): void => writer?.write(chunk);
     log(`--- ${this.deps.agent.stage} ${workspace.repo} (${mode}) ---\n`);

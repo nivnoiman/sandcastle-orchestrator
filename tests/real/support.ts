@@ -14,6 +14,7 @@ import { layoutFrom, type SandcastleLayout } from "../../src/real/paths.js";
 
 export const HOME = join("C:", "Users", "tester");
 export const SANDCASTLE_DIR = join("W:", "work", "acme", "sandcastle");
+export const WORKTREES_DIR = join(HOME, ".sandcastle", "worktrees", "demo");
 
 export function testLayout(): SandcastleLayout {
   return layoutFrom(SANDCASTLE_DIR, HOME);
@@ -23,6 +24,7 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
   return {
     ghToken: "gh-token",
     anthropicApiKey: undefined,
+    claudeOauthToken: undefined,
     model: "opus",
     reviewModel: "sonnet",
     imageTag: "sandcastle:demo",
@@ -78,5 +80,5 @@ export function repoDir(repo: string): string {
 }
 
 export function worktreeDir(repo: string, sanitizedBranch: string): string {
-  return join(SANDCASTLE_DIR, "worktrees", repo, sanitizedBranch);
+  return join(WORKTREES_DIR, repo, sanitizedBranch);
 }

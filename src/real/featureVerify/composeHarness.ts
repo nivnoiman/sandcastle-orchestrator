@@ -17,7 +17,7 @@ import {
   stageContainerName,
   startContainer,
 } from "../docker.js";
-import { envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
+import { agentAuthEnv, envKeySuffix, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { integrationBase, knownRepos, type VerifyService } from "../../project/projectConfig.js";
@@ -30,6 +30,7 @@ import {
   withContainerEnvFile,
 } from "../sandboxRunner.js";
 import { composeServiceEnv, credentialKeys, localMongoUri, MONGO_ALIAS, serviceBaseUrl } from "./composeEnv.js";
+import { messageOf } from "../../messageOf.js";
 
 export const REPORT_FILE = "report.md";
 export const CONTAINER_REPORT_PATH = `${SANDBOX_WORKDIR}/${REPORT_FILE}`;
@@ -87,10 +88,6 @@ export interface Disposable {
   dispose: () => void;
 }
 
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 /** Disposes everything claimed so far, newest first; a failed disposal is logged, never thrown. */
 export function tearDown(disposables: Disposable[], log: (message: string) => void): void {
   const pending = disposables.splice(0, disposables.length).reverse();
@@ -102,6 +99,25 @@ export function tearDown(disposables: Disposable[], log: (message: string) => vo
       log(`[feature-verify][warn] could not tear down ${entry.label}: ${messageOf(cause)}`);
     }
   }
+}
+
+/** Claims a detached verify worktree, registering its disposal before creation so a half-made claim still tears down. */
+export function claimVerifyWorktree(
+  git: VerifyWorktrees,
+  disposables: Disposable[],
+  integrationBranch: string,
+  repo: TargetRepo,
+  ref: string,
+): string {
+  let created: string | undefined;
+  disposables.push({
+    label: `worktree ${repo} verify/${integrationBranch}`,
+    dispose: () => {
+      if (created) git.dropWorktree(repo, created);
+    },
+  });
+  created = git.createDetachedWorktree(repo, ref, `verify/${integrationBranch}`);
+  return created;
 }
 
 export class ComposeFailure extends Error {
@@ -269,7 +285,7 @@ export class DockerComposeHarness implements VerifyHarness {
     for (const service of facts.services) {
       if (service.baseUrl) env[`SANDCASTLE_${envKeySuffix(service.repo)}_URL`] = service.baseUrl;
     }
-    if (this.deps.config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = this.deps.config.anthropicApiKey;
+    Object.assign(env, agentAuthEnv(this.deps.config));
 
     this.claim(
       `container ${container}`,
@@ -332,14 +348,7 @@ export class DockerComposeHarness implements VerifyHarness {
   }
 
   private claimWorktree(repo: TargetRepo, ref: string): string {
-    let created: string | undefined;
-    this.disposables.push({
-      label: `worktree ${repo} verify/${this.deps.integrationBranch}`,
-      dispose: () => {
-        if (created) this.deps.git.dropWorktree(repo, created);
-      },
-    });
-    created = this.deps.git.createDetachedWorktree(repo, ref, `verify/${this.deps.integrationBranch}`);
+    const created = claimVerifyWorktree(this.deps.git, this.disposables, this.deps.integrationBranch, repo, ref);
     this.worktrees.set(repo, created);
     return created;
   }

@@ -10,6 +10,7 @@ import { integrationBase } from "../project/projectConfig.js";
 import { missingMemoryFiles } from "./memories.js";
 import { repoRoot, type SandcastleLayout } from "./paths.js";
 import { missingSkillFiles } from "./skills.js";
+import { messageOf } from "../messageOf.js";
 
 export const CONTAINER_EGRESS_HOSTS = ["api.anthropic.com", "api.github.com"] as const;
 
@@ -73,7 +74,7 @@ async function check(
   try {
     return { name, ok: true, detail: await work() };
   } catch (cause) {
-    return { name, ok: false, detail: cause instanceof Error ? cause.message : String(cause) };
+    return { name, ok: false, detail: messageOf(cause) };
   }
 }
 

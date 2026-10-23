@@ -66,12 +66,18 @@ export class AttemptLogStore {
     return (this.deps.now ?? ((): Date => new Date()))().toISOString();
   }
 
+  private firstAttemptWithoutLeftoverTranscript(directory: string, stage: string, firstCandidate: number): number {
+    let attempt = firstCandidate;
+    while (this.deps.fs.exists(join(directory, `${stage}-${attempt}.jsonl`))) attempt += 1;
+    return attempt;
+  }
+
   begin(itemNumber: number, stage: string): AttemptWriter {
     const key = `${itemNumber}-${stage}`;
-    const attempt = (this.counts.get(key) ?? 0) + 1;
+    const directory = join(parentLogsDir(this.deps.layout, this.deps.parentNumber), String(itemNumber));
+    const attempt = this.firstAttemptWithoutLeftoverTranscript(directory, stage, (this.counts.get(key) ?? 0) + 1);
     this.counts.set(key, attempt);
     const id = attemptId(itemNumber, stage, attempt);
-    const directory = join(parentLogsDir(this.deps.layout, this.deps.parentNumber), String(itemNumber));
     const file = join(directory, `${stage}-${attempt}.jsonl`);
     this.deps.fs.makeDirectory(directory);
     this.deps.fs.writeText(file, "");

@@ -2,6 +2,7 @@ import { parse as parseYaml } from "yaml";
 import type { RunSnapshot, WorkItemSnapshot } from "../gh/snapshot.js";
 
 import { isKnownRepo, knownRepos } from "../project/projectConfig.js";
+import { messageOf } from "../messageOf.js";
 
 export type TargetRepo = string;
 
@@ -38,10 +39,6 @@ export type LoadResult =
 
 const FEATURE_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const YAML_FENCE = /```yaml\r?\n([\s\S]*?)```/g;
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 function yamlFencesContaining(body: string, key: string): string[] {
   return [...body.matchAll(YAML_FENCE)].map((match) => match[1] ?? "").filter((fence) => new RegExp(`^${key}:`, "m").test(fence));
@@ -84,7 +81,7 @@ function parseFeatureConfig(parentNumber: number, body: string, errors: string[]
   try {
     raw = parseYaml(candidates[0]!);
   } catch (cause) {
-    errors.push(`#${parentNumber}: yaml fence does not parse — ${errorMessage(cause)}`);
+    errors.push(`#${parentNumber}: yaml fence does not parse — ${messageOf(cause)}`);
     return undefined;
   }
   if (typeof raw !== "object" || raw === null) {
@@ -140,7 +137,7 @@ function parseExtraMemories(itemNumber: number, body: string, errors: string[]):
   try {
     raw = parseYaml(candidates[0]!);
   } catch (cause) {
-    errors.push(`#${itemNumber}: extra_memories fence does not parse — ${errorMessage(cause)}`);
+    errors.push(`#${itemNumber}: extra_memories fence does not parse — ${messageOf(cause)}`);
     return [];
   }
   const memories = (raw as Record<string, unknown>)["extra_memories"];

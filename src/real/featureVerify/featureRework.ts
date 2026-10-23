@@ -10,12 +10,9 @@ import {
   type FeatureVerifyRun,
   type FeatureVerifyStatus,
 } from "./runFeatureVerify.js";
+import { messageOf } from "../../messageOf.js";
 
 export const FEATURE_FIX_STAGE = "fvfix";
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
 
 export interface FeatureFixResult {
   repo: TargetRepo;

@@ -8,6 +8,7 @@ import { collectOrphans, findOrphans, type GcReport, type OrphanInventory } from
 import { parentLogsDir } from "./attemptLog.js";
 import { lockPath } from "./lock.js";
 import { repoRoot, type SandcastleLayout } from "./paths.js";
+import { messageOf } from "../messageOf.js";
 
 export const ORCHESTRATOR_LABELS: readonly StageLabel[] = STAGE_LABELS;
 
@@ -66,8 +67,8 @@ export interface ResetReport {
   failures: string[];
 }
 
-function messageOf(cause: unknown): string {
-  return (cause instanceof Error ? cause.message : String(cause)).slice(0, 300);
+function shortMessageOf(cause: unknown): string {
+  return messageOf(cause).slice(0, 300);
 }
 
 function involvedRepos(model: RunModel): TargetRepo[] {
@@ -193,7 +194,7 @@ function planBranches(deps: ResetDeps): BranchPlan[] {
     try {
       deps.runner.run({ command: "git", args: ["fetch", "origin", "--prune"], cwd });
     } catch (cause) {
-      deps.log(`[reset][warn] [${repo}] fetch failed, working off the local view: ${messageOf(cause)}`);
+      deps.log(`[reset][warn] [${repo}] fetch failed, working off the local view: ${shortMessageOf(cause)}`);
     }
     for (const branch of itemsOf(deps, repo)) plans.push(planBranch(deps, repo, cwd, branch));
   }
@@ -216,7 +217,7 @@ function applyLabels(deps: ResetDeps, plans: readonly LabelPlan[], report: Reset
       report.labelled.push(plan.itemNumber);
       deps.log(`[reset] #${plan.itemNumber} labels reverted`);
     } catch (cause) {
-      report.failures.push(`gh issue edit #${plan.itemNumber} failed: ${messageOf(cause)}`);
+      report.failures.push(`gh issue edit #${plan.itemNumber} failed: ${shortMessageOf(cause)}`);
     }
   }
 }
@@ -231,7 +232,7 @@ function applyBranches(deps: ResetDeps, plans: readonly BranchPlan[], report: Re
         deps.runner.run({ command: "git", args: ["branch", "-D", plan.branch], cwd });
         deleted = true;
       } catch (cause) {
-        report.failures.push(`[${plan.repo}] git branch -D ${plan.branch} failed: ${messageOf(cause)}`);
+        report.failures.push(`[${plan.repo}] git branch -D ${plan.branch} failed: ${shortMessageOf(cause)}`);
         continue;
       }
     }
@@ -240,7 +241,7 @@ function applyBranches(deps: ResetDeps, plans: readonly BranchPlan[], report: Re
         deps.runner.run({ command: "git", args: ["push", "origin", "--delete", plan.branch], cwd });
         deleted = true;
       } catch (cause) {
-        report.failures.push(`[${plan.repo}] git push origin --delete ${plan.branch} failed: ${messageOf(cause)}`);
+        report.failures.push(`[${plan.repo}] git push origin --delete ${plan.branch} failed: ${shortMessageOf(cause)}`);
       }
     }
     if (!deleted) continue;
@@ -272,7 +273,7 @@ export function applyReset(deps: ResetDeps, plan: ResetPlan): ResetReport {
       report.lockReclaimed = true;
       deps.log(`[reset] reclaimed the stale lock at ${plan.lock.path}`);
     } catch (cause) {
-      report.failures.push(`could not remove ${plan.lock.path}: ${messageOf(cause)}`);
+      report.failures.push(`could not remove ${plan.lock.path}: ${shortMessageOf(cause)}`);
     }
   }
 
@@ -290,6 +291,6 @@ function removeAttemptLogs(deps: ResetDeps, report: ResetReport): void {
     report.removedLogs = directory;
     deps.log(`[reset] removed the agent transcripts under ${directory}`);
   } catch (cause) {
-    report.failures.push(`could not remove ${directory}: ${messageOf(cause)}`);
+    report.failures.push(`could not remove ${directory}: ${shortMessageOf(cause)}`);
   }
 }

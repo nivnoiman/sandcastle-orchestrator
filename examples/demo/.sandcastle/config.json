@@ -2,6 +2,7 @@
   "name": "demo",
   "hubRepo": "example-org/hub",
   "integrationBase": "dev",
+  "ui": { "port": 7790 },
   "repos": {
     "api": {
       "github": "example-org/api",

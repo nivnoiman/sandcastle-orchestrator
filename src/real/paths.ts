@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { TargetRepo } from "../model/runModel.js";
-import { activeProject, claudeProjectSlug } from "../project/projectConfig.js";
+import { activeProject, claudeProjectSlug, PROJECT_FOLDER } from "../project/projectConfig.js";
 
 export interface SandcastleLayout {
   sandcastleDir: string;
@@ -27,7 +27,11 @@ export const LAYOUT_SETTINGS = [
 /** Where Claude Code keeps this project's memories, relative to ~/.claude. */
 export function memoryProjectSuffix(): string {
   const project = activeProject();
-  return join("projects", project.memoryProject ?? claudeProjectSlug(dirname(project.configPath)), "memory");
+  return join("projects", project.memoryProject ?? claudeProjectSlug(project.projectRoot), "memory");
+}
+
+function worktreesDirOutsideEveryRepo(home: string): string {
+  return join(home, PROJECT_FOLDER, "worktrees", activeProject().name);
 }
 
 export function layoutFrom(sandcastleDir: string, home: string, overrides: Partial<SandcastleLayout> = {}): SandcastleLayout {
@@ -35,7 +39,7 @@ export function layoutFrom(sandcastleDir: string, home: string, overrides: Parti
   const layout: SandcastleLayout = {
     sandcastleDir,
     workspaceRoot: overrides.workspaceRoot ?? dirname(sandcastleDir),
-    worktreesDir: overrides.worktreesDir ?? join(sandcastleDir, "worktrees"),
+    worktreesDir: overrides.worktreesDir ?? worktreesDirOutsideEveryRepo(home),
     homeDir: overrides.homeDir ?? home,
     claudeDir,
     memoryDir: overrides.memoryDir ?? join(claudeDir, memoryProjectSuffix()),
@@ -44,9 +48,10 @@ export function layoutFrom(sandcastleDir: string, home: string, overrides: Parti
   return layout;
 }
 
-/** Per-project state (env files, worktrees, logs, lock, queue) — never inside a repo the agents work on. */
+/** Per-project state (env files, logs, lock, queue): `SANDCASTLE_DIR`, then the config's `stateDir`, then `<project root>/.sandcastle`. */
 export function sandcastleDirFrom(env: NodeJS.ProcessEnv = process.env): string {
-  return env["SANDCASTLE_DIR"] ?? activeProject().stateDir ?? join(TOOL_DIR, "projects", activeProject().name);
+  const project = activeProject();
+  return env["SANDCASTLE_DIR"] || project.stateDir || join(project.projectRoot, PROJECT_FOLDER);
 }
 
 export function claudeJsonPath(layout: SandcastleLayout): string {

@@ -6,9 +6,9 @@ import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import { DockerIntegrationHarness, type IntegrationGit } from "../../src/real/integrationHarness.js";
 import { POLISH_COMMAND_FILES, POLISH_NOTES_FILE } from "../../src/real/polish/runPolish.js";
 import { CheckFailure } from "../../src/real/sandboxRunner.js";
-import { fsWith, SANDCASTLE_DIR, testConfig, testLayout } from "./support.js";
+import { fsWith, WORKTREES_DIR, testConfig, testLayout } from "./support.js";
 
-const WORKTREE = join(SANDCASTLE_DIR, "worktrees", "api", "integration-toy-demo");
+const WORKTREE = join(WORKTREES_DIR, "api", "integration-toy-demo");
 const API = join("W:", "work", "acme", "api");
 const HOST_GIT_DIR = `${API}\\.git\\worktrees\\integration-toy-demo`;
 

@@ -5,6 +5,7 @@ import type { PullRequestRef } from "../ghClient.js";
 import { integrationBase } from "../../project/projectConfig.js";
 import { landAgentWork, type IntegrationHarness } from "../integrationHarness.js";
 import { buildPolishPrompt } from "../promptBuilder.js";
+import { messageOf } from "../../messageOf.js";
 
 export type PolishPhase = "idle" | "running" | "green" | "reverted" | "skipped";
 
@@ -50,10 +51,6 @@ type PolishResult =
 
 export function idlePolish(phase: PolishPhase = "idle", reason?: string): PolishStatus {
   return { phase, pullRequests: [], reason };
-}
-
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function hasPolishSection(body: string): boolean {

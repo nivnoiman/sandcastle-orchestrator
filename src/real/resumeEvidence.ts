@@ -4,6 +4,7 @@ import type { StageLabel } from "../engine/adapters.js";
 import type { RunModel, TargetRepo } from "../model/runModel.js";
 import type { PullRequestRef } from "./ghClient.js";
 import { hasPrSection, reworkBriefsIn } from "./stageAudit.js";
+import { messageOf } from "../messageOf.js";
 
 export interface ResumeEvidenceSources {
   stageLabels(itemNumber: number): StageLabel[];
@@ -43,7 +44,7 @@ function trustable(entry: ResumeEvidence, admission: RunModel["items"][number]["
   } catch (cause) {
     sources.warn(
       entry.itemNumber,
-      `stage labels [${entry.stageLabels.join(", ")}] cannot be resumed from (${cause instanceof Error ? cause.message : String(cause)}) — placing it from its pull request instead`,
+      `stage labels [${entry.stageLabels.join(", ")}] cannot be resumed from (${messageOf(cause)}) — placing it from its pull request instead`,
     );
     return { ...entry, stageLabels: [] };
   }

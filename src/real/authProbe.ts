@@ -1,10 +1,11 @@
 import { agentWaitFrom, type WaitReason } from "./agentFailure.js";
 import { runWithIdleTimeout, type CommandRunner } from "./commandRunner.js";
 import { execRequest, removeContainer, stageContainerName, startContainer, SANDBOX_WORKDIR } from "./docker.js";
-import type { OrchestratorConfig } from "./env.js";
+import { agentAuthEnv, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import type { SandcastleLayout } from "./paths.js";
 import { claudeCommand, claudeHomeMounts, hydrateHomeCommand, withContainerEnvFile } from "./sandboxRunner.js";
+import { messageOf } from "../messageOf.js";
 
 export const PROBE_ITEM_NUMBER = 0;
 export const PROBE_TIMEOUT_SECONDS = 180;
@@ -31,14 +32,10 @@ function probeContainerName(deps: AuthProbeDeps): string {
   return stageContainerName("probe", PROBE_ITEM_NUMBER, stamp);
 }
 
-function probeEnv(config: OrchestratorConfig): Record<string, string> {
-  return config.anthropicApiKey ? { ANTHROPIC_API_KEY: config.anthropicApiKey } : {};
-}
-
 export async function probeAgentAuth(deps: AuthProbeDeps): Promise<AuthProbeResult> {
   const container = probeContainerName(deps);
   const timeout = deps.timeoutSeconds ?? PROBE_TIMEOUT_SECONDS;
-  withContainerEnvFile(deps.fs, probeEnv(deps.config), (envFile) => {
+  withContainerEnvFile(deps.fs, agentAuthEnv(deps.config), (envFile) => {
     startContainer(deps.runner, {
       name: container,
       image: deps.config.imageTag,
@@ -58,7 +55,7 @@ export async function probeAgentAuth(deps: AuthProbeDeps): Promise<AuthProbeResu
   } catch (cause) {
     const waiting = agentWaitFrom(cause);
     if (waiting) return { ok: false, reason: waiting.reason, detail: waiting.detail };
-    return { ok: false, reason: "other", detail: cause instanceof Error ? cause.message : String(cause) };
+    return { ok: false, reason: "other", detail: messageOf(cause) };
   } finally {
     removeProbeContainer(deps, container);
   }
@@ -69,7 +66,7 @@ function removeProbeContainer(deps: AuthProbeDeps, container: string): void {
     removeContainer(deps.runner, container);
   } catch (cause) {
     deps.log?.(
-      `[auth] the probe container ${container} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) —` +
+      `[auth] the probe container ${container} could not be removed (${messageOf(cause)}) —` +
         " the next gc collects it",
     );
   }

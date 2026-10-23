@@ -9,6 +9,10 @@ if (!parentArg || !hubRepo || !capArg || !portArg) {
 }
 const parent = Number(parentArg);
 const cap = Number(capArg);
+if (![parent, cap, Number(portArg)].every((value) => Number.isSafeInteger(value) && value > 0)) {
+  console.error(`parent, cap and port must be positive integers, got ${parentArg} ${capArg} ${portArg}`);
+  process.exit(2);
+}
 const base = `http://127.0.0.1:${portArg}`;
 const sandcastleDir = join(import.meta.dirname, "..");
 const restarts: number[] = [];
@@ -44,7 +48,7 @@ async function restartRun(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-  log("the restarted ui never answered — run `npm run ops -- launch` by hand");
+  log("the restarted ui never answered — run `sandcastle launch` by hand");
 }
 
 for (;;) {

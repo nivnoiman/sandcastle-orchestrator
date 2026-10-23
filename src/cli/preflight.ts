@@ -5,9 +5,10 @@ import { NodeCommandRunner } from "../real/commandRunner.js";
 import { loadOrchestratorConfig, resolveLayout } from "../real/env.js";
 import { nodeFileSystem } from "../real/fileSystem.js";
 import { runPreflight } from "../real/preflight.js";
+import { messageOf } from "../messageOf.js";
 
 const USAGE = [
-  "usage: npm run preflight -- <parent-issue> [owner/repo] [--skip-verify]",
+  "usage: sandcastle preflight <parent-issue> [owner/repo] [--skip-verify]",
   "  runs every start-time check without taking the lock or spending tokens on a run",
 ].join("\n");
 
@@ -29,7 +30,7 @@ const config = (() => {
   try {
     return loadOrchestratorConfig(fs, layout, { hubRepo });
   } catch (cause) {
-    console.error(`preflight RED — ${cause instanceof Error ? cause.message : String(cause)}`);
+    console.error(`preflight RED — ${messageOf(cause)}`);
     process.exit(1);
   }
 })();
