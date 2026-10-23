@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
 
-export const CONFIG_FILE = "sandcastle.config.json";
+/** The per-project folder at the project root: `config.json` (committed) and, by default, the project's state. */
+export const PROJECT_FOLDER = ".sandcastle";
+export const CONFIG_FILE = "config.json";
+/** `.sandcastle/config.json`, for messages. */
+export const CONFIG_HINT = `${PROJECT_FOLDER}/${CONFIG_FILE}`;
+export const DEFAULT_UI_PORT = 7777;
 const DEFAULT_INTEGRATION_BASE = "dev";
 const DEFAULT_IMAGE_TAG = "sandcastle:latest";
 export const DEFAULT_MONGO_IMAGE = "mongo:7";
@@ -48,9 +53,14 @@ export interface ComposeVerify {
 
 export type VerifyStrategy = NoVerify | CommandVerify | ComposeVerify;
 
+export interface UiConfig {
+  port: number;
+}
+
 export interface ProjectConfig {
   name: string;
   configPath: string;
+  projectRoot: string;
   hubRepo: string;
   integrationBase: string;
   imageTag: string;
@@ -58,6 +68,7 @@ export interface ProjectConfig {
   stateDir: string | undefined;
   repos: Record<string, RepoConfig>;
   verify: VerifyStrategy;
+  ui: UiConfig;
 }
 
 type Json = Record<string, unknown>;
@@ -92,12 +103,26 @@ function slug(value: string, where: string): string {
   return value;
 }
 
+/** The directory holding `.sandcastle/`; a config file outside a `.sandcastle` folder roots the project at its own folder. */
+export function projectRootOf(configPath: string): string {
+  const configDir = dirname(resolve(configPath));
+  return basename(configDir) === PROJECT_FOLDER ? dirname(configDir) : configDir;
+}
+
+/** A TCP port (1–65535), or an error naming where the bad value came from. */
+export function tcpPort(value: unknown, where: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error(`${where} must be a tcp port (1-65535), got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
 /** Claude Code's per-project folder name: every non-alphanumeric character becomes "-". */
 export function claudeProjectSlug(path: string): string {
   return resolve(path).replace(/[^A-Za-z0-9]/g, "-");
 }
 
-function parseRepo(name: string, raw: unknown, configDir: string, hubRepo: string): RepoConfig {
+function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: string): RepoConfig {
   const where = `repos.${name}`;
   if (!REPO_NAME.test(name)) throw new Error(`${where}: repo names are lower-case kebab (they become repo:<name> labels)`);
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
@@ -105,7 +130,7 @@ function parseRepo(name: string, raw: unknown, configDir: string, hubRepo: strin
   const rawPath = optionalString(raw, "path", where) ?? (github === hubRepo ? "." : join("..", name));
   return {
     github,
-    path: resolve(configDir, rawPath),
+    path: resolve(projectRoot, rawPath),
     bootstrap: optionalString(raw, "bootstrap", where) ?? "",
     checks: requiredString(raw, "checks", where),
   };
@@ -114,10 +139,7 @@ function parseRepo(name: string, raw: unknown, configDir: string, hubRepo: strin
 function parseService(repo: string, raw: unknown): VerifyService {
   const where = `verify.services.${repo}`;
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  const port = raw["port"];
-  if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`${where}.port must be a tcp port`);
-  }
+  const port = tcpPort(raw["port"], `${where}.port`);
   return {
     build: requiredString(raw, "build", where),
     seed: optionalString(raw, "seed", where) ?? "",
@@ -194,15 +216,22 @@ function parseVerify(raw: unknown, repos: Record<string, RepoConfig>): VerifyStr
   throw new Error(`verify.strategy must be "none", "command" or "compose", got ${JSON.stringify(strategy)}`);
 }
 
+function parseUi(raw: unknown): UiConfig {
+  if (raw === undefined) return { port: DEFAULT_UI_PORT };
+  if (!isObject(raw)) throw new Error("ui must be an object");
+  const port = raw["port"];
+  return { port: port === undefined ? DEFAULT_UI_PORT : tcpPort(port, "ui.port") };
+}
+
 export function parseProjectConfig(raw: unknown, configPath: string): ProjectConfig {
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
-  const configDir = dirname(configPath);
+  const projectRoot = projectRootOf(configPath);
   const hubRepo = slug(requiredString(raw, "hubRepo", "config"), "hubRepo");
   if (!isObject(raw["repos"]) || Object.keys(raw["repos"]).length === 0) {
     throw new Error("repos must name at least one repo");
   }
   const repos: Record<string, RepoConfig> = {};
-  for (const [name, value] of Object.entries(raw["repos"])) repos[name] = parseRepo(name, value, configDir, hubRepo);
+  for (const [name, value] of Object.entries(raw["repos"])) repos[name] = parseRepo(name, value, projectRoot, hubRepo);
   const explicitName = optionalString(raw, "name", "config");
   const name = explicitName ?? hubRepo.split("/")[1]!;
   if (!REPO_NAME.test(name)) {
@@ -213,13 +242,15 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
   return {
     name,
     configPath,
+    projectRoot,
     hubRepo,
     integrationBase: optionalString(raw, "integrationBase", "config") ?? DEFAULT_INTEGRATION_BASE,
     imageTag: optionalString(raw, "imageTag", "config") ?? DEFAULT_IMAGE_TAG,
     memoryProject: optionalString(raw, "memoryProject", "config"),
-    stateDir: stateDir === undefined ? undefined : resolve(configDir, stateDir),
+    stateDir: stateDir === undefined ? undefined : resolve(projectRoot, stateDir),
     repos,
     verify: parseVerify(raw["verify"], repos),
+    ui: parseUi(raw["ui"]),
   };
 }
 
@@ -232,7 +263,7 @@ export function readProjectConfig(path: string): ProjectConfig {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
       throw new Error(`cannot read ${absolute} — ${messageOf(cause)}`, { cause });
     }
-    throw new Error(`no sandcastle project config at ${absolute} — pass --config=<path to ${CONFIG_FILE}> or set SANDCASTLE_CONFIG`);
+    throw new Error(`no sandcastle project config at ${absolute} — pass --config=<project root or ${CONFIG_HINT}>, set SANDCASTLE_CONFIG, or run sandcastle init in the project root`);
   }
   let raw: unknown;
   try {
@@ -254,7 +285,7 @@ export function setActiveProject(project: ProjectConfig): void {
 }
 
 export function activeProject(): ProjectConfig {
-  if (!active) throw new Error(`no sandcastle project loaded — pass --config=<path to ${CONFIG_FILE}> or set SANDCASTLE_CONFIG`);
+  if (!active) throw new Error(`no sandcastle project loaded — pass --config=<project root or ${CONFIG_HINT}> or set SANDCASTLE_CONFIG`);
   return active;
 }
 

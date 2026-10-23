@@ -33,7 +33,7 @@ import { messageOf } from "../src/messageOf.js";
 const project = bootProject();
 const repoArg = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? knownRepos()[0]!;
 if (!isTargetRepo(repoArg)) {
-  console.error(`usage: npm run smoke -- [${knownRepos().join("|")}] [--config=path]`);
+  console.error(`usage: sandcastle smoke [${knownRepos().join("|")}] [--config=path]`);
   process.exit(2);
 }
 const repo = repoArg;

@@ -48,7 +48,7 @@ async function restartRun(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-  log("the restarted ui never answered — run `npm run ops -- launch` by hand");
+  log("the restarted ui never answered — run `sandcastle launch` by hand");
 }
 
 for (;;) {

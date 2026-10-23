@@ -12,7 +12,7 @@ const source = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? pro
 
 if (!source) {
   console.error(
-    "usage: npm run sync-claude -- <source .claude dir>\n" +
+    "usage: sandcastle sync-claude <source .claude dir>\n" +
       "  or set SANDCASTLE_CLAUDE_SOURCE in .env.orchestrator (e.g. /mnt/c/Users/<you>/.claude)",
   );
   process.exit(2);

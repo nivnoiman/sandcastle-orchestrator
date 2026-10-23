@@ -8,7 +8,7 @@ import { epilogueLines, featureVerifyLines, polishLines, stallLine } from "./rep
 import { messageOf } from "../messageOf.js";
 
 const USAGE = [
-  "usage: npm run start -- <parent-issue> [owner/repo] [--cap=N] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--dry-run]",
+  "usage: sandcastle start <parent-issue> [owner/repo] [--cap=N] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--dry-run]",
   "  --cap=N            concurrent workers (default 1)",
   "  --interval=N       parent-issue poll interval in seconds (default 45)",
   "  --idle-timeout=N   per-agent idle timeout in seconds (default SANDCASTLE_IDLE_TIMEOUT or 1200, clamped to [60, 7200])",

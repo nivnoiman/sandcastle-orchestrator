@@ -14,7 +14,7 @@ import { processIsAlive } from "../real/lock.js";
 import { defaultLayout } from "../real/paths.js";
 import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
 import { parentList, UiController, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
-import { DEFAULT_UI_PORT, startUiServer } from "../ui/server.js";
+import { resolveUiPort, startUiServer } from "../ui/server.js";
 import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js";
 import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
@@ -25,14 +25,14 @@ import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 const TICK_MS = 250;
 
 const USAGE = [
-  "usage: npm run ui -- <fixture.json | parent-issue> [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
+  "usage: sandcastle ui <fixture.json | parent-issue> [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
   "  <fixture.json>     paced dry run — no docker, no gh writes, no tokens",
   "  <parent-issue>     real run against the hub (add --dry for a paced simulation of that parent)",
   "  --cap=N            worker cap per run: how many tasks of one parent run at once (default 1)",
   "  --parallel=N       queue runs up to N parents at once (overrides the saved queue mode)",
   "  --sequential       queue runs one parent at a time (overrides the saved queue mode)",
   "  --global-cap=N     workers across every parent (default --cap, or the saved global cap)",
-  "  --port=N           ui port (default 7777, or SANDCASTLE_UI_PORT)",
+  "  --port=N           ui port (default SANDCASTLE_UI_PORT, then ui.port in the project config, then 7777)",
   "  --fail=17:review   dry mode only — fail that item's stage once, so park/retry is demoable",
 ].join("\n");
 
@@ -74,7 +74,13 @@ const globalCapFlag = optionalFlagNumber(args, "global-cap");
 
 if (args.includes("--parallel")) fail("--parallel needs a count: --parallel=N");
 if (parallelLimit !== undefined && sequential) fail("--parallel and --sequential cannot both be set");
-const port = flagNumber(args, "port", DEFAULT_UI_PORT);
+const port = (() => {
+  try {
+    return resolveUiPort(args, process.env, project.ui.port);
+  } catch (cause) {
+    return fail(messageOf(cause));
+  }
+})();
 const pollIntervalSeconds = flagNumber(args, "interval", 45);
 const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
 const skipGc = args.includes("--skip-gc");

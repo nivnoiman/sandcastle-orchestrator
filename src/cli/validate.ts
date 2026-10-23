@@ -5,7 +5,7 @@ import { loadRunModel } from "../model/runModel.js";
 const project = bootProject();
 const [issueArg, repoArg] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 if (!issueArg || !/^\d+$/.test(issueArg)) {
-  console.error("usage: npm run validate -- <parent-issue-number> [owner/repo]");
+  console.error("usage: sandcastle validate <parent-issue-number> [owner/repo]");
   process.exit(2);
 }
 

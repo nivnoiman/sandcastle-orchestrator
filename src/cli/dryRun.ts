@@ -11,7 +11,7 @@ const positional = args.filter((arg) => !arg.startsWith("--"));
 const [source, repoArg] = positional;
 
 if (!source) {
-  console.error("usage: npm run dry-run -- <fixture.json | parent-issue-number> [owner/repo] [--cap=N]");
+  console.error("usage: sandcastle dry-run <fixture.json | parent-issue-number> [owner/repo] [--cap=N]");
   process.exit(2);
 }
 

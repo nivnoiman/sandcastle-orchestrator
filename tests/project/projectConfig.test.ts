@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadRunModel } from "../../src/model/runModel.js";
 import { configPathFrom } from "../../src/project/boot.js";
@@ -14,7 +14,8 @@ import { containerPrefix, isOrchestratorContainer, stageContainerName } from "..
 import { memoryProjectSuffix } from "../../src/real/paths.js";
 import { TEST_PROJECT } from "../setup.js";
 
-const CONFIG_PATH = resolve("/work/myapp/sandcastle.config.json");
+const PROJECT_ROOT = resolve("/work/myapp");
+const CONFIG_PATH = join(PROJECT_ROOT, ".sandcastle", "config.json");
 
 const SINGLE_REPO = {
   hubRepo: "acme/myapp",
@@ -25,12 +26,13 @@ const SINGLE_REPO = {
 afterEach(() => setActiveProject(TEST_PROJECT));
 
 describe("parseProjectConfig", () => {
-  it("defaults a single-repo project to the config's own folder, dev as base and the hub's name", () => {
+  it("defaults a single-repo project to the project root, dev as base and the hub's name", () => {
     const project = parseProjectConfig(SINGLE_REPO, CONFIG_PATH);
     expect(project.name).toBe("myapp");
     expect(project.integrationBase).toBe("dev");
     expect(project.imageTag).toBe("sandcastle:latest");
-    expect(project.repos["myapp"]?.path).toBe(dirname(CONFIG_PATH));
+    expect(project.projectRoot).toBe(PROJECT_ROOT);
+    expect(project.repos["myapp"]?.path).toBe(PROJECT_ROOT);
     expect(project.verify).toEqual({ strategy: "command", commands: { myapp: "pnpm test && pnpm zip" }, agent: true });
   });
 
@@ -139,7 +141,7 @@ describe("the active project", () => {
 
   it("derives the memory folder Claude Code uses for the project folder, unless one is named", () => {
     setActiveProject(parseProjectConfig(SINGLE_REPO, CONFIG_PATH));
-    expect(memoryProjectSuffix()).toBe(join("projects", claudeProjectSlug(dirname(CONFIG_PATH)), "memory"));
+    expect(memoryProjectSuffix()).toBe(join("projects", claudeProjectSlug(PROJECT_ROOT), "memory"));
     if (process.platform === "win32") expect(claudeProjectSlug("C:\\src\\my-app")).toBe("C--src-my-app");
     else expect(claudeProjectSlug("/src/my-app")).toBe("-src-my-app");
     setActiveProject(TEST_PROJECT);
@@ -149,14 +151,14 @@ describe("the active project", () => {
 
 describe("configPathFrom", () => {
   it("prefers --config, then SANDCASTLE_CONFIG", () => {
-    expect(configPathFrom(["1", "--config=/x/sandcastle.config.json"], { SANDCASTLE_CONFIG: "/y" })).toBe(resolve("/x/sandcastle.config.json"));
+    expect(configPathFrom(["1", "--config=/x/.sandcastle/config.json"], { SANDCASTLE_CONFIG: "/y" })).toBe(resolve("/x/.sandcastle/config.json"));
     expect(configPathFrom(["1"], { SANDCASTLE_CONFIG: "/y" })).toBe(resolve("/y"));
     expect(() => configPathFrom([], {}, "/nowhere-at-all")).toThrow(/--config/);
   });
 
   it("resolves a relative path against where npm was invoked and rejects --config without a value", () => {
-    expect(configPathFrom(["--config=app/sandcastle.config.json"], { INIT_CWD: resolve("/home/me") })).toBe(
-      resolve("/home/me/app/sandcastle.config.json"),
+    expect(configPathFrom(["--config=app/.sandcastle/config.json"], { INIT_CWD: resolve("/home/me") })).toBe(
+      resolve("/home/me/app/.sandcastle/config.json"),
     );
     expect(() => configPathFrom(["--config", "x.json"], {})).toThrow(/needs a value/);
     expect(() => configPathFrom(["--config="], {})).toThrow(/empty/);

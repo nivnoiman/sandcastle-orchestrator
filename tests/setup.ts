@@ -38,7 +38,7 @@ export const TEST_PROJECT = parseProjectConfig(
       },
     },
   },
-  "/projects/hub/sandcastle.config.json",
+  "/projects/hub/.sandcastle/config.json",
 );
 
 setActiveProject(TEST_PROJECT);

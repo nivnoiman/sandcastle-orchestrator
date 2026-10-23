@@ -8,7 +8,7 @@ import { runPreflight } from "../real/preflight.js";
 import { messageOf } from "../messageOf.js";
 
 const USAGE = [
-  "usage: npm run preflight -- <parent-issue> [owner/repo] [--skip-verify]",
+  "usage: sandcastle preflight <parent-issue> [owner/repo] [--skip-verify]",
   "  runs every start-time check without taking the lock or spending tokens on a run",
 ].join("\n");
 

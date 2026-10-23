@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import type { TargetRepo } from "../../../src/model/runModel.js";
 import type { VerifyWorktrees } from "../../../src/real/gitOps.js";
-import { SANDCASTLE_DIR } from "../support.js";
+import { WORKTREES_DIR } from "../support.js";
 
 export const VERIFY_SLUG = "verify-integration-toy-demo";
 
 export function verifyWorktree(repo: TargetRepo): string {
-  return join(SANDCASTLE_DIR, "worktrees", repo, VERIFY_SLUG);
+  return join(WORKTREES_DIR, repo, VERIFY_SLUG);
 }
 
 export class FakeWorktrees implements VerifyWorktrees {

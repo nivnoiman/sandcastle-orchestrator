@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { CommandFailure } from "../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import { collectOrphans } from "../../src/real/gc.js";
-import { fsWith, repoDir, SANDCASTLE_DIR, testLayout } from "./support.js";
+import { fsWith, repoDir, WORKTREES_DIR, testLayout } from "./support.js";
 
 const API = repoDir("api");
-const MANAGED = join(SANDCASTLE_DIR, "worktrees", "api", "feat-17-toy-slice");
+const MANAGED = join(WORKTREES_DIR, "api", "feat-17-toy-slice");
 const FOREIGN = join("W:", "work", "acme", "api-hotfix");
 
 function worktreeListing(...paths: string[]): string {

@@ -6,18 +6,28 @@ import { parseAttemptId } from "../real/attemptLog.js";
 import type { UiController } from "./controller.js";
 import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
 import { messageOf } from "../messageOf.js";
+import { DEFAULT_UI_PORT, tcpPort } from "../project/projectConfig.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
-export const DEFAULT_UI_PORT = uiPortFrom(process.env["SANDCASTLE_UI_PORT"]);
+export { DEFAULT_UI_PORT };
 
-function uiPortFrom(raw: string | undefined): number {
-  if (raw === undefined || raw.trim().length === 0) return 7777;
+function portSetting(raw: string, where: string): number {
   const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`SANDCASTLE_UI_PORT="${raw}" is not a tcp port`);
+  if (raw.trim().length === 0 || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${where}="${raw}" is not a tcp port (1-65535)`);
   }
   return port;
 }
+
+/** The control plane port: `--port=N`, then `SANDCASTLE_UI_PORT`, then the project's `ui.port` (default 7777). */
+export function resolveUiPort(args: readonly string[], env: NodeJS.ProcessEnv, configured: number = DEFAULT_UI_PORT): number {
+  const flag = args.find((arg) => arg.startsWith("--port="));
+  if (flag !== undefined) return portSetting(flag.slice("--port=".length), "--port");
+  const fromEnv = env["SANDCASTLE_UI_PORT"];
+  if (fromEnv !== undefined && fromEnv.trim().length > 0) return portSetting(fromEnv, "SANDCASTLE_UI_PORT");
+  return tcpPort(configured, "ui.port");
+}
+
 export const UI_HOST = "127.0.0.1";
 export const SANDCASTLE_HEADER = "x-sandcastle";
 

@@ -5,9 +5,13 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Issue-driven multi-agent orchestrator: GitHub sub-issues in, verified integration pull requests out",
+  "bin": {
+    "sandcastle": "bin/sandcastle.mjs"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "init": "tsx src/cli/init.ts",
     "validate": "tsx src/cli/validate.ts",
     "dry-run": "tsx src/cli/dryRun.ts",
     "reset": "tsx src/cli/reset.ts",
