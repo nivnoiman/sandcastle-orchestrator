@@ -3,14 +3,13 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { invocationDir } from "../project/boot.js";
-import { CONFIG_FILE, CONFIG_HINT, PROJECT_FOLDER, tcpPort } from "../project/projectConfig.js";
+import { CONFIG_FILE, CONFIG_HINT, isRepoSlug, PROJECT_FOLDER, tcpPort } from "../project/projectConfig.js";
 import {
   buildInitConfig,
   detectPackageManager,
   firstFreePort,
   guessRepoCommands,
   hubFromRemote,
-  isRepoSlug,
   STATE_GITIGNORE,
 } from "../project/scaffold.js";
 import { ORCHESTRATOR_ENV_FILE } from "../real/env.js";
@@ -116,8 +115,9 @@ const config = buildInitConfig({ hubRepo, commands, port });
 
 mkdirSync(folder, { recursive: true });
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-writeFileSync(join(folder, ".gitignore"), STATE_GITIGNORE);
-const created = [configPath, join(folder, ".gitignore")];
+const ignorePath = join(folder, ".gitignore");
+writeFileSync(ignorePath, STATE_GITIGNORE);
+const created = [configPath, ignorePath];
 for (const secret of SECRET_FILES) {
   const target = join(folder, secret.target);
   if (existsSync(target)) continue;

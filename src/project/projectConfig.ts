@@ -98,8 +98,12 @@ function stringMap(raw: unknown, where: string): Record<string, string> {
   return raw as Record<string, string>;
 }
 
+export function isRepoSlug(value: string): boolean {
+  return SLUG.test(value);
+}
+
 function slug(value: string, where: string): string {
-  if (!SLUG.test(value)) throw new Error(`${where} must be "owner/name", got "${value}"`);
+  if (!isRepoSlug(value)) throw new Error(`${where} must be "owner/name", got "${value}"`);
   return value;
 }
 
@@ -109,9 +113,13 @@ export function projectRootOf(configPath: string): string {
   return basename(configDir) === PROJECT_FOLDER ? dirname(configDir) : configDir;
 }
 
+export function isTcpPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
 /** A TCP port (1–65535), or an error naming where the bad value came from. */
 export function tcpPort(value: unknown, where: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65535) {
+  if (!isTcpPort(value)) {
     throw new Error(`${where} must be a tcp port (1-65535), got ${JSON.stringify(value)}`);
   }
   return value;

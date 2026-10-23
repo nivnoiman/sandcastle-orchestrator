@@ -31,7 +31,7 @@ export function memoryProjectSuffix(): string {
 }
 
 /** Agent worktrees live outside every repo (`~/.sandcastle/worktrees/<project>`) so the project's own tooling never scans them. */
-export function defaultWorktreesDir(home: string): string {
+function defaultWorktreesDir(home: string): string {
   return join(home, PROJECT_FOLDER, "worktrees", activeProject().name);
 }
 

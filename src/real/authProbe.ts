@@ -32,14 +32,10 @@ function probeContainerName(deps: AuthProbeDeps): string {
   return stageContainerName("probe", PROBE_ITEM_NUMBER, stamp);
 }
 
-function probeEnv(config: OrchestratorConfig): Record<string, string> {
-  return agentAuthEnv(config);
-}
-
 export async function probeAgentAuth(deps: AuthProbeDeps): Promise<AuthProbeResult> {
   const container = probeContainerName(deps);
   const timeout = deps.timeoutSeconds ?? PROBE_TIMEOUT_SECONDS;
-  withContainerEnvFile(deps.fs, probeEnv(deps.config), (envFile) => {
+  withContainerEnvFile(deps.fs, agentAuthEnv(deps.config), (envFile) => {
     startContainer(deps.runner, {
       name: container,
       image: deps.config.imageTag,

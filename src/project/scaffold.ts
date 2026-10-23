@@ -1,12 +1,11 @@
-import { DEFAULT_UI_PORT } from "./projectConfig.js";
+import { CONFIG_FILE, CONFIG_HINT, DEFAULT_UI_PORT } from "./projectConfig.js";
 
 /** `.sandcastle/.gitignore`: only the config is committed — env files, logs, lock and queue stay local. */
-export const STATE_GITIGNORE = ["*", "!.gitignore", "!config.json", ""].join("\n");
+export const STATE_GITIGNORE = ["*", "!.gitignore", `!${CONFIG_FILE}`, ""].join("\n");
 
-export const NO_CHECKS = "echo set checks in .sandcastle/config.json && exit 1";
+export const NO_CHECKS = `echo set checks in ${CONFIG_HINT} && exit 1`;
 
 const CHECK_SCRIPTS = ["typecheck", "test", "build"] as const;
-const SLUG = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const GITHUB_REMOTE = /github\.com[:/]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/;
 
 export type PackageManager = "pnpm" | "yarn" | "npm";
@@ -59,10 +58,6 @@ export function hubFromRemote(url: string): string | undefined {
   const match = GITHUB_REMOTE.exec(url.trim());
   if (!match) return undefined;
   return `${match[1]}/${match[2]}`;
-}
-
-export function isRepoSlug(value: string): boolean {
-  return SLUG.test(value);
 }
 
 /** The lower-kebab repo name the config uses for the hub's code (the `repo:<name>` label). */

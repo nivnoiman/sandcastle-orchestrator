@@ -6,14 +6,13 @@ import { parseAttemptId } from "../real/attemptLog.js";
 import type { UiController } from "./controller.js";
 import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
 import { messageOf } from "../messageOf.js";
-import { DEFAULT_UI_PORT, tcpPort } from "../project/projectConfig.js";
+import { DEFAULT_UI_PORT, isTcpPort, tcpPort } from "../project/projectConfig.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
-export { DEFAULT_UI_PORT };
 
 function portSetting(raw: string, where: string): number {
   const port = Number(raw);
-  if (raw.trim().length === 0 || !Number.isInteger(port) || port < 1 || port > 65535) {
+  if (raw.trim().length === 0 || !isTcpPort(port)) {
     throw new Error(`${where}="${raw}" is not a tcp port (1-65535)`);
   }
   return port;
