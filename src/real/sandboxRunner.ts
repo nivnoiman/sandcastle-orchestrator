@@ -1,0 +1,844 @@
+import { join } from "node:path";
+import { assertGitControlUnchanged, snapshotGitControl } from "./gitGuard.js";
+import type {
+  SandboxRunner,
+  ResolveRequest,
+  ReworkContext,
+  ReworkRequest,
+  SpawnRequest,
+  StageCompletion,
+  StageName,
+  StageOutcome,
+  VerifyRequest,
+} from "../engine/adapters.js";
+import { reworkRoundOf } from "../engine/rework.js";
+import { boundedTail, fencedBlock } from "../markdown.js";
+import type { TargetRepo } from "../model/runModel.js";
+import { agentWaitFrom, commandFailureDetail, isAgentWait, transientWaitFrom } from "./agentFailure.js";
+import type { AttemptLogStore, AttemptWriter } from "./attemptLog.js";
+import {
+  isAgentIdleTimeout,
+  runWithIdleTimeout,
+  type CommandRunner,
+} from "./commandRunner.js";
+import {
+  assertDockerReady,
+  execAsRoot,
+  execRequest,
+  removeContainer,
+  renderEnvFile,
+  stageContainerName,
+  startContainer,
+  SANDBOX_WORKDIR,
+  type ContainerSpec,
+  type Mount,
+} from "./docker.js";
+import { bootstrapScript, checkCommand, salvageIdleTimeout, stageModel, type OrchestratorConfig } from "./env.js";
+import type { FileSystemPort } from "./fileSystem.js";
+import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
+import type { PullRequestOps } from "./ghClient.js";
+import { claudeJsonPath, CONTAINER_HOME, repoRoot, toDockerPath, worktreePath, type SandcastleLayout } from "./paths.js";
+import { buildResolvePrompt, buildSalvagePrompt, buildStagePrompt, pullRequestTitle } from "./promptBuilder.js";
+import type { RunContext } from "./runContext.js";
+import { containerSkillPath, REQUIRED_SKILLS } from "./skills.js";
+import {
+  hasPrSection,
+  hasTestFirstCommit,
+  isFreshEyesStage,
+  needsReworkStory,
+  orphanedStageSection,
+  prSectionHeading,
+  reworkBriefSection,
+  reworkBriefSentinel,
+  STAGE_COMMIT_TAG,
+  taggedCommitSubjects,
+  unfixableReason,
+  type FreshEyesStage,
+} from "./stageAudit.js";
+
+export const CONTAINER_GITDIR = "/home/agent/gitdir";
+export const HOST_CLAUDE_DIR = `${CONTAINER_HOME}/.claude-host`;
+export const HOST_CLAUDE_JSON = `${CONTAINER_HOME}/.claude-host.json`;
+export const CHECK_OUTPUT_TAIL = 4000;
+const VERIFY_STORY_OUTPUT_LIMIT = 3000;
+export const HYDRATE_COPIED_ENTRIES = [
+  "CLAUDE.md",
+  "settings.json",
+  "settings.local.json",
+  ".credentials.json",
+  "agents",
+  "commands",
+  "hooks",
+  "skills",
+] as const;
+export const CONTAINER_AUTOCRLF = "true";
+export const SOURCE_DIR = `${CONTAINER_HOME}/source`;
+export const CONTAINER_LOCAL_ENTRIES = ["node_modules", ".jest-cache"] as const;
+
+export type WorkspaceMode = "bind" | "copy";
+
+const GIT_DIR_MARKER = "/.git/";
+const MODEL_NAME = /^[A-Za-z0-9._-]+$/;
+const CLAUDE_FLAGS = ["--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"];
+const AGENT_IDENTITY = { name: "sandcastle agent", email: "noreply@anthropic.com" };
+
+export interface SandboxRunnerDeps {
+  runner: CommandRunner;
+  fs: FileSystemPort;
+  layout: SandcastleLayout;
+  config: OrchestratorConfig;
+  gh: PullRequestOps;
+  context: RunContext;
+  log: (message: string) => void;
+  warn: (itemNumber: number, message: string) => void;
+  onComplete: (completion: StageCompletion) => void;
+  logs?: AttemptLogStore | undefined;
+  now?: () => number;
+}
+
+interface SalvageDecision {
+  kind: "run" | "skip" | "abandon";
+  reason: string;
+}
+
+interface StageResult {
+  outcome: StageOutcome;
+  pullRequestUrl?: string;
+  resolved?: boolean;
+  detail?: string;
+  rework?: ReworkRequest;
+}
+
+export class StageCancelledError extends Error {
+  constructor(readonly attempt: string) {
+    super(`stage attempt ${attempt} was cancelled by the operator`);
+    this.name = "StageCancelledError";
+  }
+}
+
+export class CheckFailure extends Error {
+  constructor(
+    readonly checks: string,
+    readonly outputTail: string,
+    cause: unknown,
+  ) {
+    super(`checks failed (${checks}): ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "CheckFailure";
+  }
+}
+
+export function verifyReworkStory(request: VerifyRequest, failure: CheckFailure, subjects: readonly string[]): string {
+  const commits = subjects.length > 0 ? subjects.map((subject) => `- \`${subject}\``) : ["- _none found_"];
+  const output = failure.outputTail.trim() || failure.message;
+  return [
+    "### What happened",
+    `The verify gate rebased \`${request.branch}\` onto \`origin/${request.integrationBranch}\`, copied it into a clean container, and ran the merge checks: \`${failure.checks}\`. They failed, so the item cannot merge.`,
+    "",
+    "### Why it matters",
+    `Nothing merges into \`${request.integrationBranch}\` red: every sibling item builds on top of it, and Feature Verify tests the assembled result. A check that fails only after the rebase means the branch no longer fits what siblings already merged.`,
+    "",
+    "### What the branch contains (newest first)",
+    ...commits,
+    "",
+    "### Evidence — the last output of the checks",
+    fencedBlock(boundedTail(output, VERIFY_STORY_OUTPUT_LIMIT)),
+    "",
+    "### What a fix must achieve",
+    `\`${failure.checks}\` passes on top of \`origin/${request.integrationBranch}\`, without skipping, deleting or weakening a test, a lint rule or a type.`,
+  ].join("\n");
+}
+
+export function claudeCommand(model: string): string {
+  if (!MODEL_NAME.test(model)) throw new Error(`refusing to run an unquotable model name: ${JSON.stringify(model)}`);
+  return ["claude", "-p", "--model", model, ...CLAUDE_FLAGS].join(" ");
+}
+
+export function hydrateHomeCommand(): string {
+  const copied = HYDRATE_COPIED_ENTRIES.map((entry) => `./${entry}`).join(" ");
+  return [
+    "set -o pipefail",
+    `rm -rf ${CONTAINER_HOME}/.claude ${CONTAINER_HOME}/.claude.json`,
+    `mkdir -p ${CONTAINER_HOME}/.claude`,
+    `tar -C ${HOST_CLAUDE_DIR} --ignore-failed-read -cf - ${copied} | tar -C ${CONTAINER_HOME}/.claude -xf -`,
+    `cp -a --no-preserve=ownership ${HOST_CLAUDE_JSON} ${CONTAINER_HOME}/.claude.json`,
+    `git config --global core.autocrlf ${CONTAINER_AUTOCRLF}`,
+    ...REQUIRED_SKILLS.map((skill) => `test -f ${containerSkillPath(skill)}`),
+  ].join(" && ");
+}
+
+export function containerGitDir(absoluteGitDir: string): string {
+  const normalized = toDockerPath(absoluteGitDir);
+  const marker = normalized.lastIndexOf(GIT_DIR_MARKER);
+  if (marker < 0) {
+    throw new Error(
+      `git dir "${absoluteGitDir}" is not inside the repo's .git directory — sandcastle only mounts <repo>/.git into the container`,
+    );
+  }
+  return `${CONTAINER_GITDIR}/${normalized.slice(marker + GIT_DIR_MARKER.length)}`;
+}
+
+export function containerEnv(config: OrchestratorConfig, gitDir: string): Record<string, string> {
+  const env: Record<string, string> = {
+    GH_TOKEN: config.ghToken,
+    GIT_DIR: gitDir,
+    GIT_WORK_TREE: SANDBOX_WORKDIR,
+    GIT_AUTHOR_NAME: AGENT_IDENTITY.name,
+    GIT_AUTHOR_EMAIL: AGENT_IDENTITY.email,
+    GIT_COMMITTER_NAME: AGENT_IDENTITY.name,
+    GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
+    JEST_MAX_WORKERS: config.jestWorkers,
+  };
+  if (config.anthropicApiKey) env["ANTHROPIC_API_KEY"] = config.anthropicApiKey;
+  return env;
+}
+
+export function claudeHomeMounts(layout: SandcastleLayout): Mount[] {
+  return [
+    { hostPath: layout.claudeDir, containerPath: HOST_CLAUDE_DIR, readonly: true },
+    { hostPath: claudeJsonPath(layout), containerPath: HOST_CLAUDE_JSON, readonly: true },
+  ];
+}
+
+export function containerSpec(options: {
+  name: string;
+  image: string;
+  worktree: string;
+  repoGitDir: string;
+  layout: SandcastleLayout;
+  envFile: string;
+  workspace: WorkspaceMode;
+}): ContainerSpec {
+  const copied = options.workspace === "copy";
+  return {
+    name: options.name,
+    image: options.image,
+    workdir: SANDBOX_WORKDIR,
+    mounts: [
+      copied
+        ? { hostPath: options.worktree, containerPath: SOURCE_DIR, readonly: true }
+        : { hostPath: options.worktree, containerPath: SANDBOX_WORKDIR },
+      { hostPath: options.repoGitDir, containerPath: CONTAINER_GITDIR },
+      ...claudeHomeMounts(options.layout),
+    ],
+    anonymousVolumes: copied ? [] : containerLocalPaths(),
+    envFile: options.envFile,
+  };
+}
+
+export function containerLocalPaths(): string[] {
+  return CONTAINER_LOCAL_ENTRIES.map((entry) => `${SANDBOX_WORKDIR}/${entry}`);
+}
+
+export function claimWorkspaceCommand(workspace: WorkspaceMode): string {
+  const owned = workspace === "copy" ? [SANDBOX_WORKDIR] : containerLocalPaths();
+  return `mkdir -p ${owned.join(" ")} && chown agent:agent ${owned.join(" ")}`;
+}
+
+export function copyWorkspaceCommand(): string {
+  const excludes = CONTAINER_LOCAL_ENTRIES.map((entry) => `--exclude=./${entry}`).join(" ");
+  return `set -o pipefail && tar -C ${SOURCE_DIR} ${excludes} -cf - . | tar -C ${SANDBOX_WORKDIR} -xf -`;
+}
+
+export function withContainerEnvFile<T>(
+  fs: FileSystemPort,
+  env: Readonly<Record<string, string>>,
+  use: (envFile: string) => T,
+): T {
+  const directory = fs.makeTempDirectory("sandcastle-env-");
+  const envFile = join(directory, "container.env");
+  fs.writePrivateText(envFile, renderEnvFile(env));
+  try {
+    return use(envFile);
+  } finally {
+    fs.removeDirectory(directory);
+  }
+}
+
+export function outputTail(limit: number): { append: (chunk: string) => void; text: () => string } {
+  let collected = "";
+  return {
+    append: (chunk) => {
+      collected = (collected + chunk).slice(-limit);
+    },
+    text: () => collected,
+  };
+}
+
+export class DockerSandboxRunner implements SandboxRunner {
+  private dockerChecked = false;
+  private containerSequence = 0;
+  private attemptSequence = 0;
+  private readonly currentAttempt = new Map<number, string>();
+  private readonly cancelledAttempts = new Set<string>();
+  private readonly attemptContainers = new Map<string, string>();
+  private readonly attemptLogs = new Map<string, AttemptWriter>();
+
+  constructor(private readonly deps: SandboxRunnerDeps) {}
+
+  spawnStage(request: SpawnRequest): void {
+    this.deps.context.rememberBranch(request.itemNumber, request.branch);
+    this.launch(request.itemNumber, request.stage, (attempt) => this.runAgentStage(request, attempt));
+  }
+
+  spawnResolve(request: ResolveRequest): void {
+    this.deps.context.rememberBranch(request.itemNumber, request.branch);
+    this.launch(request.itemNumber, "verify", (attempt) => this.runResolve(request, attempt), "resolve");
+  }
+
+  kill(itemNumber: number): void {
+    const attempt = this.currentAttempt.get(itemNumber);
+    if (!attempt) {
+      this.deps.log(`#${itemNumber} cancelled but no stage attempt of its own is in flight`);
+      return;
+    }
+    this.cancelledAttempts.add(attempt);
+    const container = this.attemptContainers.get(attempt);
+    if (!container) {
+      this.deps.log(`#${itemNumber} cancelled between containers — the next one is torn down as it starts`);
+      return;
+    }
+    this.attemptContainers.delete(attempt);
+    this.deps.log(`#${itemNumber} cancelled — removing ${container}`);
+    removeContainer(this.deps.runner, container);
+  }
+
+  runChecks(request: VerifyRequest): void {
+    this.deps.context.rememberBranch(request.itemNumber, request.branch);
+    this.launch(request.itemNumber, "verify", (attempt) => this.runVerify(request, attempt));
+  }
+
+  private launch(
+    itemNumber: number,
+    stage: StageName,
+    work: (attempt: string) => Promise<StageResult>,
+    logStage: string = stage,
+  ): void {
+    const attempt = this.beginAttempt(itemNumber, logStage);
+    void work(attempt).then(
+      (result) => {
+        this.finishLog(attempt, result.outcome);
+        this.report(attempt, { itemNumber, stage, ...result });
+      },
+      (cause: unknown) => {
+        if (this.cancelledAttempts.has(attempt)) {
+          this.finishLog(attempt, "cancelled");
+          this.report(attempt, { itemNumber, stage, outcome: "failure" });
+          return;
+        }
+        if (isAgentWait(cause)) {
+          this.finishLog(attempt, `waiting:${cause.reason}`);
+          this.deps.log(`#${itemNumber} ${stage} hit ${cause.reason}: ${cause.message}`);
+          this.report(attempt, {
+            itemNumber,
+            stage,
+            outcome: "waiting",
+            waitReason: cause.reason,
+            ...(cause.resumeAt === undefined ? {} : { resumeAt: cause.resumeAt }),
+            detail: cause.detail,
+          });
+          return;
+        }
+        const detail = this.describe(cause);
+        this.finishLog(attempt, "failure");
+        this.deps.warn(itemNumber, `${stage} stage failed: ${detail}`);
+        this.report(attempt, { itemNumber, stage, outcome: "failure", detail });
+      },
+    );
+  }
+
+  private beginAttempt(itemNumber: number, logStage: string): string {
+    this.attemptSequence += 1;
+    const attempt = `${itemNumber}#${this.attemptSequence}`;
+    this.currentAttempt.set(itemNumber, attempt);
+    const writer = this.deps.logs?.begin(itemNumber, logStage);
+    if (writer) this.attemptLogs.set(attempt, writer);
+    return attempt;
+  }
+
+  private finishLog(attempt: string, outcome: string): void {
+    const writer = this.attemptLogs.get(attempt);
+    if (!writer) return;
+    this.attemptLogs.delete(attempt);
+    writer.finish(outcome);
+  }
+
+  private tee(attempt: string, prefix: string): (chunk: string) => void {
+    const writer = this.attemptLogs.get(attempt);
+    if (!writer) return () => undefined;
+    writer.write(prefix);
+    return (chunk) => writer.write(chunk);
+  }
+
+  private assertLive(attempt: string): void {
+    if (this.cancelledAttempts.has(attempt)) throw new StageCancelledError(attempt);
+  }
+
+  private describe(cause: unknown): string {
+    const reason = (cause instanceof Error ? cause.message : String(cause)).slice(0, 400);
+    if (cause instanceof CheckFailure) {
+      return cause.outputTail.length === 0 ? reason : `${reason}\n--- last output ---\n${cause.outputTail}`;
+    }
+    const detail = commandFailureDetail(cause);
+    return detail ? `${reason}\n--- last output ---\n${detail}` : reason;
+  }
+
+  private report(attempt: string, completion: StageCompletion): void {
+    if (this.currentAttempt.get(completion.itemNumber) === attempt) this.currentAttempt.delete(completion.itemNumber);
+    this.attemptContainers.delete(attempt);
+    if (this.cancelledAttempts.delete(attempt)) {
+      this.deps.log(`#${completion.itemNumber} ${completion.stage} completion dropped — that attempt was cancelled`);
+      return;
+    }
+    try {
+      this.deps.onComplete(completion);
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      this.deps.log(`[error] engine rejected completion of ${completion.stage} #${completion.itemNumber}: ${reason}`);
+    }
+  }
+
+  private async runAgentStage(request: SpawnRequest, attempt: string): Promise<StageResult> {
+    const prompt = buildStagePrompt(this.deps.context.promptContext(request));
+    const worktree = this.requireWorktree(request.repo, request.branch);
+    const baseline = this.prepareRework(request, worktree);
+
+    try {
+      await this.inContainer(request.stage, attempt, request, worktree, async (container) => {
+        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+        const model = stageModel(this.deps.config, request.stage);
+        await this.runAgent(container, prompt, model, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
+      });
+    } catch (cause) {
+      if (!isAgentIdleTimeout(cause)) throw cause;
+      await this.salvage(request, attempt, worktree, cause, baseline);
+    }
+
+    this.assertLive(attempt);
+    return this.settleOutcome(request, worktree, baseline);
+  }
+
+  private async salvage(request: SpawnRequest, attempt: string, worktree: string, cause: unknown, baseline: number | undefined): Promise<void> {
+    const decision = this.salvageDecision(request, worktree, baseline);
+    if (decision.kind !== "run") {
+      this.deps.warn(request.itemNumber, decision.reason);
+      if (decision.kind === "abandon") throw cause;
+      return;
+    }
+    const budget = salvageIdleTimeout(this.deps.config.idleTimeoutSeconds);
+    this.deps.warn(
+      request.itemNumber,
+      `${decision.reason} — running a constrained salvage pass in a fresh container (${budget}s idle budget)`,
+    );
+    const prompt = buildSalvagePrompt(this.deps.context.promptContext(request));
+    try {
+      await this.inContainer("salvage", attempt, request, worktree, async (container) => {
+        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+        const model = stageModel(this.deps.config, request.stage);
+        await this.runAgent(container, prompt, model, budget, request.itemNumber, attempt);
+      });
+    } catch (salvageCause) {
+      if (isAgentWait(salvageCause)) throw salvageCause;
+      const reason = salvageCause instanceof Error ? salvageCause.message : String(salvageCause);
+      throw new Error(`${request.stage} idle-timed out; salvage pass also failed: ${reason.slice(0, 300)}`);
+    }
+  }
+
+  private salvageDecision(request: SpawnRequest, worktree: string, baseline: number | undefined): SalvageDecision {
+    const stage = request.stage;
+    if (isFreshEyesStage(stage)) return this.freshEyesSalvageDecision(request, stage);
+    if (baseline !== undefined) return this.reworkSalvageDecision(request, worktree, baseline);
+    const commits = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
+    if (commits === 0) return { kind: "abandon", reason: "agent idle-timed out with 0 commits — nothing to salvage" };
+    if (this.deps.gh.findPullRequest(request.repo, request.branch)) {
+      return { kind: "skip", reason: "agent idle-timed out after opening its pull request — treating the stage as done" };
+    }
+    return { kind: "run", reason: `agent idle-timed out with ${commits} commit(s) on ${request.branch}` };
+  }
+
+  private reworkSalvageDecision(request: SpawnRequest, worktree: string, baseline: number): SalvageDecision {
+    const round = reworkRoundOf(request);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (pullRequest && hasPrSection(pullRequest.body, "develop", round)) {
+      return { kind: "skip", reason: `agent idle-timed out after recording rework round ${round} — treating the stage as done` };
+    }
+    const landed = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch) - baseline;
+    if (landed <= 0) {
+      return { kind: "abandon", reason: `agent idle-timed out with no rework round ${round} commits — nothing to salvage` };
+    }
+    return { kind: "run", reason: `agent idle-timed out with ${landed} rework round ${round} commit(s) on ${request.branch}` };
+  }
+
+  private freshEyesSalvageDecision(request: SpawnRequest, stage: FreshEyesStage): SalvageDecision {
+    const round = reworkRoundOf(request);
+    const section = prSectionHeading(stage, round);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (!pullRequest) {
+      return {
+        kind: "abandon",
+        reason: `agent idle-timed out and ${request.branch} has no pull request to finish — nothing to salvage`,
+      };
+    }
+    if (hasPrSection(pullRequest.body, stage, round)) {
+      return {
+        kind: "skip",
+        reason: `agent idle-timed out after appending its "${section}" section — treating the stage as done`,
+      };
+    }
+    return { kind: "run", reason: `agent idle-timed out before "${section}" reached ${pullRequest.url}` };
+  }
+
+  private settleOutcome(request: SpawnRequest, worktree: string, baseline: number | undefined): StageResult {
+    const stage = request.stage;
+    if (isFreshEyesStage(stage)) return this.settleFreshEyesOutcome(request, stage, worktree, baseline);
+    if (baseline !== undefined) return this.settleReworkOutcome(request, worktree, baseline);
+    return this.settleDevelopOutcome(request, worktree);
+  }
+
+  private settleFreshEyesOutcome(
+    request: SpawnRequest,
+    stage: FreshEyesStage,
+    worktree: string,
+    baseline: number | undefined,
+  ): StageResult {
+    const round = reworkRoundOf(request);
+    const section = prSectionHeading(stage, round);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (!pullRequest) {
+      this.deps.warn(
+        request.itemNumber,
+        `no pull request on ${request.branch} — the ${stage} stage has nothing to record "${section}" on`,
+      );
+      return { outcome: "failure" };
+    }
+    const unfixable = unfixableReason(pullRequest.body, stage, round);
+    if (unfixable) {
+      throw new Error(`${stage} declared the work unfixable in place on ${pullRequest.url}: ${unfixable}`);
+    }
+    const story = stage === "review" ? needsReworkStory(pullRequest.body, round) : undefined;
+    if (story) {
+      this.deps.log(`#${request.itemNumber} review asked for rework on ${pullRequest.url}`);
+      return {
+        outcome: "failure",
+        detail: `review asked for rework on ${pullRequest.url}`,
+        rework: { source: "review", story },
+      };
+    }
+    if (hasPrSection(pullRequest.body, stage, round)) {
+      this.deps.log(`#${request.itemNumber} ${stage} done: ${pullRequest.url}`);
+      return { outcome: "success" };
+    }
+    const tag = STAGE_COMMIT_TAG[stage];
+    const subjects = taggedCommitSubjects(this.subjectsSince(request, worktree, baseline), stage);
+    if (subjects.length === 0) {
+      this.deps.warn(
+        request.itemNumber,
+        `no \`${tag}\` commits and no "${section}" section on ${pullRequest.url} — the ${stage} stage left no evidence it ran`,
+      );
+      return { outcome: "failure" };
+    }
+    this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection(stage, subjects, round));
+    this.deps.warn(
+      request.itemNumber,
+      `${subjects.length} \`${tag}\` commit(s) landed but the ${stage} agent wrote no "${section}" section — the orchestrator appended one to ${pullRequest.url}`,
+    );
+    this.deps.log(`#${request.itemNumber} ${stage} done (orchestrator-recorded): ${pullRequest.url}`);
+    return { outcome: "success" };
+  }
+
+  private subjectsSince(request: SpawnRequest, worktree: string, baseline: number | undefined): string[] {
+    const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
+    if (baseline === undefined) return subjects;
+    return subjects.slice(0, Math.max(0, subjects.length - baseline));
+  }
+
+  private prepareRework(request: SpawnRequest, worktree: string): number | undefined {
+    const rework = request.rework;
+    if (!rework) return undefined;
+    const baseline = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
+    if (request.stage === "develop") this.recordReworkBrief(request, rework);
+    return baseline;
+  }
+
+  private recordReworkBrief(request: SpawnRequest, rework: ReworkContext): void {
+    const brief = rework.briefs.find((candidate) => candidate.round === rework.round);
+    if (!brief) throw new Error(`rework round ${rework.round} of #${request.itemNumber} carries no brief for itself`);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (!pullRequest) {
+      throw new Error(`rework round ${rework.round} needs the open pull request on ${request.branch}, and there is none`);
+    }
+    if (pullRequest.body.includes(reworkBriefSentinel(rework.round))) return;
+    this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, reworkBriefSection(brief, rework.limit));
+  }
+
+  private settleReworkOutcome(request: SpawnRequest, worktree: string, baseline: number): StageResult {
+    const round = reworkRoundOf(request);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (!pullRequest) {
+      this.deps.warn(request.itemNumber, `rework round ${round} left no pull request on ${request.branch}`);
+      return { outcome: "failure" };
+    }
+    if (hasPrSection(pullRequest.body, "develop", round)) {
+      this.deps.log(`#${request.itemNumber} rework round ${round} done: ${pullRequest.url}`);
+      return { outcome: "success", pullRequestUrl: pullRequest.url };
+    }
+    const subjects = this.subjectsSince(request, worktree, baseline);
+    if (subjects.length === 0) {
+      this.deps.warn(
+        request.itemNumber,
+        `rework round ${round} landed no commits and no "${prSectionHeading("develop", round)}" section — nothing was fixed`,
+      );
+      return { outcome: "failure" };
+    }
+    this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection("develop", subjects, round));
+    this.deps.warn(
+      request.itemNumber,
+      `rework round ${round} landed ${subjects.length} commit(s) without its section — the orchestrator appended one to ${pullRequest.url}`,
+    );
+    return { outcome: "success", pullRequestUrl: pullRequest.url };
+  }
+
+  private settleDevelopOutcome(request: SpawnRequest, worktree: string): StageResult {
+    const commits = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
+    if (commits === 0) {
+      this.deps.warn(request.itemNumber, `no commits landed on ${request.branch} — nothing to open a pull request for`);
+      return { outcome: "failure" };
+    }
+    this.warnWithoutTestFirstCommit(request, worktree);
+    const existing = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (existing) {
+      this.deps.log(`#${request.itemNumber} develop done: ${existing.url}`);
+      return { outcome: "success", pullRequestUrl: existing.url };
+    }
+    this.deps.warn(request.itemNumber, "agent left commits but no pull request — opening the draft pull request for it");
+    this.deps.runner.run({ command: "git", args: ["push", "-u", "origin", request.branch], cwd: worktree });
+    const item = this.deps.context.item(request.itemNumber);
+    const created = this.deps.gh.createDraftPullRequest({
+      repo: request.repo,
+      branch: request.branch,
+      baseBranch: request.integrationBranch,
+      title: pullRequestTitle(item),
+      body: [
+        "## What changed",
+        `${commits} commit(s) from the sandcastle develop stage.`,
+        "",
+        "## How tested",
+        "_the develop agent stopped before writing this — check the commits before merging_",
+        "",
+        `Closes ${this.deps.config.hubRepo}#${request.itemNumber}`,
+      ].join("\n"),
+    });
+    this.deps.log(`#${request.itemNumber} develop done (orchestrator-opened): ${created.url}`);
+    return { outcome: "success", pullRequestUrl: created.url };
+  }
+
+  private warnWithoutTestFirstCommit(request: SpawnRequest, worktree: string): void {
+    const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
+    if (hasTestFirstCommit(subjects)) return;
+    this.deps.warn(
+      request.itemNumber,
+      `no \`test:\` commit on ${request.branch} — the develop agent did not commit failing tests first; check "How tested" for a \`no test:\` reason`,
+    );
+  }
+
+  private async runResolve(request: ResolveRequest, attempt: string): Promise<StageResult> {
+    const worktree = this.requireWorktree(request.repo, request.branch);
+    const budget = salvageIdleTimeout(this.deps.config.idleTimeoutSeconds);
+    const prompt = buildResolvePrompt(this.deps.context.resolveContext(request), request.files);
+    this.deps.log(
+      `#${request.itemNumber} resolve: ${request.files.length} conflicting file(s) against ${request.integrationBranch}` +
+        ` (${budget}s idle budget)`,
+    );
+    await this.inContainer("resolve", attempt, request, worktree, async (container) => {
+      await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+      await this.runAgent(container, prompt, this.deps.config.model, budget, request.itemNumber, attempt);
+    });
+    this.assertLive(attempt);
+    if (!isRebasedOnto(this.deps.runner, worktree, request.integrationBranch)) {
+      throw new Error(
+        `the resolve pass left ${request.branch} off the tip of origin/${request.integrationBranch} —` +
+          " the conflict is still there",
+      );
+    }
+    this.deps.log(`#${request.itemNumber} resolve done — ${request.branch} sits on ${request.integrationBranch} again`);
+    return { outcome: "success", resolved: true };
+  }
+
+  private async runVerify(request: VerifyRequest, attempt: string): Promise<StageResult> {
+    try {
+      return await this.runVerifyChecks(request, attempt);
+    } catch (cause) {
+      if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
+      const worktree = this.requireWorktree(request.repo, request.branch);
+      const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
+      this.deps.warn(request.itemNumber, `verify gate red — sending it back to develop: ${cause.message.slice(0, 300)}`);
+      return {
+        outcome: "failure",
+        detail: this.describe(cause),
+        rework: { source: "verify", story: verifyReworkStory(request, cause, subjects) },
+      };
+    }
+  }
+
+  private async runVerifyChecks(request: VerifyRequest, attempt: string): Promise<StageResult> {
+    const worktree = this.requireWorktree(request.repo, request.branch);
+    const checks = checkCommand(this.deps.config, request.repo);
+    await this.inContainer("verify", attempt, request, worktree, async (container) => {
+      await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+      this.deps.log(`#${request.itemNumber} verify: ${checks}`);
+      const tail = outputTail(CHECK_OUTPUT_TAIL);
+      const teeChecks = this.tee(attempt, `\n--- checks: ${checks} ---\n`);
+      try {
+        await runWithIdleTimeout(
+          this.deps.runner,
+          execRequest(container, checks, {
+            onOutput: (chunk) => {
+              tail.append(chunk);
+              teeChecks(chunk);
+            },
+          }),
+          this.deps.config.idleTimeoutSeconds,
+        );
+      } catch (cause) {
+        throw new CheckFailure(checks, tail.text(), cause);
+      }
+    }, "copy");
+    this.assertLive(attempt);
+    return { outcome: "success" };
+  }
+
+  private async inContainer(
+    stage: string,
+    attempt: string,
+    request: { itemNumber: number; repo: TargetRepo },
+    worktree: string,
+    work: (container: string) => Promise<void>,
+    workspace: WorkspaceMode = "bind",
+  ): Promise<void> {
+    this.ensureDocker();
+    this.assertLive(attempt);
+    const container = this.containerName(stage, request.itemNumber);
+    const repoGitDir = join(repoRoot(this.deps.layout, request.repo), ".git");
+    const gitControl = snapshotGitControl(this.deps.fs, repoGitDir);
+    const env = containerEnv(this.deps.config, containerGitDir(resolveGitDir(this.deps.runner, worktree)));
+    withContainerEnvFile(this.deps.fs, env, (envFile) => {
+      startContainer(
+        this.deps.runner,
+        containerSpec({
+          name: container,
+          image: this.deps.config.imageTag,
+          worktree,
+          repoGitDir,
+          layout: this.deps.layout,
+          envFile,
+          workspace,
+        }),
+      );
+    });
+
+    this.attemptContainers.set(attempt, container);
+    let removed = false;
+    const remove = (): void => {
+      if (removed) return;
+      removed = true;
+      if (this.attemptContainers.get(attempt) !== container) return;
+      this.attemptContainers.delete(attempt);
+      removeContainer(this.deps.runner, container);
+    };
+
+    if (this.cancelledAttempts.has(attempt)) {
+      remove();
+      throw new StageCancelledError(attempt);
+    }
+
+    try {
+      await this.hydrateHome(container);
+      await this.prepareWorkspace(container, workspace);
+      await work(container);
+    } catch (cause) {
+      if (isAgentIdleTimeout(cause)) remove();
+      throw cause;
+    } finally {
+      try {
+        remove();
+      } catch (cause) {
+        this.deps.log(`[warn] could not remove container ${container}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+      assertGitControlUnchanged(this.deps.fs, gitControl);
+    }
+  }
+
+  private async prepareWorkspace(container: string, workspace: WorkspaceMode): Promise<void> {
+    execAsRoot(this.deps.runner, container, claimWorkspaceCommand(workspace));
+    if (workspace !== "copy") return;
+    await runWithIdleTimeout(
+      this.deps.runner,
+      execRequest(container, copyWorkspaceCommand(), { onOutput: () => undefined }),
+      this.deps.config.idleTimeoutSeconds,
+    );
+  }
+
+  private async hydrateHome(container: string): Promise<void> {
+    await runWithIdleTimeout(
+      this.deps.runner,
+      execRequest(container, hydrateHomeCommand(), { onOutput: () => undefined }),
+      this.deps.config.idleTimeoutSeconds,
+    );
+  }
+
+  private async bootstrap(container: string, repo: TargetRepo, itemNumber: number, attempt: string): Promise<void> {
+    const command = bootstrapScript(this.deps.config, repo);
+    this.deps.log(`#${itemNumber} bootstrap: ${command}`);
+    try {
+      await runWithIdleTimeout(
+        this.deps.runner,
+        execRequest(container, command, { onOutput: this.tee(attempt, `\n--- bootstrap: ${command} ---\n`) }),
+        this.deps.config.idleTimeoutSeconds,
+      );
+    } catch (cause) {
+      throw transientWaitFrom(cause) ?? cause;
+    }
+  }
+
+  private async runAgent(
+    container: string,
+    prompt: string,
+    model: string,
+    idleSeconds: number,
+    itemNumber: number,
+    attempt: string,
+  ): Promise<void> {
+    this.deps.log(`#${itemNumber} agent starting (idle budget ${idleSeconds}s, model ${model})`);
+    try {
+      await runWithIdleTimeout(
+        this.deps.runner,
+        execRequest(container, claudeCommand(model), {
+          input: prompt,
+          onOutput: this.tee(attempt, `\n--- agent (${model}) ---\n`),
+        }),
+        idleSeconds,
+      );
+    } catch (cause) {
+      throw agentWaitFrom(cause) ?? transientWaitFrom(cause) ?? cause;
+    }
+  }
+
+  private requireWorktree(repo: TargetRepo, branch: string): string {
+    const worktree = worktreePath(this.deps.layout, repo, branch);
+    if (!this.deps.fs.exists(worktree)) {
+      throw new Error(`worktree ${worktree} is missing — the item branch was never created for ${branch}`);
+    }
+    return worktree;
+  }
+
+  private ensureDocker(): void {
+    if (this.dockerChecked) return;
+    assertDockerReady(this.deps.runner, this.deps.config.imageTag);
+    this.dockerChecked = true;
+  }
+
+  private containerName(stage: string, itemNumber: number): string {
+    this.containerSequence += 1;
+    const stamp = `${(this.deps.now ?? Date.now)().toString(36)}${this.containerSequence.toString(36)}`;
+    return stageContainerName(stage, itemNumber, stamp);
+  }
+}

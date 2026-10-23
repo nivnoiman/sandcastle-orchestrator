@@ -1,0 +1,15 @@
+{
+  "hubRepo": "your-name/your-app",
+  "integrationBase": "dev",
+  "repos": {
+    "app": {
+      "github": "your-name/your-app",
+      "bootstrap": "pnpm install --frozen-lockfile",
+      "checks": "pnpm typecheck && pnpm test && pnpm build"
+    }
+  },
+  "verify": {
+    "strategy": "command",
+    "commands": { "app": "pnpm typecheck && pnpm test && pnpm build" }
+  }
+}

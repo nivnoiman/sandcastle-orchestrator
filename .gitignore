@@ -1,0 +1,10 @@
+node_modules/
+logs/
+worktrees/
+.orchestrator.lock
+.queue.json*
+.env
+.env.*
+!.env.orchestrator.example
+!.env.sandbox.example
+projects/

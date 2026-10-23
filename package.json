@@ -1,0 +1,33 @@
+{
+  "name": "sandcastle-orchestrator",
+  "private": true,
+  "license": "MIT",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Issue-driven multi-agent orchestrator: GitHub sub-issues in, verified integration pull requests out",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "validate": "tsx src/cli/validate.ts",
+    "dry-run": "tsx src/cli/dryRun.ts",
+    "reset": "tsx src/cli/reset.ts",
+    "start": "tsx src/cli/run.ts",
+    "ui": "tsx src/cli/ui.ts",
+    "build-image": "docker build -t sandcastle:latest docker",
+    "smoke": "tsx scripts/smoke.ts",
+    "sync-claude": "tsx scripts/syncClaude.ts",
+    "ops": "tsx scripts/ops.ts",
+    "preflight": "tsx src/cli/preflight.ts"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.12"
+  }
+}

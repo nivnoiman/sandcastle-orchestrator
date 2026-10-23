@@ -1,0 +1,1205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>sandcastle — control plane</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #11161d; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --blue: #58a6ff; --grey: #6e7681; --purple: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, input, select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 10px; font: inherit;
+  }
+  button { cursor: pointer; }
+  button:hover:enabled { border-color: var(--blue); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.danger:hover:enabled { border-color: var(--red); color: var(--red); }
+  input[type=number] { width: 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .5px; }
+  header .feature { color: var(--muted); }
+  header .controls { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .chip { border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--muted); }
+  .chip.live { color: var(--green); border-color: rgba(63,185,80,.4); }
+  .chip.paused { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .chip.stalled { color: var(--red); border-color: rgba(248,81,73,.4); }
+  .chip.hold-auth { color: var(--red); border-color: rgba(248,81,73,.4); }
+  .chip.hold-rate-limit { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .chip.verify-waiting { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .chip.verify-running { color: var(--blue); border-color: rgba(88,166,255,.4); }
+  .chip.verify-fixing { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .chip.verify-green { color: var(--green); border-color: rgba(63,185,80,.4); }
+  .chip.verify-red { color: var(--red); border-color: rgba(248,81,73,.4); }
+  .chip.polish-running { color: var(--blue); border-color: rgba(88,166,255,.4); }
+  .chip.polish-green { color: var(--green); border-color: rgba(63,185,80,.4); }
+  .chip.polish-skipped { color: var(--muted); }
+  .chip.polish-reverted { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .chip.merge { color: var(--purple); border-color: rgba(163,113,247,.4); }
+  .chip.rework { color: var(--yellow); border-color: rgba(210,153,34,.4); }
+  .startbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .startbar select { min-width: 320px; }
+  .startbar input[type=search] { min-width: 200px; }
+  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+  .column h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 8px; }
+  .column .empty { padding: 4px 0 10px; font-size: 11px; }
+  .done-chip {
+    display: block; margin-bottom: 10px; padding: 1px 10px; font-size: 11px;
+    color: var(--muted); background: var(--panel-2); border: 1px dashed var(--border); border-radius: 10px;
+  }
+  .done-chip:hover:enabled { color: var(--green); border-color: rgba(63,185,80,.5); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .card.phase-running { border-left-color: var(--blue); }
+  .card.phase-awaiting { border-left-color: var(--blue); }
+  .card.phase-done { border-left-color: var(--green); }
+  .card.phase-parked { border-left-color: var(--red); background: #1d1416; }
+  .card.phase-held { border-left-color: var(--grey); background: var(--panel-2); color: var(--muted); }
+  .card.phase-waiting { border-left-color: var(--yellow); background: #1d1a12; }
+  .card.phase-waiting .phase { color: var(--yellow); }
+  .card.phase-blocked { border-left-color: var(--yellow); }
+  .card.phase-queued { border-left-color: var(--grey); }
+  .card .top { display: flex; align-items: baseline; gap: 8px; }
+  .card .title { flex: 1; }
+  .card .phase { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .card.phase-parked .phase { color: var(--red); }
+  .card.phase-done .phase { color: var(--green); }
+  .card.phase-running .phase { color: var(--blue); }
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 8px 0 6px; }
+  .chain .node { font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--grey); }
+  .chain .node.past { color: var(--green); border-color: rgba(63,185,80,.35); }
+  .chain .node.current { color: #fff; background: var(--blue); border-color: var(--blue); }
+  .chain .node.current.parked { background: var(--red); border-color: var(--red); }
+  .chain .arrow { color: var(--border); font-size: 10px; }
+  .meta { font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 10px; }
+  .reason { margin-top: 6px; font-size: 11px; color: var(--red); white-space: pre-wrap; }
+  .reason.waiting { color: var(--yellow); }
+  .blockers { margin-top: 6px; font-size: 11px; color: var(--yellow); }
+  .actions { margin-top: 8px; display: flex; gap: 6px; }
+  .feed { border-top: 1px solid var(--border); padding-top: 10px; }
+  .feed summary { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); cursor: pointer; user-select: none; }
+  .feed[open] summary { margin-bottom: 8px; }
+  .feed .count { color: var(--grey); margin-left: 6px; }
+  .feed .line { font-size: 11px; padding: 2px 0; border-bottom: 1px solid #1c2129; white-space: pre-wrap; }
+  .feed .line.warn { color: var(--yellow); }
+  .feed .line.stall { color: var(--red); }
+  .feed .line.note { color: var(--muted); }
+  .feed .at { color: var(--grey); margin-right: 8px; }
+  .empty { color: var(--muted); padding: 24px 0; }
+  .error { color: var(--red); font-size: 11px; }
+  .alert {
+    margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--red); border-radius: 6px;
+    background: #1d1416; color: var(--red); font-size: 12px; white-space: pre-wrap;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .alert .text { flex: 1; }
+  .alert button { border-color: var(--red); color: var(--red); padding: 0 6px; }
+  .resetpanel {
+    margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2);
+  }
+  .resetpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 8px; }
+  .resetpanel pre { margin: 0; max-height: 320px; overflow: auto; font-size: 11px; white-space: pre-wrap; }
+  .resetactions { display: flex; gap: 8px; margin-top: 10px; }
+  #reset-apply { border-color: var(--red); color: var(--red); }
+  .queuepanel, .runbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .queuepanel .label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .queuelist { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; }
+  .queuelist .qitem { display: flex; align-items: center; gap: 2px; padding: 0 2px 0 8px; }
+  .queuelist .qitem button { padding: 0 5px; font-size: 11px; border-color: transparent; }
+  .queuelist .none { color: var(--muted); font-size: 11px; }
+  .runtabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+  .runtabs button { font-size: 11px; padding: 2px 8px; }
+  .runtabs button.active { border-color: var(--blue); color: var(--blue); }
+  .runtabs .hint { margin-left: 6px; font-size: 10px; color: var(--muted); }
+  .runtabs .hint.running { color: var(--green); }
+  .runtabs .hint.settling { color: var(--yellow); }
+  .runcontrols { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .feedhead { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .feed .feedhead h2 { margin: 0; }
+  .resetpanel .hint { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+  .resetpanel textarea {
+    width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 8px; font: inherit; resize: vertical;
+  }
+  button.ghost { border-color: transparent; color: var(--muted); padding: 4px 6px; }
+  button.ghost:hover:enabled { color: var(--blue); }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 92vw); z-index: 20;
+    background: var(--panel-2); border-left: 1px solid var(--border); display: flex; flex-direction: column;
+    box-shadow: -12px 0 24px rgba(0,0,0,.45);
+  }
+  .drawerhead { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .drawerhead h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0; flex: 1; }
+  .drawerhead .rawtoggle { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .tabs button { font-size: 11px; padding: 2px 8px; }
+  .tabs button.active { border-color: var(--blue); color: var(--blue); }
+  .tabs button.live { border-color: var(--green); color: var(--green); }
+  .transcript { flex: 1; overflow: auto; padding: 10px 12px; font-size: 11px; }
+  .transcript .turn { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #1c2129; white-space: pre-wrap; word-break: break-word; }
+  .transcript .turn.tool { color: var(--purple); }
+  .transcript .turn.result { color: var(--green); }
+  .transcript .turn.err { color: var(--red); }
+  .transcript .turn.meta { color: var(--grey); }
+  .transcript pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<header>
+  <h1>sandcastle</h1>
+  <span class="feature" id="feature">no run</span>
+  <span class="chip" id="mode">—</span>
+  <span class="chip" id="slots">—</span>
+  <span class="chip" id="counts">—</span>
+  <span class="chip" id="verify" hidden></span>
+  <span class="chip" id="polish" hidden></span>
+  <span class="chip" id="stall" hidden></span>
+  <span class="chip" id="hold" hidden></span>
+  <span class="controls">
+    <span class="chip" id="global-slots">—</span>
+    <label for="cap">global cap</label>
+    <input type="number" id="cap" min="1" value="1" />
+    <button id="set-cap">set</button>
+    <button id="reset">reset…</button>
+  </span>
+</header>
+
+<div class="resetpanel" id="reset-panel" hidden>
+  <h2 id="reset-title">reset</h2>
+  <pre id="reset-plan"></pre>
+  <div class="resetactions">
+    <button id="reset-apply">apply — delete the empty branches and revert the labels</button>
+    <button id="reset-close">close</button>
+  </div>
+</div>
+
+<div class="startbar" id="startbar">
+  <label for="parent-filter">parent</label>
+  <input type="search" id="parent-filter" placeholder="filter by number or title" />
+  <select id="parent"></select>
+  <span class="chip merge" id="merge-badge" hidden></span>
+  <label for="start-cap">parent cap</label>
+  <input type="number" id="start-cap" min="1" value="1" />
+  <button id="start">start run</button>
+  <button id="queue-add">queue after</button>
+  <button id="add-parents">add orchestration issue…</button>
+</div>
+
+<div class="queuepanel" id="queue-panel">
+  <span class="label">queue</span>
+  <button id="queue-mode">sequential</button>
+  <label for="queue-max" id="queue-max-label" hidden>max parallel</label>
+  <input type="number" id="queue-max" min="1" value="2" hidden />
+  <span class="chip paused" id="queue-paused" hidden>queue paused</span>
+  <button id="queue-resume" hidden>resume queue</button>
+  <div class="queuelist" id="queue-list"></div>
+  <button id="queue-clear" class="danger">clear</button>
+</div>
+
+<div class="runbar" id="runbar" hidden>
+  <div class="runtabs" id="run-tabs"></div>
+  <span class="runcontrols">
+    <label for="run-cap" id="run-cap-label">run cap</label>
+    <input type="number" id="run-cap" min="1" value="1" />
+    <button id="set-run-cap">set</button>
+    <button id="toggle-pause">pause new starts</button>
+    <button id="stop-run" class="danger">stop</button>
+  </span>
+</div>
+
+<div class="resetpanel" id="add-panel" hidden>
+  <h2>add orchestration issues</h2>
+  <p class="hint">one issue number or github issue url per line — each is fetched and checked against the publish contract before it joins the list.</p>
+  <textarea id="add-input" rows="4" placeholder="#99&#10;https://github.com/owner/repo/issues/120"></textarea>
+  <pre id="add-result" hidden></pre>
+  <div class="resetactions">
+    <button id="add-submit">check and add</button>
+    <button id="add-close">close</button>
+  </div>
+</div>
+
+<div class="alert" id="alert" hidden>
+  <span class="text" id="alert-text"></span>
+  <button id="alert-dismiss" title="dismiss">×</button>
+</div>
+
+<div class="board" id="board"></div>
+<div class="empty" id="empty">no run in flight — pick a parent above and press start.</div>
+
+<details class="feed" id="feed-panel">
+  <summary>feed<span class="count" id="feed-count"></span></summary>
+  <button id="feed-all" class="ghost" hidden>all parents</button>
+  <div id="feed"></div>
+</details>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawerhead">
+    <h2 id="drawer-title">transcript</h2>
+    <label class="rawtoggle"><input type="checkbox" id="drawer-raw" /> raw json</label>
+    <button id="drawer-close" title="close">×</button>
+  </div>
+  <div class="tabs" id="drawer-tabs"></div>
+  <div class="transcript" id="drawer-body"></div>
+</div>
+
+<script>
+const UI_STAGES = ["queued", "develop", "simplify", "review", "verify", "merged"];
+const ACTIVE_PHASES = ["held", "blocked", "queued", "running", "awaiting", "waiting", "parked"];
+const COLLAPSED_PHASES = ["done"];
+const PARENT_GROUPS = [
+  { state: "ready-to-merge", label: "ready to merge" },
+  { state: "working", label: "working" },
+  { state: "todo", label: "todo" },
+];
+const ERROR_TIMEOUT_MS = 12000;
+const PARENT_REFRESH_MS = 60000;
+const RUN_KEY = "sandcastle.selectedRun";
+const FEED_LIMIT = 200;
+const syncedInputs = new Map();
+const expandedRepos = new Set();
+let selectedRun = storedRun();
+let feedAll = false;
+let lastState = null;
+let lastParents = [];
+let parentQuery = "";
+let selectedParent = "";
+let submitInFlight = false;
+let startbarShown = true;
+let errorTimer = null;
+let plannedReset = 0;
+
+function el(tag, options) {
+  const node = document.createElement(tag);
+  const settings = options || {};
+  if (settings.cls) node.className = settings.cls;
+  if (settings.text !== undefined) node.textContent = settings.text;
+  if (settings.href) node.href = settings.href;
+  if (settings.target) node.target = settings.target;
+  if (settings.title) node.title = settings.title;
+  return node;
+}
+
+async function send(method, path, body) {
+  const response = await fetch(path, {
+    method: method,
+    headers: { "content-type": "application/json", "x-sandcastle": "1" },
+    body: JSON.stringify(body || {}),
+  });
+  const payload = await response.json().catch(() => ({ error: "unreadable response" }));
+  if (!response.ok) throw new Error(payload.error || `request failed (${response.status})`);
+  return payload;
+}
+
+function post(path, body) {
+  return send("POST", path, body);
+}
+
+function storedRun() {
+  try {
+    return Number(localStorage.getItem(RUN_KEY)) || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function storeRun(parent) {
+  try {
+    localStorage.setItem(RUN_KEY, String(parent));
+  } catch (error) {
+    return;
+  }
+}
+
+function runsOf(state) {
+  return state ? state.runs : [];
+}
+
+function chooseRun(state) {
+  const runs = runsOf(state);
+  if (runs.some((run) => run.parent.number === selectedRun)) return;
+  const primary = state.parent && runs.find((run) => run.parent.number === state.parent.number);
+  const chosen = primary || runs[0];
+  if (chosen) selectedRun = chosen.parent.number;
+}
+
+function selectedRunNumber() {
+  return runsOf(lastState).some((run) => run.parent.number === selectedRun) ? selectedRun : null;
+}
+
+function selectedView(state) {
+  return runsOf(state).find((run) => run.parent.number === selectedRun) || state;
+}
+
+function syncInput(id, value, scope) {
+  const input = document.getElementById(id);
+  const synced = `${scope === undefined ? "" : scope}:${value}`;
+  if (syncedInputs.get(id) === synced || document.activeElement === input) return;
+  syncedInputs.set(id, synced);
+  input.value = value;
+}
+
+async function get(path) {
+  const response = await fetch(path);
+  const payload = await response.json().catch(() => ({ error: "unreadable response" }));
+  if (!response.ok) throw new Error(payload.error || `${path} failed (${response.status})`);
+  return payload;
+}
+
+function stageIndexOf(item) {
+  if (item.phase === "done") return UI_STAGES.length - 1;
+  if (item.phase === "queued" || item.phase === "blocked" || item.phase === "held") return 0;
+  return item.stage ? UI_STAGES.indexOf(item.stage) : UI_STAGES.length - 1;
+}
+
+function buildChain(item) {
+  const chain = el("div", { cls: "chain" });
+  const current = stageIndexOf(item);
+  UI_STAGES.forEach((stage, index) => {
+    if (index > 0) chain.append(el("span", { cls: "arrow", text: "→" }));
+    let cls = "node";
+    if (index < current) cls += " past";
+    if (index === current) cls += item.phase === "parked" ? " current parked" : " current";
+    chain.append(el("span", { cls: cls, text: stage }));
+  });
+  return chain;
+}
+
+function isCollapsedPhase(phase) {
+  return COLLAPSED_PHASES.includes(phase);
+}
+
+function phaseLabel(phase) {
+  return ACTIVE_PHASES.includes(phase) || isCollapsedPhase(phase) ? phase : `${phase} (unknown)`;
+}
+
+function holdText(hold) {
+  if (hold.reason === "auth") {
+    return "HELD: agent credentials rejected — sandcastle keeps re-probing, no new stages start";
+  }
+  if (!hold.until) return "held: five-hour usage limit";
+  const minutes = Math.max(0, Math.round((Date.parse(hold.until) - Date.now()) / 60000));
+  return `held: usage window reopens in ${minutes}m (${new Date(hold.until).toLocaleTimeString()})`;
+}
+
+function waitingText(item) {
+  if (item.waitReason === "auth") return "waiting — agent credentials rejected; sandcastle re-probes them every poll";
+  if (item.waitReason === "transient") {
+    if (!item.resumeAt) return "waiting — transient network/API failure; retrying on its own";
+    const retryIn = Math.max(0, Math.round((Date.parse(item.resumeAt) - Date.now()) / 60000));
+    return `waiting — transient network/API failure, retrying in ${retryIn}m`;
+  }
+  if (!item.resumeAt) return "waiting — five-hour usage limit reached";
+  const minutes = Math.max(0, Math.round((Date.parse(item.resumeAt) - Date.now()) / 60000));
+  return `waiting — five-hour usage limit, resumes in ${minutes}m (${new Date(item.resumeAt).toLocaleTimeString()})`;
+}
+
+function buildCard(item) {
+  const card = el("div", { cls: `card phase-${item.phase}` });
+
+  const top = el("div", { cls: "top" });
+  const link = el("a", { text: `#${item.number}`, href: item.issueUrl, target: "_blank" });
+  top.append(link, el("span", { cls: "title", text: item.title }), el("span", { cls: "phase", text: phaseLabel(item.phase) }));
+  card.append(top, buildChain(item));
+
+  const meta = el("div", { cls: "meta" });
+  meta.append(el("span", { text: item.repo }), el("span", { text: item.branch }));
+  if (item.reworkRound > 0) {
+    meta.append(el("span", { cls: "chip rework", text: `rework ${item.reworkRound}/${item.reworkLimit}` }));
+  }
+  if (item.pullRequestUrl) {
+    meta.append(el("a", { text: "pull request", href: item.pullRequestUrl, target: "_blank" }));
+  }
+  card.append(meta);
+
+  if (item.blockers.length > 0) {
+    card.append(el("div", { cls: "blockers", text: `blocked by ${item.blockers.map((n) => `#${n}`).join(", ")}` }));
+  }
+  if (item.parkReason) card.append(el("div", { cls: "reason", text: item.parkReason }));
+  if (item.phase === "waiting") card.append(el("div", { cls: "reason waiting", text: waitingText(item) }));
+
+  const transcript = el("button", { cls: "ghost", text: "transcript" });
+  transcript.onclick = (event) => {
+    event.stopPropagation();
+    openDrawer(item);
+  };
+
+  const actions = el("div", { cls: "actions" });
+  actions.append(transcript);
+  if (item.phase === "running") {
+    const cancel = el("button", { cls: "danger", text: "cancel" });
+    cancel.onclick = () => act(() => post(`/api/items/${item.number}/cancel`));
+    actions.append(cancel);
+  }
+  if (item.phase === "parked" || item.phase === "waiting") {
+    const retry = el("button", { text: "retry" });
+    retry.onclick = () => act(() => post(`/api/items/${item.number}/retry`));
+    actions.append(retry);
+  }
+  if (actions.childElementCount > 0) card.append(actions);
+  return card;
+}
+
+function act(run) {
+  run().then(refresh, (error) => showError(error.message));
+}
+
+function showError(message) {
+  const alert = document.getElementById("alert");
+  if (errorTimer) clearTimeout(errorTimer);
+  if (!message) {
+    alert.hidden = true;
+    return;
+  }
+  document.getElementById("alert-text").textContent = message;
+  alert.hidden = false;
+  errorTimer = setTimeout(() => {
+    alert.hidden = true;
+  }, ERROR_TIMEOUT_MS);
+}
+
+function buildDoneChip(repo, count) {
+  const expanded = expandedRepos.has(repo);
+  const chip = el("button", { cls: "done-chip", text: `${count} done ${expanded ? "▾" : "▸"}` });
+  chip.onclick = () => {
+    if (expanded) expandedRepos.delete(repo);
+    else expandedRepos.add(repo);
+    renderBoard(selectedView(lastState));
+  };
+  return chip;
+}
+
+function renderBoard(view) {
+  const board = document.getElementById("board");
+  board.replaceChildren();
+  const repos = [];
+  for (const item of view.items) {
+    if (!repos.includes(item.repo)) repos.push(item.repo);
+  }
+  for (const repo of repos) {
+    const items = view.items.filter((item) => item.repo === repo);
+    const collapsed = items.filter((item) => isCollapsedPhase(item.phase));
+    const active = items.filter((item) => !isCollapsedPhase(item.phase));
+    const expanded = expandedRepos.has(repo);
+    const column = el("div", { cls: "column" });
+    column.append(el("h2", { text: `${repo} — ${collapsed.length}/${items.length} done` }));
+    if (collapsed.length > 0) column.append(buildDoneChip(repo, collapsed.length));
+    if (active.length === 0 && !expanded) {
+      column.append(el("div", { cls: "empty", text: `no active items — ${collapsed.length} done` }));
+    }
+    for (const item of active) column.append(buildCard(item));
+    if (expanded) for (const item of collapsed) column.append(buildCard(item));
+    board.append(column);
+  }
+  document.getElementById("empty").hidden = view.items.length > 0;
+}
+
+function feedShows(line) {
+  if (feedAll || line.parentNumber === undefined || line.parentNumber === null) return true;
+  const parent = selectedRunNumber();
+  return parent === null || line.parentNumber === parent;
+}
+
+function renderFeed(lines) {
+  const feed = document.getElementById("feed");
+  feed.replaceChildren();
+  for (const line of lines.slice().reverse()) {
+    if (feedShows(line)) feed.append(buildFeedLine(line));
+  }
+  const toggle = document.getElementById("feed-all");
+  toggle.hidden = runsOf(lastState).length === 0;
+  toggle.textContent = feedAll ? "selected parent only" : "all parents";
+  renderFeedCount();
+}
+
+function renderFeedCount() {
+  const count = document.getElementById("feed").childElementCount;
+  document.getElementById("feed-count").textContent = count > 0 ? `(${count})` : "";
+}
+
+const FEED_OPEN_KEY = "sandcastle.feedOpen";
+
+function restoreFeedPanel() {
+  const panel = document.getElementById("feed-panel");
+  try {
+    panel.open = localStorage.getItem(FEED_OPEN_KEY) === "1";
+  } catch {
+    panel.open = false;
+  }
+  panel.ontoggle = () => {
+    try {
+      localStorage.setItem(FEED_OPEN_KEY, panel.open ? "1" : "0");
+    } catch {
+      return;
+    }
+  };
+}
+
+function buildFeedLine(line) {
+  const row = el("div", { cls: `line ${line.kind}` });
+  row.append(el("span", { cls: "at", text: line.at.slice(11, 19) }));
+  row.append(document.createTextNode(line.itemNumber ? `#${line.itemNumber} ${line.message}` : line.message));
+  return row;
+}
+
+function renderHeader(state, view) {
+  const feature = document.getElementById("feature");
+  feature.replaceChildren();
+  if (view.parent) {
+    feature.append(
+      el("a", { text: `#${view.parent.number} ${view.parent.title}`, href: view.parent.url, target: "_blank" }),
+      document.createTextNode(` → ${view.parent.integrationBranch}`),
+    );
+  } else {
+    feature.textContent = "no run";
+  }
+
+  const mode = document.getElementById("mode");
+  mode.textContent = `${state.mode} mode`;
+  mode.className = view.started && !view.complete ? "chip live" : "chip";
+
+  document.getElementById("slots").textContent = `${view.running}/${view.cap} workers`;
+  const counts = view.phaseCounts;
+  document.getElementById("counts").textContent =
+    `${counts.done} done · ${counts.running} running · ${counts.waiting} waiting · ${counts.parked} parked · ${counts.blocked} blocked · ${counts.held} held`;
+
+  const verify = view.featureVerify || { phase: "idle", counts: { pass: 0, fail: 0, requiresStg: 0 }, pullRequests: [] };
+  const verifyChip = document.getElementById("verify");
+  verifyChip.hidden = verify.phase === "idle";
+  if (!verifyChip.hidden) {
+    const counts = `${verify.counts.pass} pass · ${verify.counts.fail} fail · ${verify.counts.requiresStg} requires-STG`;
+    verifyChip.className = `chip verify-${verify.phase}`;
+    const round = verify.rework ? ` · fix round ${verify.rework.round}/${verify.rework.limit}` : "";
+    verifyChip.textContent =
+      verify.phase === "waiting" ? `feature verify: waiting for another parent's verify${round}`
+      : verify.phase === "running" ? `feature verify: running${round}`
+      : verify.phase === "fixing" ? `feature verify: fixing${round}`
+      : verify.phase === "skipped" ? "feature verify: skipped"
+      : `feature verify ${verify.phase}: ${counts}`;
+    verifyChip.title = verify.reason || verify.pullRequests.join("\n") || "";
+  }
+
+  const polish = view.polish || { phase: "idle", pullRequests: [] };
+  const polishChip = document.getElementById("polish");
+  polishChip.hidden = polish.phase === "idle";
+  if (!polishChip.hidden) {
+    polishChip.className = `chip polish-${polish.phase}`;
+    polishChip.textContent = `polish: ${polish.phase}`;
+    polishChip.title = polish.reason || polish.pullRequests.join("\n") || "";
+  }
+
+  const stall = document.getElementById("stall");
+  stall.hidden = !view.stalled;
+  if (view.stalled) {
+    stall.className = "chip stalled";
+    stall.textContent = `stalled: ${view.stalled.parked} parked, ${view.stalled.held} held, ${view.stalled.blocked} blocked`;
+  }
+
+  const hold = document.getElementById("hold");
+  hold.hidden = !view.hold;
+  if (view.hold) {
+    hold.className = `chip hold-${view.hold.reason}`;
+    hold.textContent = holdText(view.hold);
+    hold.title = "no new stage starts while the run is held";
+  }
+
+  document.getElementById("global-slots").textContent = `${state.globalRunning}/${state.queueSettings.globalCap} workers across parents`;
+
+  renderRunControls(view);
+
+  const reset = document.getElementById("reset");
+  reset.disabled = !state.canReset;
+  reset.title = state.canReset
+    ? "clear a killed run's debris: gc, stale lock, sc:* labels, empty item branches"
+    : state.mode !== "real"
+      ? "reset only applies to a real run"
+      : state.resetting
+        ? "a reset is already running — the control plane is blocked until it finishes"
+        : "stop the run first — reset would garbage-collect its own containers";
+  document.getElementById("start").hidden = !state.canStart;
+  document.getElementById("queue-add").textContent = state.canStart ? "queue after" : "queue next";
+}
+
+function renderRunControls(view) {
+  const parent = selectedRunNumber();
+  document.getElementById("runbar").hidden = !view.started && parent === null;
+  const pause = document.getElementById("toggle-pause");
+  pause.textContent = view.paused ? "resume new starts" : "pause new starts";
+  pause.className = view.paused ? "paused" : "";
+  const settled = view.settled === true;
+  pause.disabled = !view.started || settled;
+  const perRun = parent !== null;
+  for (const id of ["run-cap-label", "run-cap", "set-run-cap", "stop-run"]) document.getElementById(id).hidden = !perRun;
+  if (perRun) syncInput("run-cap", view.cap, parent);
+  document.getElementById("set-run-cap").disabled = settled;
+  document.getElementById("stop-run").disabled = settled;
+}
+
+function phaseHint(run) {
+  if (run.settled) return run.complete ? "complete" : "ended";
+  return run.complete ? "settling" : "running";
+}
+
+function renderRunTabs(state) {
+  const tabs = document.getElementById("run-tabs");
+  tabs.replaceChildren();
+  for (const run of runsOf(state)) {
+    const hint = phaseHint(run);
+    const tab = el("button", { title: run.parent.integrationBranch });
+    tab.append(el("span", { text: `#${run.parent.number} ${run.parent.title}` }), el("span", { cls: `hint ${hint}`, text: hint }));
+    if (run.parent.number === selectedRun) tab.className = "active";
+    tab.onclick = () => selectRun(run.parent.number);
+    tabs.append(tab);
+  }
+}
+
+function selectRun(parent) {
+  selectedRun = parent;
+  storeRun(parent);
+  if (lastState) render(lastState);
+}
+
+function render(state) {
+  lastState = state;
+  chooseRun(state);
+  const view = selectedView(state);
+  syncInput("cap", state.queueSettings.globalCap);
+  syncInput("start-cap", state.queueSettings.parentCap);
+  renderRunTabs(state);
+  renderHeader(state, view);
+  renderBoard(view);
+  renderFeed(state.feed);
+  renderQueue(state);
+  watchStartbar(state.canStart);
+}
+
+function watchStartbar(visible) {
+  if (visible === startbarShown) return;
+  startbarShown = visible;
+  if (visible) loadParents();
+}
+
+function pollParents() {
+  if (startbarShown) loadParents();
+}
+
+function refresh() {
+  return get("/api/state").then(render, (error) => showError(error.message));
+}
+
+function parentState(parent) {
+  if (parent.subIssues > 0 && parent.completedSubIssues === parent.subIssues) return "ready-to-merge";
+  return parent.completedSubIssues === 0 ? "todo" : "working";
+}
+
+function parentMatches(parent, query) {
+  return query === "" || `#${parent.number} ${parent.title}`.toLowerCase().includes(query);
+}
+
+function buildParentOption(parent) {
+  const option = el("option", {
+    text: `#${parent.number} ${parent.title} (${parent.completedSubIssues}/${parent.subIssues} closed)`,
+  });
+  option.value = String(parent.number);
+  return option;
+}
+
+function noParentOption(query, hidden) {
+  const option = el("option", {
+    text: lastParents.length === 0 ? "no open sandcastle parents" : `no parent matches "${query}" — ${hidden} hidden`,
+  });
+  option.value = "";
+  option.disabled = true;
+  return option;
+}
+
+function renderMergeBadge() {
+  const waiting = lastParents.filter((parent) => parentState(parent) === "ready-to-merge").length;
+  const badge = document.getElementById("merge-badge");
+  badge.hidden = waiting === 0;
+  badge.textContent = `${waiting} waiting for your merge`;
+}
+
+function isSelectedParent(parent) {
+  return String(parent.number) === selectedParent;
+}
+
+function renderParents() {
+  const select = document.getElementById("parent");
+  select.replaceChildren();
+  const query = parentQuery.trim().toLowerCase();
+  const matched = lastParents.filter((parent) => parentMatches(parent, query));
+  const shown = lastParents.filter((parent) => parentMatches(parent, query) || isSelectedParent(parent));
+  for (const group of PARENT_GROUPS) {
+    const parents = shown.filter((parent) => parentState(parent) === group.state);
+    if (parents.length === 0) continue;
+    const optgroup = el("optgroup");
+    optgroup.label = `${group.label} (${parents.length})`;
+    for (const parent of parents) optgroup.append(buildParentOption(parent));
+    select.append(optgroup);
+  }
+  if (matched.length === 0) select.append(noParentOption(parentQuery.trim(), lastParents.length - shown.length));
+  const options = [...select.options].filter((option) => !option.disabled);
+  if (options.length > 0 && !options.some((option) => option.value === selectedParent)) {
+    selectedParent = options[0].value;
+  }
+  select.value = selectedParent;
+  document.getElementById("start").disabled = submitInFlight || options.length === 0;
+  renderMergeBadge();
+}
+
+function loadParents() {
+  return get("/api/parents").then(
+    (payload) => {
+      lastParents = payload.parents;
+      const preselected = lastState && lastState.preselectedParent;
+      if (selectedParent === "" && preselected) selectedParent = String(preselected);
+      renderParents();
+      if (lastState) renderQueue(lastState);
+    },
+    (error) => showError(error.message),
+  );
+}
+
+document.getElementById("alert-dismiss").onclick = () => showError("");
+
+document.getElementById("parent").onchange = (event) => {
+  selectedParent = event.target.value;
+};
+
+document.getElementById("parent-filter").oninput = (event) => {
+  parentQuery = event.target.value;
+  renderParents();
+};
+
+document.getElementById("start").onclick = () => {
+  showError("");
+  const button = document.getElementById("start");
+  if (button.disabled) return;
+  submitInFlight = true;
+  button.disabled = true;
+  const parent = Number(selectedParent);
+  const cap = Number(document.getElementById("start-cap").value);
+  post("/api/run", { parent: parent, cap: cap })
+    .then(refresh, (error) => showError(error.message))
+    .then(() => {
+      submitInFlight = false;
+      renderParents();
+    });
+};
+
+document.getElementById("queue-add").onclick = () => {
+  showError("");
+  const parent = Number(selectedParent);
+  if (!parent) {
+    showError("pick a parent to queue first");
+    return;
+  }
+  const cap = Number(document.getElementById("start-cap").value);
+  act(() => post("/api/queue", { parents: [parent], cap: cap }));
+};
+
+document.getElementById("add-parents").onclick = () => {
+  document.getElementById("add-panel").hidden = false;
+  document.getElementById("add-result").hidden = true;
+};
+
+document.getElementById("add-close").onclick = () => {
+  document.getElementById("add-panel").hidden = true;
+};
+
+document.getElementById("add-submit").onclick = () => {
+  showError("");
+  const button = document.getElementById("add-submit");
+  button.disabled = true;
+  post("/api/parents", { text: document.getElementById("add-input").value }).then(
+    (payload) => {
+      button.disabled = false;
+      const lines = (payload.result || []).map((check) =>
+        check.ok ? `ok    #${check.number} ${check.title}` : `FAIL  ${check.input} — ${check.error}`,
+      );
+      const result = document.getElementById("add-result");
+      result.textContent = lines.join("\n");
+      result.hidden = false;
+      loadParents();
+    },
+    (error) => {
+      button.disabled = false;
+      showError(error.message);
+    },
+  );
+};
+
+function queuedTitle(parent) {
+  const known = lastParents.find((candidate) => candidate.number === parent);
+  return known ? `#${parent} ${known.title}` : `#${parent}`;
+}
+
+function moveQueued(queued, index, offset) {
+  const order = queued.slice();
+  const [moved] = order.splice(index, 1);
+  order.splice(index + offset, 0, moved);
+  act(() => post("/api/queue/reorder", { parents: order }));
+}
+
+function buildQueueItem(queued, index) {
+  const parent = queued[index];
+  const row = el("span", { cls: "chip merge qitem" });
+  row.append(el("span", { text: `${index + 1}. ${queuedTitle(parent)}` }));
+  const up = el("button", { text: "↑", title: `run #${parent} earlier` });
+  up.disabled = index === 0;
+  up.onclick = () => moveQueued(queued, index, -1);
+  const down = el("button", { text: "↓", title: `run #${parent} later` });
+  down.disabled = index === queued.length - 1;
+  down.onclick = () => moveQueued(queued, index, 1);
+  const remove = el("button", { cls: "danger", text: "×", title: `remove #${parent} from the queue` });
+  remove.onclick = () => act(() => send("DELETE", `/api/queue/${parent}`));
+  row.append(up, down, remove);
+  return row;
+}
+
+function renderQueue(state) {
+  const settings = state.queueSettings;
+  const parallel = settings.mode === "parallel";
+  const mode = document.getElementById("queue-mode");
+  mode.textContent = parallel ? "parallel" : "sequential";
+  mode.title = parallel ? "switch to one parent at a time" : "switch to several parents at once";
+  document.getElementById("queue-max-label").hidden = !parallel;
+  document.getElementById("queue-max").hidden = !parallel;
+  syncInput("queue-max", settings.maxParallel);
+  document.getElementById("queue-paused").hidden = !settings.paused;
+  document.getElementById("queue-resume").hidden = !settings.paused;
+  const queued = state.queue || [];
+  const list = document.getElementById("queue-list");
+  list.replaceChildren();
+  if (queued.length === 0) list.append(el("span", { cls: "none", text: "nothing queued" }));
+  queued.forEach((_parent, index) => list.append(buildQueueItem(queued, index)));
+  document.getElementById("queue-clear").disabled = queued.length === 0;
+}
+
+document.getElementById("queue-mode").onclick = () => {
+  showError("");
+  const parallel = lastState && lastState.queueSettings.mode === "parallel";
+  act(() => send("PUT", "/api/queue/mode", { mode: parallel ? "sequential" : "parallel" }));
+};
+
+document.getElementById("queue-max").onchange = (event) => {
+  showError("");
+  act(() => send("PUT", "/api/queue/mode", { mode: "parallel", maxParallel: Number(event.target.value) }));
+};
+
+document.getElementById("queue-resume").onclick = () => {
+  showError("");
+  act(() => post("/api/queue/resume"));
+};
+
+document.getElementById("queue-clear").onclick = () => {
+  showError("");
+  act(() => post("/api/queue/clear"));
+};
+
+document.getElementById("feed-all").onclick = () => {
+  feedAll = !feedAll;
+  if (lastState) renderFeed(lastState.feed);
+};
+
+document.getElementById("set-cap").onclick = () => {
+  showError("");
+  act(() => post("/api/cap", { value: Number(document.getElementById("cap").value) }));
+};
+
+document.getElementById("toggle-pause").onclick = () => {
+  showError("");
+  const view = lastState ? selectedView(lastState) : { paused: false };
+  const verb = view.paused ? "resume" : "pause";
+  const parent = selectedRunNumber();
+  act(() => post(parent === null ? `/api/${verb}` : `/api/runs/${parent}/${verb}`));
+};
+
+function postToSelectedRun(action, body) {
+  showError("");
+  const parent = selectedRunNumber();
+  if (parent === null) return;
+  act(() => post(`/api/runs/${parent}/${action}`, body));
+}
+
+document.getElementById("set-run-cap").onclick = () =>
+  postToSelectedRun("cap", { cap: Number(document.getElementById("run-cap").value) });
+
+document.getElementById("stop-run").onclick = () => postToSelectedRun("stop");
+
+function resetTarget() {
+  const view = lastState && selectedView(lastState);
+  if (view && view.parent) return view.parent.number;
+  return Number(selectedParent) || 0;
+}
+
+function planLines(plan) {
+  const lines = [];
+  lines.push("docker + worktrees");
+  lines.push("  containers: " + (plan.orphans.containers.join(", ") || "(none)"));
+  lines.push("  networks:   " + (plan.orphans.networks.join(", ") || "(none)"));
+  lines.push("  volumes:    " + (plan.orphans.volumes.join(", ") || "(none)"));
+  lines.push("  worktrees:  " + (plan.orphans.worktrees.join(", ") || "(none)"));
+  for (const failure of plan.orphans.failures) lines.push("  [warn] " + failure + " — this inventory is incomplete");
+  lines.push("");
+  lines.push("lock");
+  lines.push(plan.lock.reclaim ? "  stale lock (pid " + (plan.lock.pid || "unreadable") + ")" : "  no lock file");
+  lines.push("");
+  lines.push("labels");
+  if (plan.labels.length === 0) lines.push("  (nothing to revert)");
+  for (const label of plan.labels) {
+    const parts = label.remove.map((name) => "-" + name);
+    if (label.swapToAgent) parts.push("-ready-for-human", "+ready-for-agent");
+    lines.push("  #" + label.itemNumber + " " + parts.join(" "));
+  }
+  lines.push("");
+  lines.push("item branches");
+  for (const branch of plan.branches) {
+    lines.push("  " + (branch.removable ? "DELETE" : "keep  ") + " [" + branch.repo + "] " + branch.branch + " — " + branch.verdict);
+  }
+  return lines.join("\n");
+}
+
+function reportLines(report) {
+  const lines = [
+    "removed " + report.gc.containers.length + " container(s), " + report.gc.networks.length + " network(s), " +
+      report.gc.volumes.length + " volume(s), " + report.gc.worktrees.length + " worktree(s)",
+    "lock " + (report.lockReclaimed ? "reclaimed" : "untouched"),
+    report.labelled.length + " item(s) relabelled: " + (report.labelled.join(", ") || "(none)"),
+    report.deletedBranches.length + " branch(es) deleted: " + (report.deletedBranches.join(", ") || "(none)"),
+  ];
+  for (const failure of report.gc.failures) lines.push("[gc][warn] " + failure);
+  for (const failure of report.failures) lines.push("[warn] " + failure);
+  return lines.join("\n");
+}
+
+function showResetPanel(title, text, applyEnabled) {
+  document.getElementById("reset-title").textContent = title;
+  document.getElementById("reset-plan").textContent = text;
+  document.getElementById("reset-apply").hidden = !applyEnabled;
+  document.getElementById("reset-panel").hidden = false;
+}
+
+document.getElementById("reset").onclick = () => {
+  showError("");
+  const parent = resetTarget();
+  if (!parent) {
+    showError("pick a parent first — reset needs to know whose run to clear");
+    return;
+  }
+  plannedReset = 0;
+  showResetPanel("reset #" + parent + " — reading", "…", false);
+  post("/api/reset", { parent: parent }).then(
+    (payload) => {
+      plannedReset = parent;
+      showResetPanel("reset #" + parent + " — dry run, nothing changed yet", planLines(payload.result), true);
+    },
+    (error) => {
+      document.getElementById("reset-panel").hidden = true;
+      showError(error.message);
+    },
+  );
+};
+
+document.getElementById("reset-apply").onclick = () => {
+  showError("");
+  const parent = plannedReset;
+  if (!parent) {
+    showError("no plan on screen to apply — read the plan first");
+    return;
+  }
+  const button = document.getElementById("reset-apply");
+  button.disabled = true;
+  post("/api/reset", { parent: parent, apply: true }).then(
+    (payload) => {
+      plannedReset = 0;
+      showResetPanel("reset #" + parent + " — applied", reportLines(payload.result), false);
+      button.disabled = false;
+      refresh();
+    },
+    (error) => {
+      button.disabled = false;
+      showError(error.message);
+    },
+  );
+};
+
+document.getElementById("reset-close").onclick = () => {
+  plannedReset = 0;
+  document.getElementById("reset-panel").hidden = true;
+};
+
+const DRAWER_POLL_MS = 1500;
+let drawerItem = null;
+let drawerAttempt = null;
+let drawerOffset = 0;
+let drawerText = "";
+let drawerTimer = null;
+
+function openDrawer(item) {
+  drawerItem = item.number;
+  drawerAttempt = null;
+  document.getElementById("drawer-title").textContent = `#${item.number} ${item.title}`;
+  document.getElementById("drawer").hidden = false;
+  loadAttempts(true);
+  if (drawerTimer) clearInterval(drawerTimer);
+  drawerTimer = setInterval(() => loadAttempts(false), DRAWER_POLL_MS);
+}
+
+function closeDrawer() {
+  document.getElementById("drawer").hidden = true;
+  drawerItem = null;
+  drawerAttempt = null;
+  if (drawerTimer) clearInterval(drawerTimer);
+  drawerTimer = null;
+}
+
+function loadAttempts(selectLatest) {
+  if (drawerItem === null) return Promise.resolve();
+  return get(`/api/items/${drawerItem}/attempts`).then(
+    (payload) => {
+      const attempts = payload.result || [];
+      renderTabs(attempts);
+      if (attempts.length === 0) {
+        document.getElementById("drawer-body").textContent = "no attempt has been recorded for this item yet.";
+        return;
+      }
+      const known = attempts.some((attempt) => attempt.id === drawerAttempt);
+      if (selectLatest || !known) selectAttempt(attempts[attempts.length - 1].id);
+      else pollLog();
+    },
+    (error) => showError(error.message),
+  );
+}
+
+function renderTabs(attempts) {
+  const tabs = document.getElementById("drawer-tabs");
+  tabs.replaceChildren();
+  for (const attempt of attempts) {
+    const live = attempt.endedAt === null || attempt.endedAt === undefined;
+    const label = `${attempt.stage} #${attempt.attempt}${live ? " ●" : ` · ${attempt.outcome || "?"}`}`;
+    const button = el("button", { text: label, title: `${attempt.startedAt} — ${attempt.bytes} bytes` });
+    if (attempt.id === drawerAttempt) button.className = "active";
+    else if (live) button.className = "live";
+    button.onclick = () => selectAttempt(attempt.id);
+    tabs.append(button);
+  }
+}
+
+function selectAttempt(id) {
+  drawerAttempt = id;
+  drawerOffset = 0;
+  drawerText = "";
+  document.getElementById("drawer-body").replaceChildren();
+  pollLog();
+}
+
+function pollLog() {
+  if (!drawerAttempt) return;
+  const id = drawerAttempt;
+  get(`/api/attempts/${id}/log?from=${drawerOffset}`).then(
+    (payload) => {
+      if (id !== drawerAttempt) return;
+      const result = payload.result;
+      if (result.next === drawerOffset && drawerText.length > 0) return;
+      drawerOffset = result.next;
+      drawerText += result.chunk;
+      renderTranscript();
+    },
+    (error) => showError(error.message),
+  );
+}
+
+function renderTranscript() {
+  const body = document.getElementById("drawer-body");
+  const raw = document.getElementById("drawer-raw").checked;
+  const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
+  body.replaceChildren();
+  if (raw) {
+    body.append(el("pre", { text: drawerText }));
+  } else {
+    for (const turn of transcriptTurns(drawerText)) body.append(el("div", { cls: `turn ${turn.kind}`, text: turn.text }));
+  }
+  if (atBottom) body.scrollTop = body.scrollHeight;
+}
+
+function transcriptTurns(text) {
+  const turns = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (!trimmed.startsWith("{")) {
+      turns.push({ kind: "meta", text: trimmed });
+      continue;
+    }
+    let event = null;
+    try {
+      event = JSON.parse(trimmed);
+    } catch (error) {
+      turns.push({ kind: "meta", text: trimmed.slice(0, 400) });
+      continue;
+    }
+    const turn = describeEvent(event);
+    if (turn) turns.push(turn);
+  }
+  return turns;
+}
+
+function describeEvent(event) {
+  if (event.type === "system") return { kind: "meta", text: `system: ${event.subtype || ""} ${event.model || ""}`.trim() };
+  if (event.type === "rate_limit_event") {
+    const info = event.rate_limit_info || {};
+    return { kind: "err", text: `rate limit: ${info.rateLimitType || ""} ${info.status || ""} resetsAt ${info.resetsAt || "?"}` };
+  }
+  if (event.type === "result") {
+    const cost = event.total_cost_usd === undefined ? "" : ` · $${Number(event.total_cost_usd).toFixed(2)}`;
+    const turnsUsed = event.num_turns === undefined ? "" : ` · ${event.num_turns} turns`;
+    return { kind: event.is_error ? "err" : "result", text: `result${turnsUsed}${cost}\n${textOf(event.result)}` };
+  }
+  if (event.type !== "assistant" && event.type !== "user") return null;
+  const content = (event.message && event.message.content) || [];
+  const parts = [];
+  for (const block of content) {
+    if (block.type === "text" && block.text.trim()) parts.push({ kind: "", text: block.text.trim() });
+    if (block.type === "tool_use") parts.push({ kind: "tool", text: `→ ${block.name}: ${firstLine(block.input)}` });
+    if (block.type === "tool_result") parts.push({ kind: "tool", text: `← ${firstLine(block.content)}` });
+  }
+  if (parts.length === 0) return null;
+  return { kind: parts[0].kind, text: parts.map((part) => part.text).join("\n") };
+}
+
+function textOf(value) {
+  if (typeof value === "string") return value;
+  return value === undefined || value === null ? "" : JSON.stringify(value);
+}
+
+function firstLine(value) {
+  const text = textOf(value).replace(/\s+/g, " ").trim();
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+document.getElementById("drawer-close").onclick = closeDrawer;
+document.getElementById("drawer-raw").onchange = renderTranscript;
+
+const events = new EventSource("/api/events");
+events.addEventListener("state", (event) => render(JSON.parse(event.data).state));
+events.addEventListener("feed", (event) => {
+  const line = JSON.parse(event.data).line;
+  if (lastState) lastState.feed = [...lastState.feed, line].slice(-FEED_LIMIT);
+  if (feedShows(line)) document.getElementById("feed").prepend(buildFeedLine(line));
+  renderFeedCount();
+});
+
+restoreFeedPanel();
+refresh().then(loadParents);
+setInterval(pollParents, PARENT_REFRESH_MS);
+</script>
+</body>
+</html>

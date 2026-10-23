@@ -1,0 +1,76 @@
+{
+  "repo": "example-org/hub",
+  "parent": {
+    "number": 20,
+    "title": "demo: eight-slice feature",
+    "state": "OPEN",
+    "labels": ["sandcastle"],
+    "body": "Demo orchestration issue.\n\n```yaml\nsandcastle: v1\nfeature: eight-slice-demo\nrequired_reading:\n  api:\n    - CLAUDE.md\n  web:\n    - CLAUDE.md\nload_bearing_memories:\n  - feedback_no_code_comments\n```\n"
+  },
+  "subIssues": [
+    {
+      "number": 21,
+      "title": "api: schema slice",
+      "state": "OPEN",
+      "labels": ["repo:api", "ready-for-agent"],
+      "body": "## What to build\nSchema.",
+      "blockedBy": []
+    },
+    {
+      "number": 22,
+      "title": "web: api client slice",
+      "state": "OPEN",
+      "labels": ["repo:web", "ready-for-agent"],
+      "body": "## What to build\nApi client.",
+      "blockedBy": []
+    },
+    {
+      "number": 23,
+      "title": "api: service slice",
+      "state": "OPEN",
+      "labels": ["repo:api", "ready-for-agent"],
+      "body": "## What to build\nService.",
+      "blockedBy": [21]
+    },
+    {
+      "number": 24,
+      "title": "web: store slice",
+      "state": "OPEN",
+      "labels": ["repo:web", "ready-for-agent"],
+      "body": "## What to build\nStore.",
+      "blockedBy": [22]
+    },
+    {
+      "number": 25,
+      "title": "api: endpoint slice",
+      "state": "OPEN",
+      "labels": ["repo:api", "ready-for-agent"],
+      "body": "## What to build\nEndpoint.",
+      "blockedBy": [21]
+    },
+    {
+      "number": 26,
+      "title": "web: list view slice",
+      "state": "OPEN",
+      "labels": ["repo:web", "ready-for-agent"],
+      "body": "## What to build\nList view.",
+      "blockedBy": [23, 24]
+    },
+    {
+      "number": 27,
+      "title": "api: metrics slice",
+      "state": "OPEN",
+      "labels": ["repo:api", "ready-for-agent"],
+      "body": "## What to build\nMetrics.",
+      "blockedBy": [25]
+    },
+    {
+      "number": 28,
+      "title": "web: detail view slice",
+      "state": "OPEN",
+      "labels": ["repo:web", "ready-for-agent"],
+      "body": "## What to build\nDetail view.",
+      "blockedBy": [26, 27]
+    }
+  ]
+}
