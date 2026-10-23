@@ -1,152 +1,174 @@
 # sandcastle-orchestrator
 
-Turn a GitHub issue tree into merged, verified code. You publish one **Orchestration Issue**
-whose native sub-issues are the work; sandcastle-orchestrator runs each sub-issue through a
-chain of fresh Claude Code agents in throwaway Docker containers, merges them into an
-integration branch, verifies the assembled feature, and opens one `integration → dev` pull
-request per repo for a human to merge.
+Issue-driven multi-agent orchestrator. GitHub sub-issues in, verified integration pull requests out.
+
+You publish one **Orchestration Issue** whose native sub-issues are the work. Each sub-issue runs through a chain of fresh Claude Code agents in throwaway Docker containers and is squash-merged into an integration branch. The assembled feature is then verified, and one `integration/<feature> -> dev` pull request per repo waits for a human to merge.
+
+## How it works
 
 ```
-sub-issue ──► develop ──► simplify ──► review ──► verify gate ──► squash-merge into integration/<feature>
-   (one sandboxed agent per stage, rework rounds on red, park for a human when stuck)
-                                          all items done ──► Feature Verify ──► polish ──► PR integration → dev
+sub-issue -> develop -> simplify -> review -> verify gate -> squash-merge into integration/<feature>
+             (one sandboxed agent per stage; rework rounds on red; park for a human when stuck)
+
+all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 ```
 
-## Standing on the shoulders of Sandcastle
+| Part | What it does |
+|---|---|
+| Scheduler | Items run as a DAG of native *blocked-by* edges under a worker cap, deepest stage first. |
+| Stage chain | develop (test-first), simplify, review, verify gate (rebase, checks, squash-merge). Each stage is a fresh agent. |
+| Rework | A red gate or `NEEDS-REWORK:` from review sends the item back to develop with a written brief, up to a limit. Then it parks. |
+| Park and hold | `ready-for-agent` admits an item; without it the item is held. Parked items get `ready-for-human`. Flipping the label back resumes from the failed stage. |
+| Crash-resume | `sc:*` labels and pull-request markers are the durable state. A restart resumes every item where it was. |
+| Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
+| Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
+| Polish | A final simplify, review and comment-strip pass on each integration pull request. |
+| Control plane | Local dashboard (Express + SSE): stage chains, cap, pause, cancel, retry, reset, a run queue, parallel parents. |
+| Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |
 
-This is a **side project and a complement to [Matt Pocock's Sandcastle](https://github.com/mattpocock/sandcastle)**
-(`@ai-hero/sandcastle`) — all the credit for the idea, the name and the "agents in a sandbox,
-merge the branches back" model goes there. If you want a TypeScript library to orchestrate
-sandboxed coding agents with `sandcastle.run()`, use Sandcastle.
-
-sandcastle-orchestrator is an opinionated layer for one workflow on top of that idea:
-**GitHub issues in, reviewed pull requests out**, with a scheduler, a dependency graph, crash
-recovery from labels, a local control-plane dashboard and an operator CLI. It currently ships
-its own Docker runner; moving its sandbox layer onto `@ai-hero/sandcastle` is on the roadmap.
-It is not affiliated with or endorsed by the Sandcastle project.
-
-## Features
-
-- **Issue-driven runs.** A parent issue + native sub-issues + native *blocked-by* edges is the
-  whole plan. Items are scheduled as a DAG under a worker cap, deepest stage first.
-- **Stage chain per item.** develop (test-first) → simplify → review → verify gate (rebase,
-  checks, squash-merge), each a fresh agent that did not write the code before it.
-- **Rework rounds.** A red gate or `NEEDS-REWORK:` from review sends the item back to develop
-  with a written brief, up to a limit; then it parks for a human.
-- **Park, hold, resume.** `ready-for-agent` admits an item; without it the item is *Held*.
-  Parked items flip to `ready-for-human`; flipping back re-queues from the stage that failed.
-- **Crash-resume.** `sc:*` stage labels and pull-request markers are the durable state —
-  restart the orchestrator and every item resumes where it was.
-- **Docker sandbox.** One container per stage, sanitized `.env`, mounted read-only Claude
-  home, idle timeout with a salvage pass, startup garbage collection of orphans.
-- **Feature Verify.** Once every item merged, a fresh agent checks the assembled feature
-  against every acceptance criterion — via a throwaway compose environment, your own verify
-  command, or not at all (pluggable, see below). Red results get fix rounds.
-- **Polish.** A final simplify/review/strip-comments pass on the integration pull request.
-- **Control plane.** Express + SSE dashboard on `127.0.0.1:7777`: stage chains, live cap,
-  pause, cancel/retry, reset, a run queue, parallel parents with a global cap.
-- **Operator CLI.** `npm run ops -- <command>` prints one JSON object per call, so another
-  agent (or you) can launch, watch and finish runs without the UI.
-- **Single- or multi-repo.** The hub (where issues live) and the code repos can be the same
-  repository or several.
+The hub repo (where issues live) and the code repos can be one repository or several.
 
 ## Requirements
 
-- Node.js 20.11+ and npm
-- Docker (Docker Desktop on Windows/macOS)
-- [GitHub CLI](https://cli.github.com/) `gh`, logged in (`gh auth login`) with write access to
-  the hub repo's issues
-- [Claude Code](https://docs.claude.com/en/docs/claude-code), logged in on the host — agents
-  reuse its credentials through a read-only mount (or set `ANTHROPIC_API_KEY`)
-- The agent skills listed under [Agent skills](#agent-skills) in your `~/.claude`
+| Tool | Notes |
+|---|---|
+| Node.js 20.11+ and npm | |
+| Docker | Docker Desktop on Windows and macOS |
+| [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
+| [Claude Code](https://docs.claude.com/en/docs/claude-code) | Logged in on the host. Agents reuse its credentials through a read-only mount, or set `ANTHROPIC_API_KEY`. |
+| Agent skills | Installed in `~/.claude`, see [Agent skills](#agent-skills) |
 
 ## Install
 
+Once per machine:
+
 ```bash
-git clone https://github.com/nivnoiman/sandcastle-orchestrator.git
-cd sandcastle-orchestrator
-npm ci
-npm run build-image          # docker image sandcastle:latest (node 20, gh, claude, pnpm/yarn, playwright)
-npm test                     # optional: the suite needs no docker, gh or tokens
+git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcastle-orchestrator && npm ci && npm link && npm run build-image
 ```
 
-## Set up a project
+| Step | Result |
+|---|---|
+| `npm ci` | Dependencies |
+| `npm link` | A global `sandcastle` command |
+| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, pnpm, yarn, Playwright) |
 
-**1. Add `sandcastle.config.json` to the root of the repo that holds your issues.**
+`npm test` runs the suite. It needs no Docker, `gh` or tokens.
 
-Single repo (issues and code in one place):
+Without `npm link`, every command also runs from the clone as `npm run <script> -- <args> --config=<project root>`.
+
+## Quick start
+
+Run everything from the root of the project that holds your issues.
+
+```bash
+cd ~/src/my-app
+sandcastle init                       # or: sandcastle init --hub=owner/name --port=7781
+```
+
+`init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777 and creates `.sandcastle/`. Then:
+
+1. Put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator`.
+2. Put safe dev values in `.sandcastle/.env.sandbox`. An empty file is fine.
+3. Review `bootstrap` and `checks` in `.sandcastle/config.json`.
+4. Commit `.sandcastle/config.json` and `.sandcastle/.gitignore`.
+5. Publish an Orchestration Issue (see [Publish contract](#publish-contract)) and run it:
+
+```bash
+sandcastle validate 12                # parse the issue tree, print the run model or every violation
+sandcastle preflight 12               # every start-time check, no lock, no tokens
+sandcastle launch 12 --cap=2          # start the control plane and the run
+sandcastle status                     # watch it
+sandcastle finish                     # assert done, print the integration pull requests
+```
+
+The dashboard is at `http://127.0.0.1:<ui.port>`.
+
+To try the scheduler with no setup, from the clone:
+
+```bash
+sandcastle dry-run examples/demo/demo-run.json --cap=2 --config=examples/demo
+sandcastle ui examples/demo/demo-run.json --config=examples/demo
+```
+
+## Configuration
+
+The project is found by walking up from the current directory to the first `.sandcastle/config.json`. `--config=<path>` or `SANDCASTLE_CONFIG` override that and accept the config file, the `.sandcastle` folder or the project root. Relative paths in the config resolve against the project root.
+
+Single repo, as `init` writes it:
 
 ```json
 {
   "hubRepo": "your-name/your-app",
   "integrationBase": "dev",
   "repos": {
-    "app": {
+    "your-app": {
       "github": "your-name/your-app",
       "bootstrap": "pnpm install --frozen-lockfile",
       "checks": "pnpm typecheck && pnpm test && pnpm build"
     }
   },
-  "verify": {
-    "strategy": "command",
-    "commands": { "app": "pnpm typecheck && pnpm test && pnpm build" }
-  }
+  "verify": { "strategy": "command" },
+  "ui": { "port": 7777 }
 }
 ```
 
-A multi-repo example with a compose verify environment is in
-[`examples/demo/sandcastle.config.json`](examples/demo/sandcastle.config.json).
+A multi-repo example with a compose verify environment is in [`examples/demo/.sandcastle/config.json`](examples/demo/.sandcastle/config.json).
 
 | Field | Default | Meaning |
 |---|---|---|
-| `name` | repo part of `hubRepo` | project name (kebab); namespaces state dirs and docker objects |
-| `hubRepo` | — | `owner/name` holding the Orchestration Issue and its sub-issues |
-| `integrationBase` | `dev` | branch `integration/<feature>` is cut from and its PRs target |
-| `imageTag` | `sandcastle:latest` | agent image |
-| `memoryProject` | derived from the config folder | `~/.claude/projects/<this>/memory` holds `load_bearing_memories` |
-| `stateDir` | `<tool>/projects/<name>` | `.env.orchestrator`, sandbox envs, worktrees, logs, lock, queue |
-| `repos.<name>.github` | — | `owner/name`; `<name>` is what the `repo:<name>` label says |
-| `repos.<name>.path` | `.` when it is the hub repo, else `../<name>` | local checkout, relative to the config file |
-| `repos.<name>.bootstrap` | none | run in every agent container before work (`npm ci`, `pnpm install …`) |
-| `repos.<name>.checks` | — | the per-item gate; must be green before an item merges |
+| `name` | repo part of `hubRepo` | Project name, lower-case kebab. Namespaces worktrees and Docker objects (`sc-<name>-...`). |
+| `hubRepo` | required | `owner/name` holding the Orchestration Issue and its sub-issues |
+| `integrationBase` | `dev` | Branch `integration/<feature>` is cut from and its pull requests target |
+| `imageTag` | `sandcastle:latest` | Agent image |
+| `memoryProject` | derived from the project root | `~/.claude/projects/<this>/memory` holds `load_bearing_memories` |
+| `stateDir` | `<project>/.sandcastle` | Env files, logs, lock, queue, `ui-<parent>.log` |
+| `repos.<name>.github` | required | `owner/name`. `<name>` is what the `repo:<name>` label says. |
+| `repos.<name>.path` | `.` for the hub repo, else `../<name>` | Local checkout, relative to the project root |
+| `repos.<name>.bootstrap` | none | Runs in every agent container before work (`npm ci`, `pnpm install ...`) |
+| `repos.<name>.checks` | required | The per-item gate. Must be green before an item merges. |
 | `verify` | `{ "strategy": "none" }` | Feature Verify strategy, see below |
+| `ui.port` | `7777` | Control plane port for this project |
 
-**2. Give it secrets** — in the tool folder (never in your repo):
-
-```bash
-mkdir -p projects/<name>
-cp .env.orchestrator.example projects/<name>/.env.orchestrator  # GH_TOKEN etc. (or <tool>/.env.orchestrator for all projects)
-cp .env.sandbox.example projects/<name>/.env.sandbox # SAFE dev values only; an empty file is fine
-```
-
-Two env files, two jobs: `.env.orchestrator` is sandcastle's own secrets (read by the host only,
-never visible to agents); `.env.sandbox` is your app's env, copied into each agent worktree as `.env`.
-
-`GH_TOKEN` is a fine-grained PAT with *contents* + *pull requests* write on every repo under
-`repos` — agents push and open PRs with it. Labels and comments use the host's `gh auth`.
-
-**3. Point the commands at the config** with `--config=<path>`, `SANDCASTLE_CONFIG=<path>`, or by
-running from the folder that holds `sandcastle.config.json` (e.g. `npm --prefix <tool> run ui -- 12`).
-Relative paths resolve against the folder you ran `npm` in.
+Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `7777`.
 
 ### Feature Verify strategies
 
 | `verify.strategy` | What runs once every item merged |
 |---|---|
-| `none` | Nothing. The report says only the per-item gates ran; the integration PR still opens. |
-| `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red → fix rounds. Green → a fresh agent checks every acceptance criterion against the built code (Playwright + chromium are in the image). `"agent": false` skips the agent and lets the green commands be the report. |
-| `compose` | A throwaway docker network with an optional fresh `mongo` (`"mongo": true` or an image) and **every** repo built and served (`services.<repo>`: `build`, `seed`, `serve`, `port`, `healthPath`, `env`). `env` values expand `{{port}}`, `{{mongoUri}}`, `{{mongoDb}}`, `{{url:<repo>}}`. The agent drives the APIs over HTTP and UIs with Playwright; anything that needs a provider in `externalProviders` is marked `REQUIRES-STG` for a human. Every mongo URI in the env must point at the local container or verify refuses to start. |
+| `none` | Nothing. The report says only the per-item gates ran. The integration pull request still opens. |
+| `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red: fix rounds. Green: a fresh agent checks every acceptance criterion against the built code (Playwright and Chromium are in the image). `"agent": false` skips the agent; the green commands are the report. |
+| `compose` | A throwaway Docker network with an optional fresh `mongo` (`"mongo": true` or an image) and every repo built and served (`services.<repo>`: `build`, `seed`, `serve`, `port`, `healthPath`, `env`). `env` values expand `{{port}}`, `{{mongoUri}}`, `{{mongoDb}}`, `{{url:<repo>}}`. The agent drives APIs over HTTP and UIs with Playwright. Scenarios that need a provider in `externalProviders` are marked `REQUIRES-STG` for a human. Every mongo URI in the env must point at the local container or verify refuses to start. |
+
+## Files in `.sandcastle/`
+
+| File | Committed | Purpose |
+|---|---|---|
+| `config.json` | yes | Project config |
+| `.gitignore` | yes | `*`, `!.gitignore`, `!config.json`. Everything else stays local. |
+| `.env.orchestrator` | no | sandcastle's own secrets (`GH_TOKEN`, optional `ANTHROPIC_API_KEY`, overrides). Read by the host only, never visible to agents. |
+| `.env.sandbox` | no | Your app's env, copied into each agent worktree as `.env`. Agents can read it. `.env.sandbox.<repo>` overrides it for one repo. |
+| `logs/` | no | Attempt transcripts and saved leftovers |
+| `.orchestrator.lock` | no | Held while a run is live |
+| `.queue.json` | no | Run queue and its settings |
+| `ui-<parent>.log` | no | Control plane log written by `launch` |
+
+A shared `.env.orchestrator` in the sandcastle clone is read first; the project's own file wins on a clash. Use it to share one `GH_TOKEN` across projects.
+
+Agent worktrees live outside the repo, in `~/.sandcastle/worktrees/<project>/<repo>/<branch>`. `SANDCASTLE_WORKTREE_DIR` overrides the base folder.
+
+`GH_TOKEN` is a fine-grained PAT with *contents* and *pull requests* write on every repo under `repos`. Agents push and open pull requests with it. Labels and comments use the host's `gh auth`.
+
+**Migrating from the old layout:** state that lived in `<sandcastle clone>/projects/<name>/` moves into `<project>/.sandcastle/`. Alternatively set `stateDir` to the old folder.
 
 ## Publish contract
 
-A run is defined entirely on GitHub:
+A run is defined entirely on GitHub.
 
-**Parent (Orchestration Issue)** on `hubRepo`: label `sandcastle`, and exactly one yaml fence
-with a `sandcastle:` key:
+**Parent (Orchestration Issue)** on `hubRepo`: label `sandcastle`, and exactly one yaml fence with a `sandcastle:` key:
 
 ```yaml
 sandcastle: v1
-feature: my-feature                # kebab slug → integration/my-feature, feat/<n>-<slug>
+feature: my-feature                # kebab slug: integration/my-feature, feat/<n>-<slug>
 required_reading:                  # repo-relative paths every agent reads first
   app:
     - CLAUDE.md
@@ -155,113 +177,143 @@ load_bearing_memories:             # optional slugs from the project's Claude me
   - feedback_no_code_comments
 ```
 
-**Work Items** — native sub-issues of the parent:
+**Work Items** are native sub-issues of the parent:
 
-- exactly one `repo:<name>` label naming a repo from the config (split cross-repo work into
-  two items joined by a blocking edge);
-- native *blocked-by* edges between siblings (a `## Blocked by` section with `#<n>` refs is the
-  fallback only when the API is unavailable); an edge to a closed sibling is satisfied;
-- `ready-for-agent` → queued, without it → **Held**; parked items get `ready-for-human`;
-- body: `## What to build`, `## Acceptance criteria` checklist (review and verify measure
-  against it); optional yaml fence `extra_memories: [<slug>]`.
+- Exactly one `repo:<name>` label naming a repo from the config. Split cross-repo work into two items joined by a blocking edge.
+- Native *blocked-by* edges between siblings. A `## Blocked by` section with `#<n>` refs is the fallback only when the API is unavailable. An edge to a closed sibling is satisfied.
+- With `ready-for-agent` the item is queued; without it the item is held. Parked items get `ready-for-human`.
+- Body: `## What to build` and an `## Acceptance criteria` checklist (review and verify measure against it). Optional yaml fence `extra_memories: [<slug>]`.
 
-**Labels** (create once on the hub): `sandcastle`, `repo:<name>` per repo, `ready-for-agent`,
-`ready-for-human`, and the orchestrator-owned stage mirror `sc:queued` `sc:blocked`
-`sc:developing` `sc:simplifying` `sc:in-review` `sc:verifying` `sc:done` `sc:needs-human`
-(never set these by hand — crash-resume reads them).
+**Labels** (create once on the hub):
 
-`npm run validate` enforces all of it and names the offending issue for every violation:
-version `v1`, slug format, `required_reading` keys ⊆ repos used, one known `repo:` label per
-item, sibling-only edges, no cycles.
+| Label | Set by |
+|---|---|
+| `sandcastle` | You, on the parent |
+| `repo:<name>` | You, one per repo |
+| `ready-for-agent`, `ready-for-human` | You, and the orchestrator on park |
+| `sc:queued` `sc:blocked` `sc:developing` `sc:simplifying` `sc:in-review` `sc:verifying` `sc:done` `sc:needs-human` | The orchestrator only. Never set these by hand: crash-resume reads them. |
+
+`sandcastle validate` enforces all of it and names the offending issue for every violation: version `v1`, slug format, `required_reading` keys within the repos used, one known `repo:` label per item, sibling-only edges, no cycles.
 
 ## Commands
 
-All take `--config=<path>` (or `SANDCASTLE_CONFIG`). `<parent>` is the Orchestration Issue number.
+`<parent>` is the Orchestration Issue number. Every command accepts `--config=<path>`; from inside the project it is not needed. Run a command without arguments to print its usage.
+
+**Project**
+
+| Command | What it does |
+|---|---|
+| `sandcastle init [--hub=owner/name] [--port=N]` | Create `.sandcastle/` in the current directory |
+| `sandcastle validate <parent> [owner/repo]` | Parse and print the run model, or every violation |
+| `sandcastle dry-run <parent \| fixture.json> [--cap=N]` | Simulate scheduling with fake adapters (no tokens) |
+| `sandcastle preflight <parent> [--skip-verify]` | Every start-time check, no lock, no tokens |
+| `sandcastle ui <parent \| fixture.json> [--cap=N] [--port=N] [--dry] [--fail=<item>:<stage>]` | Control plane in the browser. `--dry` simulates that parent. |
+| `sandcastle start <parent> [--cap=N] [--skip-verify]` | Headless real run (spends tokens) |
+| `sandcastle reset <parent> [--apply]` | Clear a killed run's containers, worktrees and labels. Prints the plan without `--apply`. |
+| `sandcastle smoke [repo]` | Non-billed container and git plumbing check |
+| `sandcastle sync-claude <source ~/.claude>` | Copy skills, memories and credentials into the agent home |
+
+**Operating a run** (JSON out; also available as `sandcastle ops <command>`)
+
+| Command | What it does |
+|---|---|
+| `sandcastle launch <parent>... [--cap=N] [--parallel=N \| --sequential] [--global-cap=N]` | Start the control plane if it is down, start the first parent, queue the rest |
+| `sandcastle enqueue <parent>... [--cap=N]` | Queue parents behind the runs in flight |
+| `sandcastle dequeue <parent>` | Drop a parent from the queue |
+| `sandcastle queue-mode sequential\|parallel [--max=N]` | One parent at a time, or up to N at once |
+| `sandcastle queue-resume`, `sandcastle queue-clear` | Resume a paused queue, or empty it |
+| `sandcastle queue` | Queue settings, queued parents, runs on the control plane |
+| `sandcastle cap <N> [--parent=N]` | One run's worker cap, or the global cap without `--parent` |
+| `sandcastle pause`, `sandcastle resume [--parent=N]` | Hold or release new stage starts |
+| `sandcastle stop <parent>` | No new stages start for that run |
+| `sandcastle status [--parent=N] [--items]` | One run: phases, holds, waiting reasons, parks, feed, queue |
+| `sandcastle status --summary` | Queue, global slots, one line per run |
+| `sandcastle logs <item> [stage] [--bytes=N]` | Tail the newest recorded attempt for an item |
+| `sandcastle resume-parked [--parent=N] [--only=<text>]` | Retry every parked item whose reason contains `<text>` |
+| `sandcastle resolve-conflict <item> [--parent=N]` | Retry one parked item. The gate re-runs and may resolve it with an agent. |
+| `sandcastle finish [--parent=N]` | Assert the run is complete and print its integration pull requests |
+
+`--parent=N` may be left out while only one run exists or only one parent is live.
+
+## Running several projects
+
+Each project has its own state folder, lock, queue, worktree folder and Docker names (`sc-<project>-...`). Give each project its own `ui.port` (`init` picks a free one) and they run side by side:
 
 ```bash
-npm run validate -- <parent>                     # parse + print the run model, or every violation
-npm run dry-run -- <parent> [--cap=N]            # simulate scheduling with fake adapters (no tokens)
-npm run preflight -- <parent> [--skip-verify]    # every start-time check, no lock, no tokens
-npm run ui -- <parent> [--cap=N] [--port=N]      # control plane at http://127.0.0.1:7777, real mode
-npm run ui -- <parent> --dry [--fail=17:review]  # paced simulation of that parent in the UI
-npm run start -- <parent> [--cap=N]              # headless real run (spends tokens)
-npm run reset -- <parent> [--apply]              # clear a killed run's containers/worktrees/labels
-npm run smoke -- [repo]                          # non-billed container + git plumbing check
-npm run sync-claude -- <source ~/.claude>        # copy skills/memories/credentials into the agent home
+cd ~/src/app-one && sandcastle launch 12 --cap=2      # ui.port 7777
+cd ~/src/app-two && sandcastle launch 40 --cap=1      # ui.port 7778
 ```
 
-Try it with zero setup:
+Within one project, one control plane runs several parents: pass several to `launch`, or use `enqueue`, `--parallel=N` and `--global-cap=N`. See [Parallel parents](docs/internals.md#parallel-parents).
 
-```bash
-npm run dry-run -- examples/demo/demo-run.json --cap=2 --config=examples/demo/sandcastle.config.json
-npm run ui -- examples/demo/demo-run.json --config=examples/demo/sandcastle.config.json
-```
+## Operating a run
 
-### Operating a run
+`launch` starts the control plane under a supervisor that restarts it on a crash and resumes from labels. It logs to `.sandcastle/ui-<parent>.log`.
 
-`npm run ops -- <command>` is the operator surface — JSON out, idempotent:
+| State in `status` | Meaning | Action |
+|---|---|---|
+| `running`, `awaiting` | Normal | None |
+| `waiting` | Usage window or credential probe | None. It resumes itself. Do not retry it. |
+| `held` | No `ready-for-agent` | A human adds the label or does the item |
+| `parked` | Needs a decision | Read `logs <item>`, then `resolve-conflict`, `resume-parked`, or report it |
 
-```bash
-npm run ops -- preflight <parent>
-npm run ops -- launch <parent>... --cap=2 [--parallel=N | --sequential] [--global-cap=N]
-npm run ops -- status [--parent=N] [--items] | status --summary | queue
-npm run ops -- logs <item> [stage]
-npm run ops -- resume-parked [--parent=N] [--only=<text>]
-npm run ops -- resolve-conflict <item>
-npm run ops -- pause | resume [--parent=N] | stop <parent> | cap <N> [--parent=N]
-npm run ops -- finish [--parent=N]               # asserts done, prints the integration → base PRs
-```
+`finish` refuses to call a run green while waiting or parked items remain, or when Feature Verify was red.
 
-`launch` starts the control plane under a supervisor (restarts on crash, resumes from labels)
-and logs to `projects/<name>/ui-<parent>.log`. **Waiting** items need nothing (a usage window or
-a credential probe releases them); **parked** items need a decision. `finish` refuses to call a
-run green while either is outstanding or Feature Verify was red.
+Hard rules when you step in by hand:
 
-Hard rules when you step in by hand: never kill the UI process mid-stage, never rebase a
-worktree whose container is up, push with `--force-with-lease` only, and resolve conflicts in
-`projects/<name>/worktrees/<repo>/<branch>` — never in your working checkout.
-
-[`skills/sandcastle-run/SKILL.md`](skills/sandcastle-run/SKILL.md) is a Claude Code skill that
-drives this loop end to end; copy it to `~/.claude/skills/sandcastle-run/`.
-
-## Agent skills
-
-The stage prompts invoke Claude Code skills that must exist in the host `~/.claude` (preflight
-checks them):
-
-- `skills/tdd/SKILL.md` — develop and rework (see [mattpocock/skills](https://github.com/mattpocock/skills))
-- `skills/simplify/SKILL.md` — the simplify stage
-- `skills/mat-review/SKILL.md` — the review stage (standards + spec, two axes)
-- `commands/polish.md`, `commands/review.md` — the polish stage
-
-Any skill with that name and the same contract (apply fixes since a fixed point; review a diff
-against standards and the issue) works.
+- Never kill the UI process mid-stage. Crash-resume re-runs whole stages.
+- Never rebase a worktree whose container is up.
+- Push with `--force-with-lease` only.
+- Resolve conflicts in `~/.sandcastle/worktrees/<project>/<repo>/<branch>`, never in your working checkout.
+- Integration pull requests are merged by a human.
 
 ## Security model
 
-Agents run Claude Code with `--dangerously-skip-permissions` inside their containers, read the
-issue text you label, and hold real credentials. Treat that as the trust boundary:
+Agents run Claude Code with `--dangerously-skip-permissions` inside their containers, read the issue text you label, and hold real credentials. Treat that as the trust boundary.
 
-- **Only label issues written by people you trust.** Issue bodies reach the agents verbatim;
-  a hostile body is a prompt injection into an agent that can push code. Comments are not read.
-- **`GH_TOKEN` is a fine-grained PAT** scoped to exactly the repos under `repos`, with
-  contents + pull requests write and nothing else. Never a classic token, never org-wide.
-- **Agents see your Claude credentials** (a read-only mount of `~/.claude`, copied into the
-  container). Prefer a dedicated `ANTHROPIC_API_KEY` with a spend limit if that matters to you.
+- **Only label issues written by people you trust.** Issue bodies reach the agents verbatim. A hostile body is a prompt injection into an agent that can push code. Comments are not read.
+- **`GH_TOKEN` is a fine-grained PAT** scoped to exactly the repos under `repos`, with contents and pull requests write and nothing else. Never a classic token, never org-wide.
+- **Agents see your Claude credentials** (a read-only mount of `~/.claude`, copied into the container). Prefer a dedicated `ANTHROPIC_API_KEY` with a spend limit if that matters to you.
 - **Containers have network access** (npm, GitHub, Anthropic). There is no egress filter.
-- **The host is guarded against the shared `.git`.** Each container mounts the repo's `.git`
-  so it can commit; host git runs with hooks and fsmonitor disabled, and the orchestrator
-  refuses a stage (restoring the file) if a container changed `.git/config` or
-  `.git/info/attributes`.
+- **The host is guarded against the shared `.git`.** Each container mounts the repo's `.git` so it can commit. Host git runs with hooks and fsmonitor disabled, and the orchestrator refuses a stage (restoring the file) if a container changed `.git/config` or `.git/info/attributes`.
 - **`.env.sandbox` is readable by agents.** Put only throwaway dev values there.
-- **The control plane** listens on `127.0.0.1` only, checks the `Host` header and requires an
-  `x-sandcastle: 1` header on every write.
+- **`.env.orchestrator` never reaches a container.** The host reads it; it is gitignored.
+- **The control plane** listens on `127.0.0.1` only, checks the `Host` header and requires an `x-sandcastle: 1` header on every write.
 
-## How it works
+## Agent skills
 
-[`docs/internals.md`](docs/internals.md) covers the engine, labels, preflight, rework, conflicts,
-sandbox hardening, salvage, prompts, the control plane API, Feature Verify, polish, parallel
-parents and transcripts in detail.
+The stage prompts invoke Claude Code skills that must exist in the host `~/.claude`. Preflight checks them.
+
+| File | Used by |
+|---|---|
+| `~/.claude/skills/tdd/SKILL.md` | develop and rework (see [mattpocock/skills](https://github.com/mattpocock/skills)) |
+| `~/.claude/skills/simplify/SKILL.md` | simplify stage |
+| `~/.claude/skills/mat-review/SKILL.md` | review stage (standards and spec) |
+| `~/.claude/commands/polish.md`, `~/.claude/commands/review.md` | polish stage |
+
+Any skill with that name and the same contract works: apply fixes since a fixed point; review a diff against standards and the issue.
+
+This repo also ships a skill and a slash command that let Claude Code operate a run end to end:
+
+| File | Install to | Use |
+|---|---|---|
+| [`skills/sandcastle-run/`](skills/sandcastle-run/SKILL.md) | `~/.claude/skills/sandcastle-run/` | Triggers on requests like "run sandcastle on #12" |
+| [`commands/sandcastle-run.md`](commands/sandcastle-run.md) | `~/.claude/commands/sandcastle-run.md` | `/sandcastle-run 12` |
+
+```bash
+cp -r skills/sandcastle-run ~/.claude/skills/
+cp commands/sandcastle-run.md ~/.claude/commands/
+```
+
+## Documentation
+
+[`docs/internals.md`](docs/internals.md) covers the engine, labels, preflight, rework, conflicts, sandbox hardening, salvage, prompts, the control plane API, Feature Verify, polish, parallel parents and transcripts.
+
+## Credits
+
+This is a side project that complements [Matt Pocock's Sandcastle](https://github.com/mattpocock/sandcastle) (npm `@ai-hero/sandcastle`). The name and the idea (agents in a sandbox, branches merged back) come from there. For a TypeScript library that orchestrates sandboxed coding agents, use Sandcastle.
+
+sandcastle-orchestrator is not affiliated with or endorsed by the Sandcastle project. It ships its own Docker runner today. Moving the sandbox layer onto `@ai-hero/sandcastle` is on the roadmap.
 
 ## License
 
