@@ -460,15 +460,19 @@ export class DockerSandboxRunner implements SandboxRunner {
     return this.settleOutcome(request, worktree, baseline);
   }
 
-  /** Adds a custom agent stage's prompt file, read fresh so edits apply to the next start. */
   private stagePromptContext(request: SpawnRequest): StagePromptContext {
     const context = this.deps.context.promptContext(request);
     const spec = this.deps.config.stages.find((stage) => stage.name === request.stage);
     if (spec?.kind !== "agent") return context;
-    const text = this.deps.fs.readText(spec.promptPath);
-    if (text === undefined) throw new Error(`the ${spec.name} stage prompt ${spec.promptPath} is missing`);
+    const text = this.readPromptFileUncached(spec.name, spec.promptPath);
     const stageInstructions = renderStageInstructions(text, context, `stage ${spec.name} prompt (${spec.promptPath})`);
     return { ...context, stageInstructions };
+  }
+
+  private readPromptFileUncached(stageName: string, promptPath: string): string {
+    const text = this.deps.fs.readText(promptPath);
+    if (text === undefined) throw new Error(`the ${stageName} stage prompt ${promptPath} is missing`);
+    return text;
   }
 
   private async salvage(request: SpawnRequest, attempt: string, worktree: string, cause: unknown, baseline: number | undefined): Promise<void> {
@@ -738,12 +742,11 @@ export class DockerSandboxRunner implements SandboxRunner {
         story: commandReworkStory(request, failure, subjects),
       }));
     }
-    this.recordCommandTrail(request);
+    this.recordGreenSectionForResume(request);
     this.deps.log(`#${request.itemNumber} ${request.stage} green: ${request.command}`);
     return { outcome: "success" };
   }
 
-  /** A red clean-copy check sends the item back to develop; anything else (or a cancelled attempt) rethrows. */
   private reworkOnRed(
     request: VerifyRequest,
     attempt: string,
@@ -751,15 +754,18 @@ export class DockerSandboxRunner implements SandboxRunner {
     what: string,
     rework: (failure: CheckFailure, subjects: readonly string[]) => ReworkRequest,
   ): StageResult {
-    if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
+    if (!this.isReworkableRed(cause, attempt)) throw cause;
     const worktree = this.requireWorktree(request.repo, request.branch);
     const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
     this.deps.warn(request.itemNumber, `${what} red — sending it back to develop: ${cause.message.slice(0, 300)}`);
     return { outcome: "failure", detail: this.describe(cause), rework: rework(cause, subjects) };
   }
 
-  /** A pull-request section per green command stage, so a restart resumes past it instead of re-running it. */
-  private recordCommandTrail(request: CommandStageRequest): void {
+  private isReworkableRed(cause: unknown, attempt: string): cause is CheckFailure {
+    return cause instanceof CheckFailure && !this.cancelledAttempts.has(attempt);
+  }
+
+  private recordGreenSectionForResume(request: CommandStageRequest): void {
     const round = reworkRoundOf(request);
     const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
     if (!pullRequest) {
@@ -779,7 +785,6 @@ export class DockerSandboxRunner implements SandboxRunner {
     return { outcome: "success" };
   }
 
-  /** Bootstraps a copy of the branch in a fresh container and runs `checks`; red throws `CheckFailure`. */
   private async runInCleanCopy(
     stage: string,
     attempt: string,

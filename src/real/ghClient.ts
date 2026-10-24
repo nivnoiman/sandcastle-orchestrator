@@ -105,6 +105,7 @@ function parseLabelNames(raw: string): string[] {
 }
 
 const CUSTOM_STAGE_LABEL_COLOR = "5319E7";
+const UPSERT_LABEL_FLAG = "--force";
 
 interface PendingLabelWrite {
   description: string;
@@ -235,11 +236,10 @@ export class RealGhClient implements GhClient, PullRequestOps {
     return this.currentLabels(itemNumber).filter(isStageLabel);
   }
 
-  /** Custom stages' `sc:<name>` labels are not created by hand; `--force` makes this idempotent across runs. */
   private ensureCustomLabel(label: StageLabel): void {
     if (isFixedStageLabel(label) || this.createdLabels.has(label)) return;
     this.gh([
-      "label", "create", label, "--repo", this.deps.hubRepo, "--force",
+      "label", "create", label, "--repo", this.deps.hubRepo, UPSERT_LABEL_FLAG,
       "--color", CUSTOM_STAGE_LABEL_COLOR, "--description", `sandcastle custom stage ${label.slice("sc:".length)}`,
     ]);
     this.createdLabels.add(label);
