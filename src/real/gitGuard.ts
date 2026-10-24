@@ -45,7 +45,8 @@ interface ConfigEntry {
   section: string;
   subsection: string | undefined;
   key: string;
-  value: string;
+  /** Decoded as git reads it; null is a bare key (implicit true), distinct from an empty value. */
+  value: string | null;
 }
 
 const GIT_ASCII_ISSPACE = String.raw`[ \t\v\f\r]`;
@@ -55,21 +56,39 @@ const SECTION_HEADER = new RegExp(
 );
 const KEY_LINE = new RegExp(String.raw`^${GIT_ASCII_ISSPACE}*([A-Za-z][A-Za-z0-9-]*)${KEY_EQUALS_PADDING}*(?:=(.*))?$`);
 const COMMENT_OR_BLANK = new RegExp(String.raw`^${GIT_ASCII_ISSPACE}*(?:[#;].*)?$`);
-const VALUE_ESCAPES = new Set(["t", "b", "n", "\\", '"']);
+const VALUE_ESCAPES: Readonly<Partial<Record<string, string>>> = { t: "\t", b: "\b", n: "\n", "\\": "\\", '"': '"' };
 
 function stripLeadingBom(text: string): string {
   return text.replace(/^﻿/, "");
 }
 
-function gitAcceptsValue(raw: string): boolean {
+/** Mirrors git's parse_value: unquoted whitespace collapses to spaces (leading/trailing dropped), comments end the value. */
+function decodeGitValueOrUndefined(raw: string): string | undefined {
+  let decoded = "";
   let quoted = false;
+  let pendingSpaces = 0;
   for (let index = 0; index < raw.length; index++) {
     const char = raw[index]!;
-    if (!quoted && (char === "#" || char === ";")) return true;
-    if (char === '"') quoted = !quoted;
-    else if (char === "\\" && !VALUE_ESCAPES.has(raw[++index] ?? "")) return false;
+    if (!quoted && (char === " " || char === "\t" || char === "\r")) {
+      if (decoded.length > 0) pendingSpaces++;
+      continue;
+    }
+    if (!quoted && (char === "#" || char === ";")) break;
+    decoded += " ".repeat(pendingSpaces);
+    pendingSpaces = 0;
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char !== "\\") {
+      decoded += char;
+      continue;
+    }
+    const escaped = VALUE_ESCAPES[raw[++index] ?? ""];
+    if (escaped === undefined) return undefined;
+    decoded += escaped;
   }
-  return !quoted;
+  return quoted ? undefined : decoded;
 }
 
 function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined {
@@ -88,25 +107,34 @@ function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined
     if (COMMENT_OR_BLANK.test(rest)) continue;
     const keyLine = KEY_LINE.exec(rest);
     if (!keyLine || section === undefined) return undefined;
-    const value = keyLine[2] ?? "";
-    if (!gitAcceptsValue(value)) return undefined;
-    entries.push({ section, subsection, key: keyLine[1]!.toLowerCase(), value: value.trim() });
+    const raw = keyLine[2];
+    const value = raw === undefined ? null : decodeGitValueOrUndefined(raw);
+    if (value === undefined) return undefined;
+    entries.push({ section, subsection, key: keyLine[1]!.toLowerCase(), value });
   }
   return entries;
 }
 
 const GH_PR_CREATE_REMOTE_KEY = "gh-resolved";
 const REMOTE_NAMING_BRANCH_KEYS = new Set(["remote", "pushremote"]);
+/** Keys push -u, gh pr create/checkout and branch --track write; mergeOptions and the rest stay guarded. */
+const OWN_BRANCH_KEYS = new Set([...REMOTE_NAMING_BRANCH_KEYS, "merge", "rebase", "description", "gh-merge-base"]);
 
+/** Remotes with a url only: git reads a url-less remote's name as a path, so naming one is a redirect. */
 function existingRemoteNames(entries: readonly ConfigEntry[]): ReadonlySet<string> {
-  return new Set(entries.flatMap((entry) => (entry.section === "remote" && entry.subsection !== undefined ? [entry.subsection] : [])));
+  return new Set(
+    entries.flatMap((entry) =>
+      entry.section === "remote" && entry.subsection !== undefined && entry.key === "url" && entry.value ? [entry.subsection] : [],
+    ),
+  );
 }
 
 function isOwnBranchBookkeeping(entry: ConfigEntry, ownBranch: string | undefined, remotes: ReadonlySet<string>): boolean {
   if (entry.subsection === undefined) return false;
   if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotes.has(entry.subsection);
-  if (entry.section !== "branch" || entry.subsection !== ownBranch) return false;
-  return !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || remotes.has(entry.value);
+  if (ownBranch === undefined || entry.section !== "branch" || entry.subsection !== ownBranch) return false;
+  if (!OWN_BRANCH_KEYS.has(entry.key)) return false;
+  return !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || (entry.value !== null && remotes.has(entry.value));
 }
 
 function configChangeIsOnlyOwnBranchBookkeeping(

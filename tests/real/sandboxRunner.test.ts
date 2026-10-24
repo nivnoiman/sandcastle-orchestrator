@@ -283,6 +283,35 @@ describe("develop stage", () => {
     expect(runner.find("docker rm -f")).toBeDefined();
   });
 
+  describe("git config the agent writes", () => {
+    const REPO_CONFIG = join(API, ".git", "config");
+    const BASE = '[remote "origin"]\n\turl = https://github.com/example-org/api.git\n';
+
+    async function runWithAgentWriting(config: string) {
+      const run = harness({ commits: 2, files: { [REPO_CONFIG]: BASE } });
+      run.gh.pullRequest = openPullRequest();
+      run.runner.hold(/claude -p/, 1);
+      run.sandbox.spawnStage(SPAWN);
+      await vi.waitFor(() => expect(run.runner.held).toHaveLength(1));
+      run.fs.writeText(REPO_CONFIG, config);
+      run.runner.held[0]!.finish();
+      return { ...run, outcome: (await run.completion).outcome };
+    }
+
+    it("keeps tracking the agent wrote for the stage's own branch", async () => {
+      const after = `${BASE}[branch "${BRANCH}"]\n\tremote = origin\n\tmerge = refs/heads/${BRANCH}\n`;
+      const { fs, outcome } = await runWithAgentWriting(after);
+      expect(outcome).toBe("success");
+      expect(fs.readText(REPO_CONFIG)).toBe(after);
+    });
+
+    it("restores and refuses tracking the agent wrote for another branch", async () => {
+      const { fs, outcome } = await runWithAgentWriting(`${BASE}[branch "main"]\n\tremote = origin\n`);
+      expect(outcome).not.toBe("success");
+      expect(fs.readText(REPO_CONFIG)).toBe(BASE);
+    });
+  });
+
   it("keeps GH_TOKEN off the argv, passing it through a private env file that is deleted again", async () => {
     const { runner, fs, sandbox, gh, completion } = harness({ commits: 1 });
     gh.pullRequest = openPullRequest();

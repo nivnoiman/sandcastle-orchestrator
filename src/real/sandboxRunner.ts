@@ -264,7 +264,7 @@ export function copyWorkspaceCommand(): string {
 /** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
 export function startWorktreeContainer(
   deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
-  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; branch?: string },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; branch: string | undefined },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
   const gitControl = snapshotGitControl(deps.fs, repoGitDir, container.branch);

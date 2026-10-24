@@ -62,6 +62,11 @@ describe("git control guard", () => {
     ["own branch pushRemote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tpushRemote = https://evil.test/x.git\n`],
     ["own branch remote naming an unknown remote", `${BASE_CONFIG}[branch "x"]\n\tremote = upstream\n`],
     ["gh-resolved on an unknown remote", `${BASE_CONFIG}[remote "evil"]\n\tgh-resolved = base\n`],
+    ["own branch mergeOptions", `${BASE_CONFIG}[branch "x"]\n\tmergeOptions = -s evil\n`],
+    ["own branch remote smuggled past a comment", `${BASE_CONFIG}[branch "x"]\n\tremote = "evil";origin\n`],
+    ["own branch remote as a bare key", `${BASE_CONFIG}[branch "x"]\n\tremote\n`],
+    ["own branch in different case", `${BASE_CONFIG}[branch "X"]\n\tremote = origin\n`],
+    ["own branch via legacy subsection syntax", `${BASE_CONFIG}[branch.x]\n\tremote = https://evil.test/x.git\n`],
   ])("refuses and restores a %s change", (_name, tampered) => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
     const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
@@ -82,6 +87,46 @@ describe("git control guard", () => {
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
     expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it.each([
+    ["quoted", '"origin"'],
+    ["trailing comment", "origin ; set by push -u"],
+  ])("decodes a %s own-branch remote value as git does", (_name, value) => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "x"]\n\tremote = ${value}\n`);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
+  });
+
+  it("refuses a guarded key flipped between empty and bare (implicit true)", () => {
+    const base = "[core]\n\tbare =\n";
+    const fs = fsWith({ [CONFIG]: base });
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
+    fs.writeText(CONFIG, "[core]\n\tbare\n");
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(base);
+  });
+
+  it("refuses an own-branch remote naming a remote that has no url", () => {
+    const base = `${BASE_CONFIG}[remote "upstream"]\n\tgh-resolved = base\n`;
+    const fs = fsWith({ [CONFIG]: base });
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
+    fs.writeText(CONFIG, `${base}[branch "x"]\n\tremote = upstream\n`);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(base);
+  });
+
+  it("refuses an own-branch remote naming a remote added in the same stage", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
+    fs.writeText(CONFIG, `${BASE_CONFIG}[remote "evil"]\n\turl = https://evil.test/x.git\n[branch "x"]\n\tremote = evil\n`);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
   });
 
   it("refuses any branch tracking when the stage has no branch of its own", () => {
