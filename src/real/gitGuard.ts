@@ -46,19 +46,36 @@ interface ConfigEntry {
   value: string;
 }
 
-const SECTION_HEADER = /^\s*\[([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\](.*)$/;
-const KEY_LINE = /^\s*([A-Za-z][A-Za-z0-9-]*)\s*(?:=(.*))?$/;
-const COMMENT_OR_BLANK = /^\s*(?:[#;].*)?$/;
+// Mirrors git's config.c so nothing git rejects parses here: isspace() is ASCII-only (JS \s is not), only
+// space/tab may sit between a key and '=', and the closing quote of a subsection must touch ']'.
+const SECTION_HEADER = /^[ \t\v\f\r]*\[([A-Za-z0-9.-]+)(?:[ \t\v\f\r]+"((?:[^"\\]|\\.)*)")?\](.*)$/;
+const KEY_LINE = /^[ \t\v\f\r]*([A-Za-z][A-Za-z0-9-]*)[ \t]*(?:=(.*))?$/;
+const COMMENT_OR_BLANK = /^[ \t\v\f\r]*(?:[#;].*)?$/;
+const VALUE_ESCAPES = new Set(["t", "b", "n", "\\", '"']);
+
+/** Mirrors git's parse_value: an unknown escape or an unclosed quote makes git refuse the whole file. */
+function isValidValue(raw: string): boolean {
+  let quoted = false;
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index]!;
+    if (!quoted && (char === "#" || char === ";")) return true;
+    if (char === '"') quoted = !quoted;
+    else if (char === "\\" && !VALUE_ESCAPES.has(raw[++index] ?? "")) return false;
+  }
+  return !quoted;
+}
 
 /**
  * Parses the plain subset of git config syntax into entries; values stay raw. Returns undefined for
- * anything else (line continuations, malformed lines) so the caller treats any change as tampering.
+ * anything else (line continuations, malformed lines, syntax git itself rejects) so the caller treats
+ * any change as tampering.
  */
 function parseGitConfig(text: string): ConfigEntry[] | undefined {
   const entries: ConfigEntry[] = [];
   let section: string | undefined;
   let subsection: string | undefined;
-  for (const line of text.split(/\r?\n/)) {
+  // git skips a UTF-8 BOM only at the very start of the file.
+  for (const line of text.replace(/^﻿/, "").split(/\r?\n/)) {
     if (line.endsWith("\\")) return undefined;
     let rest = line;
     const header = SECTION_HEADER.exec(line);
@@ -70,7 +87,9 @@ function parseGitConfig(text: string): ConfigEntry[] | undefined {
     if (COMMENT_OR_BLANK.test(rest)) continue;
     const keyLine = KEY_LINE.exec(rest);
     if (!keyLine || section === undefined) return undefined;
-    entries.push({ section, subsection, key: keyLine[1]!.toLowerCase(), value: (keyLine[2] ?? "").trim() });
+    const value = keyLine[2] ?? "";
+    if (!isValidValue(value)) return undefined;
+    entries.push({ section, subsection, key: keyLine[1]!.toLowerCase(), value: value.trim() });
   }
   return entries;
 }
@@ -89,6 +108,7 @@ function guardedConfigFingerprint(text: string | undefined): string | undefined 
 
 /** A config change confined to branch bookkeeping is harmless; any other change, or an unparseable file, is tampering. */
 function configChangeAllowed(before: string | undefined, after: string | undefined): boolean {
+  if (after === undefined) return false;
   const guardedBefore = guardedConfigFingerprint(before);
   return guardedBefore !== undefined && guardedBefore === guardedConfigFingerprint(after);
 }

@@ -48,6 +48,14 @@ describe("git control guard", () => {
     ["new remote", `${BASE_CONFIG}[remote "evil"]\n\turl = https://evil.test/x.git\n`],
     ["key smuggled after a branch header", `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n[core] sshCommand = sh evil.sh\n`],
     ["line continuation", `${BASE_CONFIG}[branch "x"]\n\tremote = origin \\\n`],
+    ["header stacked on a branch header", `${BASE_CONFIG}[branch "x"][core]hooksPath = /tmp/hooks\n`],
+    ["upper-case core section", `${BASE_CONFIG}[CORE]\n\tHooksPath = /tmp/hooks\n`],
+    ["legacy remote subsection", `${BASE_CONFIG}[remote.evil]\n\turl = https://evil.test/x.git\n`],
+    ["non-ASCII-indented branch key git rejects", `${BASE_CONFIG}[branch "x"]\n remote = origin\n`],
+    ["space before a subsection's closing bracket", `${BASE_CONFIG}[branch "x" ]\n\tremote = origin\n`],
+    ["unclosed quote in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = "origin\n`],
+    ["unknown escape in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = ori\\gin\n`],
+    ["vertical tab between key and =", `${BASE_CONFIG}[branch "x"]\n\tremote\v= origin\n`],
   ])("refuses and restores a %s change", (_name, tampered) => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
     const snapshot = snapshotGitControl(fs, GIT_DIR);
@@ -55,6 +63,29 @@ describe("git control guard", () => {
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
     expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+  });
+
+  it.each([
+    ["BOM", `﻿${BASE_CONFIG}`],
+    ["CRLF", BASE_CONFIG.replace(/\n/g, "\r\n")],
+  ])("passes branch tracking added to a %s config", (_name, base) => {
+    const fs = fsWith({ [CONFIG]: base });
+    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    const after = `${base}[branch "x"]\n\tremote = origin ; tracking\n\tdescription = "a; \\"b\\""\n`;
+    fs.writeText(CONFIG, after);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
+    expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("refuses and restores a deleted config", () => {
+    const original = '[branch "x"]\n\tremote = origin\n';
+    const fs = fsWith({ [CONFIG]: original });
+    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    fs.removeFile(CONFIG);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(original);
   });
 
   it("refuses an attributes change even when config only gained branch tracking", () => {
