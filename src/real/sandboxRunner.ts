@@ -264,10 +264,10 @@ export function copyWorkspaceCommand(): string {
 /** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
 export function startWorktreeContainer(
   deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
-  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; branch?: string },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
-  const gitControl = snapshotGitControl(deps.fs, repoGitDir);
+  const gitControl = snapshotGitControl(deps.fs, repoGitDir, container.branch);
   const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
   withContainerEnvFile(deps.fs, env, (envFile) => {
     startContainer(
@@ -818,7 +818,7 @@ export class DockerSandboxRunner implements SandboxRunner {
   private async inContainer(
     stage: string,
     attempt: string,
-    request: { itemNumber: number; repo: TargetRepo },
+    request: { itemNumber: number; repo: TargetRepo; branch: string },
     worktree: string,
     agent: ResolvedAgent | undefined,
     work: (container: string) => Promise<void>,
@@ -831,7 +831,14 @@ export class DockerSandboxRunner implements SandboxRunner {
     const provider = (agent ?? defaultAgent(this.deps.config)).provider;
     const container = this.containerName(stage, request.itemNumber);
     const login = agent ? snapshotCredential(this.deps.fs, this.deps.layout, provider) : undefined;
-    const gitControl = startWorktreeContainer(this.deps, { name: container, repo: request.repo, worktree, workspace, provider });
+    const gitControl = startWorktreeContainer(this.deps, {
+      name: container,
+      repo: request.repo,
+      worktree,
+      workspace,
+      provider,
+      branch: request.branch,
+    });
 
     this.attemptContainers.set(attempt, container);
     let removed = false;

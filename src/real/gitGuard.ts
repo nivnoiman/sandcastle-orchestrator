@@ -33,10 +33,12 @@ export class GitControlTampered extends Error {
 export interface GitControlSnapshot {
   gitDir: string;
   files: ReadonlyMap<string, string | undefined>;
+  /** The one branch whose tracking config the stage may write; undefined allows none. */
+  ownBranch: string | undefined;
 }
 
-export function snapshotGitControl(fs: FileSystemPort, gitDir: string): GitControlSnapshot {
-  return { gitDir, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
+export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch?: string): GitControlSnapshot {
+  return { gitDir, ownBranch, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
 }
 
 interface ConfigEntry {
@@ -94,21 +96,38 @@ function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined
 }
 
 const GH_PR_CREATE_REMOTE_KEY = "gh-resolved";
+const REMOTE_NAMING_BRANCH_KEYS = new Set(["remote", "pushremote"]);
 
-function isPushOrPrBranchBookkeeping(entry: ConfigEntry): boolean {
+function existingRemoteNames(entries: readonly ConfigEntry[]): ReadonlySet<string> {
+  return new Set(entries.flatMap((entry) => (entry.section === "remote" && entry.subsection !== undefined ? [entry.subsection] : [])));
+}
+
+function isOwnBranchBookkeeping(entry: ConfigEntry, ownBranch: string | undefined, remotes: ReadonlySet<string>): boolean {
   if (entry.subsection === undefined) return false;
-  return entry.section === "branch" || (entry.section === "remote" && entry.key === GH_PR_CREATE_REMOTE_KEY);
+  if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotes.has(entry.subsection);
+  if (entry.section !== "branch" || ownBranch === undefined || entry.subsection !== ownBranch) return false;
+  return !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || remotes.has(entry.value);
 }
 
-function guardedConfigFingerprint(text: string | undefined): string | undefined {
-  const entries = parsePlainGitConfigOrUndefined(text ?? "");
-  return entries && JSON.stringify(entries.filter((entry) => !isPushOrPrBranchBookkeeping(entry)));
+function guardedConfigFingerprint(
+  entries: readonly ConfigEntry[],
+  ownBranch: string | undefined,
+  remotes: ReadonlySet<string>,
+): string {
+  return JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotes)));
 }
 
-function configChangeIsOnlyBranchBookkeeping(before: string | undefined, after: string | undefined): boolean {
+function configChangeIsOnlyOwnBranchBookkeeping(
+  before: string | undefined,
+  after: string | undefined,
+  ownBranch: string | undefined,
+): boolean {
   if (after === undefined) return false;
-  const guardedBefore = guardedConfigFingerprint(before);
-  return guardedBefore !== undefined && guardedBefore === guardedConfigFingerprint(after);
+  const beforeEntries = parsePlainGitConfigOrUndefined(before ?? "");
+  const afterEntries = parsePlainGitConfigOrUndefined(after);
+  if (!beforeEntries || !afterEntries) return false;
+  const remotes = existingRemoteNames(beforeEntries);
+  return guardedConfigFingerprint(beforeEntries, ownBranch, remotes) === guardedConfigFingerprint(afterEntries, ownBranch, remotes);
 }
 
 /** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. */
@@ -118,7 +137,7 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
     const path = join(snapshot.gitDir, file);
     const after = fs.readText(path);
     if (after === before) continue;
-    if (file === "config" && configChangeIsOnlyBranchBookkeeping(before, after)) continue;
+    if (file === "config" && configChangeIsOnlyOwnBranchBookkeeping(before, after, snapshot.ownBranch)) continue;
     changed.push(file);
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);

@@ -26,10 +26,11 @@ describe("git control guard", () => {
   });
 
   const BASE_CONFIG = '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/acme/api.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n';
+  const OWN_BRANCH = "x";
 
-  it("passes branch tracking written by push -u and gh pr create", () => {
+  it("passes the stage's own branch tracking written by push -u and gh pr create", () => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    const snapshot = snapshotGitControl(fs, GIT_DIR, "sandcastle/hub-2");
     const after =
       BASE_CONFIG.replace("refs/remotes/origin/*\n", "refs/remotes/origin/*\n\tgh-resolved = base\n") +
       '[branch "sandcastle/hub-2"]\n\tremote = origin\n\tmerge = refs/heads/sandcastle/hub-2\n\tgh-merge-base = sandcastle/integration\n\tpushRemote = origin\n';
@@ -56,9 +57,14 @@ describe("git control guard", () => {
     ["unclosed quote in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = "origin\n`],
     ["unknown escape in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = ori\\gin\n`],
     ["vertical tab between key and =", `${BASE_CONFIG}[branch "x"]\n\tremote\v= origin\n`],
+    ["another branch's tracking", `${BASE_CONFIG}[branch "main"]\n\tremote = origin\n`],
+    ["own branch remote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tremote = https://evil.test/x.git\n`],
+    ["own branch pushRemote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tpushRemote = https://evil.test/x.git\n`],
+    ["own branch remote naming an unknown remote", `${BASE_CONFIG}[branch "x"]\n\tremote = upstream\n`],
+    ["gh-resolved on an unknown remote", `${BASE_CONFIG}[remote "evil"]\n\tgh-resolved = base\n`],
   ])("refuses and restores a %s change", (_name, tampered) => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
     fs.writeText(CONFIG, tampered);
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
@@ -70,18 +76,27 @@ describe("git control guard", () => {
     ["CRLF", BASE_CONFIG.replace(/\n/g, "\r\n")],
   ])("passes branch tracking added to a %s config", (_name, base) => {
     const fs = fsWith({ [CONFIG]: base });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
-    const after = `${base}[branch "x"]\n\tremote = origin ; tracking\n\tdescription = "a; \\"b\\""\n`;
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
+    const after = `${base}[branch "x"]\n\tremote = origin\n\tmerge = refs/heads/x ; tracking\n\tdescription = "a; \\"b\\""\n`;
     fs.writeText(CONFIG, after);
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
     expect(fs.readText(CONFIG)).toBe(after);
   });
 
+  it("refuses any branch tracking when the stage has no branch of its own", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
+
+    expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+  });
+
   it("refuses and restores a deleted config", () => {
     const original = '[branch "x"]\n\tremote = origin\n';
     const fs = fsWith({ [CONFIG]: original });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
     fs.removeFile(CONFIG);
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
@@ -90,7 +105,7 @@ describe("git control guard", () => {
 
   it("refuses an attributes change even when config only gained branch tracking", () => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    const snapshot = snapshotGitControl(fs, GIT_DIR, OWN_BRANCH);
     fs.writeText(CONFIG, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
     fs.writeText(ATTRIBUTES, "* filter=evil\n");
 
