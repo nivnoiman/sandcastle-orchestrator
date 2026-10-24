@@ -12,10 +12,10 @@ export const STAGE_COMMIT_TAG: Record<AgentStage, string> = {
 
 export const REWORK_COMMIT_TAG = "fix(rework):";
 
-const STAGE_SECTION_TITLE: Record<string, string> = {
-  simplify: "Simplify",
-  review: "Review",
-};
+const STAGE_SECTION_TITLE: ReadonlyMap<StageName, string> = new Map([
+  ["simplify", "Simplify"],
+  ["review", "Review"],
+]);
 
 const SENTINEL_PREFIX = "<!-- sandcastle:";
 const UNFIXABLE_PREFIX = "UNFIXABLE:";
@@ -23,7 +23,7 @@ const NEEDS_REWORK_PREFIX = "NEEDS-REWORK:";
 const REWORK_BRIEF_SENTINEL = /<!-- sandcastle:rework=(\d+) -->/g;
 const REWORK_BRIEF_HEADING = /^## Rework \d+\/\d+ — sent back by ([a-z][a-z0-9-]*)\s*$/;
 
-export function isFreshEyesStage(stage: StageName): stage is FreshEyesStage {
+export function isFreshEyesStage(stage: StageName): boolean {
   return stage !== "develop";
 }
 
@@ -33,7 +33,7 @@ export function stageCommitTag(stage: StageName): string {
 }
 
 function sectionTitle(stage: StageName): string {
-  return STAGE_SECTION_TITLE[stage] ?? stage;
+  return STAGE_SECTION_TITLE.get(stage) ?? stage;
 }
 
 export function prSectionSentinel(stage: StageName, round = 0): string {

@@ -722,15 +722,10 @@ export class DockerSandboxRunner implements SandboxRunner {
     try {
       return await this.runVerifyChecks(request, attempt);
     } catch (cause) {
-      if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
-      const worktree = this.requireWorktree(request.repo, request.branch);
-      const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
-      this.deps.warn(request.itemNumber, `verify gate red — sending it back to develop: ${cause.message.slice(0, 300)}`);
-      return {
-        outcome: "failure",
-        detail: this.describe(cause),
-        rework: { source: "verify", story: verifyReworkStory(request, cause, subjects) },
-      };
+      return this.reworkOnRed(request, attempt, cause, "verify gate", (failure, subjects) => ({
+        source: "verify",
+        story: verifyReworkStory(request, failure, subjects),
+      }));
     }
   }
 
@@ -738,19 +733,29 @@ export class DockerSandboxRunner implements SandboxRunner {
     try {
       await this.runInCleanCopy(request.stage, attempt, request, request.command);
     } catch (cause) {
-      if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
-      const worktree = this.requireWorktree(request.repo, request.branch);
-      const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
-      this.deps.warn(request.itemNumber, `${request.stage} red — sending it back to develop: ${cause.message.slice(0, 300)}`);
-      return {
-        outcome: "failure",
-        detail: this.describe(cause),
-        rework: { source: request.stage, story: commandReworkStory(request, cause, subjects) },
-      };
+      return this.reworkOnRed(request, attempt, cause, request.stage, (failure, subjects) => ({
+        source: request.stage,
+        story: commandReworkStory(request, failure, subjects),
+      }));
     }
     this.recordCommandTrail(request);
     this.deps.log(`#${request.itemNumber} ${request.stage} green: ${request.command}`);
     return { outcome: "success" };
+  }
+
+  /** A red clean-copy check sends the item back to develop; anything else (or a cancelled attempt) rethrows. */
+  private reworkOnRed(
+    request: VerifyRequest,
+    attempt: string,
+    cause: unknown,
+    what: string,
+    rework: (failure: CheckFailure, subjects: readonly string[]) => ReworkRequest,
+  ): StageResult {
+    if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
+    const worktree = this.requireWorktree(request.repo, request.branch);
+    const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
+    this.deps.warn(request.itemNumber, `${what} red — sending it back to develop: ${cause.message.slice(0, 300)}`);
+    return { outcome: "failure", detail: this.describe(cause), rework: rework(cause, subjects) };
   }
 
   /** A pull-request section per green command stage, so a restart resumes past it instead of re-running it. */

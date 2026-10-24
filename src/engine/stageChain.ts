@@ -31,5 +31,6 @@ export function stageNames(chain: readonly StageSpec[]): StageName[] {
 
 /** The command a command stage runs for `repo`, or undefined when the stage skips that repo. */
 export function commandFor(stage: CommandStage, repo: string): string | undefined {
-  return typeof stage.run === "string" ? stage.run : stage.run[repo];
+  if (typeof stage.run === "string") return stage.run;
+  return Object.hasOwn(stage.run, repo) ? stage.run[repo] : undefined;
 }

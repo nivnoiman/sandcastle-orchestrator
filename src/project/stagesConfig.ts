@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { messageOf } from "../messageOf.js";
 import { parseChoice, type AgentChoice } from "./agentsConfig.js";
 
 export const BUILTIN_AGENT_STAGES = ["develop", "simplify", "review"] as const;
@@ -13,6 +14,7 @@ export type StageSpec =
   | { kind: "command"; name: string; run: string | Readonly<Record<string, string>> };
 
 export type CommandStage = Extract<StageSpec, { kind: "command" }>;
+export type CustomStage = Extract<StageSpec, { kind: "agent" | "command" }>;
 
 export const DEFAULT_STAGES: readonly StageSpec[] = [
   { kind: "builtin", name: "develop" },
@@ -111,8 +113,8 @@ function readPrompt(path: string, where: string, context: StagesContext): void {
   let text: string;
   try {
     text = (context.readText ?? ((file) => readFileSync(file, "utf8")))(path);
-  } catch {
-    throw new Error(`${where}.prompt: cannot read ${path}`);
+  } catch (cause) {
+    throw new Error(`${where}.prompt: cannot read ${path}: ${messageOf(cause)}`);
   }
   assertStagePromptPlaceholders(text, `${where}.prompt (${path})`);
 }
@@ -182,7 +184,7 @@ export function parseStages(raw: unknown, context: StagesContext): readonly Stag
   return stages;
 }
 
-export function isCustomStage(stage: StageSpec): boolean {
+export function isCustomStage(stage: StageSpec): stage is CustomStage {
   return stage.kind === "agent" || stage.kind === "command";
 }
 

@@ -794,7 +794,6 @@ export class Engine {
   }
 
   private startStage(state: ItemState): void {
-    this.skipInapplicableStages(state);
     const stage = this.stages[state.nextStageIndex];
     if (!stage) {
       this.freeSlot();
@@ -805,28 +804,27 @@ export class Engine {
       this.startVerify(state);
       return;
     }
-    if (stage.kind === "command") {
-      this.startCommandStage(state, stage, commandFor(stage, state.item.repo) ?? "");
+    if (stage.kind !== "command") {
+      this.startAgentStage(state, stage.name);
       return;
     }
-    this.startAgentStage(state, stage.name);
-  }
-
-  private skipInapplicableStages(state: ItemState): void {
-    for (let stage = this.stages[state.nextStageIndex]; stage?.kind === "command"; stage = this.stages[state.nextStageIndex]) {
-      if (commandFor(stage, state.item.repo) !== undefined) return;
-      this.adapters.ui.note(state.item.number, `${stage.name} has no command for ${state.item.repo} — skipping it`);
-      state.nextStageIndex += 1;
+    const command = commandFor(stage, state.item.repo);
+    if (command !== undefined) {
+      this.startCommandStage(state, stage.name, command);
+      return;
     }
+    this.adapters.ui.note(state.item.number, `${stage.name} has no command for ${state.item.repo} — skipping it`);
+    state.nextStageIndex += 1;
+    this.startStage(state);
   }
 
-  private startCommandStage(state: ItemState, stage: StageSpec, command: string): void {
+  private startCommandStage(state: ItemState, stage: StageName, command: string): void {
     this.moveTo(state, "running");
-    if (!this.ensureWorktree(state, `${stage.name} stage`)) return;
+    if (!this.ensureWorktree(state, `${stage} stage`)) return;
     try {
       this.adapters.sandbox.spawnCommandStage({
         itemNumber: state.item.number,
-        stage: stage.name,
+        stage,
         repo: state.item.repo,
         branch: state.branch,
         integrationBranch: this.integrationBranch,
@@ -834,7 +832,7 @@ export class Engine {
         ...withRework(this.reworkContext(state)),
       });
     } catch (cause) {
-      this.abandonStart(state, `${stage.name} stage could not start — the sandbox refused to spawn`, messageOf(cause));
+      this.abandonStart(state, `${stage} stage could not start — the sandbox refused to spawn`, messageOf(cause));
     }
   }
 
