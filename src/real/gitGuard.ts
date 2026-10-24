@@ -105,16 +105,8 @@ function existingRemoteNames(entries: readonly ConfigEntry[]): ReadonlySet<strin
 function isOwnBranchBookkeeping(entry: ConfigEntry, ownBranch: string | undefined, remotes: ReadonlySet<string>): boolean {
   if (entry.subsection === undefined) return false;
   if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotes.has(entry.subsection);
-  if (entry.section !== "branch" || ownBranch === undefined || entry.subsection !== ownBranch) return false;
+  if (entry.section !== "branch" || entry.subsection !== ownBranch) return false;
   return !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || remotes.has(entry.value);
-}
-
-function guardedConfigFingerprint(
-  entries: readonly ConfigEntry[],
-  ownBranch: string | undefined,
-  remotes: ReadonlySet<string>,
-): string {
-  return JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotes)));
 }
 
 function configChangeIsOnlyOwnBranchBookkeeping(
@@ -127,7 +119,9 @@ function configChangeIsOnlyOwnBranchBookkeeping(
   const afterEntries = parsePlainGitConfigOrUndefined(after);
   if (!beforeEntries || !afterEntries) return false;
   const remotes = existingRemoteNames(beforeEntries);
-  return guardedConfigFingerprint(beforeEntries, ownBranch, remotes) === guardedConfigFingerprint(afterEntries, ownBranch, remotes);
+  const guardedFingerprint = (entries: readonly ConfigEntry[]): string =>
+    JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotes)));
+  return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
 /** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. */
