@@ -212,7 +212,7 @@ function sharedHeader(context: StagePromptContext): string[] {
 function prBlock(context: StagePromptContext): string[] {
   return [
     "```",
-    `git push -u origin ${context.branch}`,
+    `git push origin ${context.branch}`,
     `gh pr create --draft --base ${context.integrationBranch} --head ${context.branch} \\`,
     `  --title ${JSON.stringify(pullRequestTitle(context.item))} --body-file - <<'EOF'`,
     "## What changed",
