@@ -77,21 +77,20 @@ function parseGitConfig(text: string): ConfigEntry[] | undefined {
 
 /** What `git push -u` and `gh pr create` write: branch tracking (`branch.<name>.*`) and `remote.<name>.gh-resolved`. */
 function isBranchBookkeeping(entry: ConfigEntry): boolean {
-  if (entry.section === "branch") return entry.subsection !== undefined;
-  return entry.section === "remote" && entry.subsection !== undefined && entry.key === "gh-resolved";
+  if (entry.subsection === undefined) return false;
+  return entry.section === "branch" || (entry.section === "remote" && entry.key === "gh-resolved");
 }
 
-function guardedConfigEntries(text: string | undefined): string | undefined {
+/** Comparable form of every non-bookkeeping entry; undefined when the config is unparseable. */
+function guardedConfigFingerprint(text: string | undefined): string | undefined {
   const entries = parseGitConfig(text ?? "");
-  if (!entries) return undefined;
-  const guarded = entries.filter((entry) => !isBranchBookkeeping(entry));
-  return JSON.stringify(guarded.map((entry) => [entry.section, entry.subsection, entry.key, entry.value]));
+  return entries && JSON.stringify(entries.filter((entry) => !isBranchBookkeeping(entry)));
 }
 
 /** A config change confined to branch bookkeeping is harmless; any other change, or an unparseable file, is tampering. */
 function configChangeAllowed(before: string | undefined, after: string | undefined): boolean {
-  const guardedBefore = guardedConfigEntries(before);
-  return guardedBefore !== undefined && guardedBefore === guardedConfigEntries(after);
+  const guardedBefore = guardedConfigFingerprint(before);
+  return guardedBefore !== undefined && guardedBefore === guardedConfigFingerprint(after);
 }
 
 /** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. */
