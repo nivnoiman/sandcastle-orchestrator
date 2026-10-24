@@ -41,12 +41,14 @@ export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch
   return { gitDir, ownBranch, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
 }
 
+const BARE_KEY_IMPLICIT_TRUE = null;
+type GitDecodedValueOrBareKey = string | typeof BARE_KEY_IMPLICIT_TRUE;
+
 interface ConfigEntry {
   section: string;
   subsection: string | undefined;
   key: string;
-  /** Decoded as git reads it; null is a bare key (implicit true), distinct from an empty value. */
-  value: string | null;
+  value: GitDecodedValueOrBareKey;
 }
 
 const GIT_ASCII_ISSPACE = String.raw`[ \t\v\f\r]`;
@@ -62,18 +64,25 @@ function stripLeadingBom(text: string): string {
   return text.replace(/^﻿/, "");
 }
 
-/** Mirrors git's parse_value: unquoted whitespace collapses to spaces (leading/trailing dropped), comments end the value. */
-function decodeGitValueOrUndefined(raw: string): string | undefined {
+function isCollapsibleValueWhitespace(char: string): boolean {
+  return char === " " || char === "\t" || char === "\r";
+}
+
+function startsValueComment(char: string): boolean {
+  return char === "#" || char === ";";
+}
+
+function decodeLikeGitParseValueOrUndefined(raw: string): string | undefined {
   let decoded = "";
   let quoted = false;
   let pendingSpaces = 0;
   for (let index = 0; index < raw.length; index++) {
     const char = raw[index]!;
-    if (!quoted && (char === " " || char === "\t" || char === "\r")) {
+    if (!quoted && isCollapsibleValueWhitespace(char)) {
       if (decoded.length > 0) pendingSpaces++;
       continue;
     }
-    if (!quoted && (char === "#" || char === ";")) break;
+    if (!quoted && startsValueComment(char)) break;
     decoded += " ".repeat(pendingSpaces);
     pendingSpaces = 0;
     if (char === '"') {
@@ -108,7 +117,7 @@ function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined
     const keyLine = KEY_LINE.exec(rest);
     if (!keyLine || section === undefined) return undefined;
     const raw = keyLine[2];
-    const value = raw === undefined ? null : decodeGitValueOrUndefined(raw);
+    const value = raw === undefined ? BARE_KEY_IMPLICIT_TRUE : decodeLikeGitParseValueOrUndefined(raw);
     if (value === undefined) return undefined;
     entries.push({ section, subsection, key: keyLine[1]!.toLowerCase(), value });
   }
@@ -117,11 +126,15 @@ function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined
 
 const GH_PR_CREATE_REMOTE_KEY = "gh-resolved";
 const REMOTE_NAMING_BRANCH_KEYS = new Set(["remote", "pushremote"]);
-/** Keys push -u, gh pr create/checkout and branch --track write; mergeOptions and the rest stay guarded. */
-const OWN_BRANCH_KEYS = new Set([...REMOTE_NAMING_BRANCH_KEYS, "merge", "rebase", "description", "gh-merge-base"]);
+const OWN_BRANCH_KEYS_WRITTEN_BY_PUSH_U_GH_PR_AND_BRANCH_TRACK = new Set([
+  ...REMOTE_NAMING_BRANCH_KEYS,
+  "merge",
+  "rebase",
+  "description",
+  "gh-merge-base",
+]);
 
-/** Remotes with a url only: git reads a url-less remote's name as a path, so naming one is a redirect. */
-function existingRemoteNames(entries: readonly ConfigEntry[]): ReadonlySet<string> {
+function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): ReadonlySet<string> {
   return new Set(
     entries.flatMap((entry) =>
       entry.section === "remote" && entry.subsection !== undefined && entry.key === "url" && entry.value ? [entry.subsection] : [],
@@ -129,12 +142,18 @@ function existingRemoteNames(entries: readonly ConfigEntry[]): ReadonlySet<strin
   );
 }
 
-function isOwnBranchBookkeeping(entry: ConfigEntry, ownBranch: string | undefined, remotes: ReadonlySet<string>): boolean {
+function isOwnBranchBookkeeping(
+  entry: ConfigEntry,
+  ownBranch: string | undefined,
+  remotesSafeToName: ReadonlySet<string>,
+): boolean {
   if (entry.subsection === undefined) return false;
-  if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotes.has(entry.subsection);
+  if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotesSafeToName.has(entry.subsection);
   if (ownBranch === undefined || entry.section !== "branch" || entry.subsection !== ownBranch) return false;
-  if (!OWN_BRANCH_KEYS.has(entry.key)) return false;
-  return !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || (entry.value !== null && remotes.has(entry.value));
+  if (!OWN_BRANCH_KEYS_WRITTEN_BY_PUSH_U_GH_PR_AND_BRANCH_TRACK.has(entry.key)) return false;
+  return (
+    !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || (entry.value !== BARE_KEY_IMPLICIT_TRUE && remotesSafeToName.has(entry.value))
+  );
 }
 
 function configChangeIsOnlyOwnBranchBookkeeping(
@@ -146,9 +165,9 @@ function configChangeIsOnlyOwnBranchBookkeeping(
   const beforeEntries = parsePlainGitConfigOrUndefined(before ?? "");
   const afterEntries = parsePlainGitConfigOrUndefined(after);
   if (!beforeEntries || !afterEntries) return false;
-  const remotes = existingRemoteNames(beforeEntries);
+  const remotesSafeToName = remoteNamesWithUrlSafeToName(beforeEntries);
   const guardedFingerprint = (entries: readonly ConfigEntry[]): string =>
-    JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotes)));
+    JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotesSafeToName)));
   return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
