@@ -59,7 +59,6 @@ export interface GhClientDeps {
   warn: (itemNumber: number, message: string) => void;
 }
 
-
 function parsePullRequest(value: unknown): PullRequestRef | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const candidate = value as Record<string, unknown>;

@@ -12,7 +12,6 @@ export type StageSpec =
   | { kind: "agent"; name: string; promptPath: string; agent: AgentChoice | undefined }
   | { kind: "command"; name: string; run: string | Readonly<Record<string, string>> };
 
-export type CustomAgentStage = Extract<StageSpec, { kind: "agent" }>;
 export type CommandStage = Extract<StageSpec, { kind: "command" }>;
 
 export const DEFAULT_STAGES: readonly StageSpec[] = [
@@ -126,12 +125,7 @@ function parseAgentStage(entry: Json, name: string, where: string, context: Stag
     throw new Error(`${where}.model needs a "provider" next to it`);
   }
   const agent =
-    entry["provider"] === undefined
-      ? undefined
-      : parseChoice(
-          entry["model"] === undefined ? { provider: entry["provider"] } : { provider: entry["provider"], model: entry["model"] },
-          where,
-        );
+    entry["provider"] === undefined ? undefined : parseChoice({ provider: entry["provider"], model: entry["model"] }, where);
   return { kind: "agent", name, promptPath, agent };
 }
 
@@ -188,6 +182,10 @@ export function parseStages(raw: unknown, context: StagesContext): readonly Stag
   return stages;
 }
 
+export function isCustomStage(stage: StageSpec): boolean {
+  return stage.kind === "agent" || stage.kind === "command";
+}
+
 export function customStageNames(stages: readonly StageSpec[]): string[] {
-  return stages.filter((stage) => stage.kind === "agent" || stage.kind === "command").map((stage) => stage.name);
+  return stages.filter(isCustomStage).map((stage) => stage.name);
 }
