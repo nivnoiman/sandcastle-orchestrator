@@ -175,6 +175,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
       worktree: workspace.worktree,
       workspace: mode,
       provider,
+      branch: undefined,
     });
     const writer = this.deps.logs?.begin(this.deps.parentNumber, this.deps.agent.stage);
     const log = (chunk: string): void => writer?.write(chunk);
