@@ -1,6 +1,7 @@
 import { bootProject } from "../project/boot.js";
 import { readFile } from "node:fs/promises";
-import { STAGE_CHAIN, type StageName } from "../engine/adapters.js";
+import type { StageName } from "../engine/adapters.js";
+import { stageNames } from "../engine/stageChain.js";
 import type { PendingStage } from "../engine/fakes.js";
 import { OperatorError } from "../engine/operatorError.js";
 import { fetchSandcastleParents, type ParentSummary } from "../gh/parents.js";
@@ -41,8 +42,10 @@ const args = process.argv.slice(2);
 const positional = args.filter((arg) => !arg.startsWith("--"));
 const [source, repoArg] = positional;
 
+const chainNames = stageNames(project.stages);
+
 function isStageName(value: string): value is StageName {
-  return (STAGE_CHAIN as readonly string[]).includes(value);
+  return chainNames.includes(value);
 }
 
 function injectedFailures(): Set<string> {
@@ -51,7 +54,7 @@ function injectedFailures(): Set<string> {
     if (!arg.startsWith("--fail=")) continue;
     const [itemPart, stagePart] = arg.slice("--fail=".length).split(":");
     if (!itemPart || !stagePart || !/^\d+$/.test(itemPart) || !isStageName(stagePart)) {
-      fail(`--fail must be <item-number>:<${STAGE_CHAIN.join("|")}>, got "${arg}"`);
+      fail(`--fail must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
     }
     keys.add(`${itemPart}:${stagePart}`);
   }

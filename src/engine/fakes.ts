@@ -1,6 +1,7 @@
 import type { TargetRepo } from "../model/runModel.js";
 import type {
   Adapters,
+  CommandStageRequest,
   GhClient,
   GitOps,
   SandboxRunner,
@@ -28,6 +29,7 @@ export class RecordingAdapters implements Adapters {
   readonly log: string[] = [];
   readonly pending: PendingStage[] = [];
   readonly spawned: SpawnRequest[] = [];
+  readonly commands: CommandStageRequest[] = [];
   readonly warnings: string[] = [];
   readonly notes: string[] = [];
   readonly comments: { itemNumber: number; body: string }[] = [];
@@ -99,6 +101,13 @@ export class RecordingAdapters implements Adapters {
       this.log.push(`spawn ${request.stage} #${request.itemNumber} [${request.repo}] ${request.branch}`);
       this.pending.push({ itemNumber: request.itemNumber, stage: request.stage });
       this.spawned.push(request);
+    },
+    spawnCommandStage: (request) => {
+      const failure = this.failSpawn?.(request.itemNumber, request.stage);
+      if (failure) throw failure;
+      this.log.push(`run ${request.stage} #${request.itemNumber} [${request.repo}] ${request.branch}: ${request.command}`);
+      this.pending.push({ itemNumber: request.itemNumber, stage: request.stage });
+      this.commands.push(request);
     },
     spawnResolve: (request) => {
       const failure = this.failSpawn?.(request.itemNumber, "verify");

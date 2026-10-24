@@ -72,7 +72,7 @@ export function featureVolumeName(parentNumber: number, stamp: string): string {
 }
 
 export function isOrchestratorContainer(name: string): boolean {
-  return new RegExp(`^${containerPrefix()}[a-z]+-\\d+-[0-9a-z]+$`).test(name);
+  return new RegExp(`^${containerPrefix()}[a-z][a-z0-9-]*-\\d+-[0-9a-z]+$`).test(name);
 }
 
 export function isOrchestratorNetwork(name: string): boolean {

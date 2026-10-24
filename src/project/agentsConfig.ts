@@ -24,11 +24,11 @@ export function isProviderName(value: unknown): value is ProviderName {
   return typeof value === "string" && (PROVIDER_NAMES as readonly string[]).includes(value);
 }
 
-function isAgentRole(value: string): value is AgentRole {
+export function isAgentRole(value: string): value is AgentRole {
   return (AGENT_ROLES as readonly string[]).includes(value);
 }
 
-function parseChoice(raw: unknown, where: string): AgentChoice {
+export function parseChoice(raw: unknown, where: string): AgentChoice {
   const providers = PROVIDER_NAMES.map((name) => `"${name}"`).join(", ");
   if (typeof raw === "string") {
     if (!isProviderName(raw)) throw new Error(`${where} must be one of ${providers}, got ${JSON.stringify(raw)}`);

@@ -9,6 +9,7 @@ import {
   type VerifyStrategy,
 } from "../project/projectConfig.js";
 import type { AgentsConfig } from "../project/agentsConfig.js";
+import type { StageSpec } from "../project/stagesConfig.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { defaultLayout, sandcastleDirFrom, TOOL_DIR, type SandcastleLayout } from "./paths.js";
 
@@ -28,6 +29,7 @@ export interface OrchestratorConfig {
   claudeOauthToken: string | undefined;
   codexApiKey: string | undefined;
   agents: AgentsConfig;
+  stages: readonly StageSpec[];
   model: string;
   reviewModel: string;
   imageTag: string;
@@ -211,6 +213,7 @@ export function loadOrchestratorConfig(
     claudeOauthToken: values["CLAUDE_CODE_OAUTH_TOKEN"] || undefined,
     codexApiKey: values["CODEX_API_KEY"] || values["OPENAI_API_KEY"] || undefined,
     agents: project.agents,
+    stages: project.stages,
     model: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL,
     reviewModel: values["SANDCASTLE_REVIEW_MODEL"] || DEFAULT_REVIEW_MODEL,
     imageTag: values["SANDCASTLE_IMAGE"] || project.imageTag,

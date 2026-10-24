@@ -1,6 +1,7 @@
 import { bootProject } from "../project/boot.js";
 import { readFile } from "node:fs/promises";
 import { dryRun } from "../engine/dryRunner.js";
+import { stageNames } from "../engine/stageChain.js";
 import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel } from "../model/runModel.js";
 
@@ -46,6 +47,7 @@ const { model } = result;
 console.log(`DRY RUN — ${model.title} (#${model.parentNumber}), cap ${workerCap}`);
 console.log(`  feature: ${model.feature} → ${model.integrationBranch}`);
 console.log(`  items: ${model.items.map((item) => `#${item.number}`).join(", ")}`);
+console.log(`  stages: ${stageNames(project.stages).join(" → ")}`);
 console.log("");
 
 const { lines, phases } = dryRun(model, workerCap);

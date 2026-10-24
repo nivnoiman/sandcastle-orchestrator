@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { parseAgents, type AgentsConfig } from "./agentsConfig.js";
+import { customStageNames, parseStages, type StageSpec } from "./stagesConfig.js";
 
 /** The per-project folder at the project root: `config.json` (committed) and, by default, the project's state. */
 export const PROJECT_FOLDER = ".sandcastle";
@@ -71,6 +72,7 @@ export interface ProjectConfig {
   verify: VerifyStrategy;
   ui: UiConfig;
   agents: AgentsConfig;
+  stages: readonly StageSpec[];
 }
 
 type Json = Record<string, unknown>;
@@ -249,6 +251,8 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
     throw new Error(`name must be lower-case kebab, got "${name}"${hint}`);
   }
   const stateDir = optionalString(raw, "stateDir", "config");
+  const stages = parseStages(raw["stages"], { projectRoot, repos: Object.keys(repos) });
+  assertNoStageAgents(raw["agents"], stages);
   return {
     name,
     configPath,
@@ -262,7 +266,14 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
     verify: parseVerify(raw["verify"], repos),
     ui: parseUi(raw["ui"]),
     agents: parseAgents(raw["agents"]),
+    stages,
   };
+}
+
+function assertNoStageAgents(rawAgents: unknown, stages: readonly StageSpec[]): void {
+  if (!isObject(rawAgents)) return;
+  const custom = customStageNames(stages).find((name) => Object.hasOwn(rawAgents, name));
+  if (custom) throw new Error(`agents.${custom} names a custom stage — put "provider" and "model" on its entry under stages`);
 }
 
 export function readProjectConfig(path: string): ProjectConfig {
@@ -316,6 +327,10 @@ export function repoConfig(repo: string): RepoConfig {
 
 export function repoSlug(repo: string): string {
   return repoConfig(repo).github;
+}
+
+export function stageChain(): readonly StageSpec[] {
+  return activeProject().stages;
 }
 
 export function integrationBase(): string {

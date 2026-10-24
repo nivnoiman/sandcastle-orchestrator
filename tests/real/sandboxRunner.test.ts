@@ -1,6 +1,12 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AGENT_STAGES, type SpawnRequest, type StageCompletion, type VerifyRequest } from "../../src/engine/adapters.js";
+import {
+  AGENT_STAGES,
+  type CommandStageRequest,
+  type SpawnRequest,
+  type StageCompletion,
+  type VerifyRequest,
+} from "../../src/engine/adapters.js";
 import { CommandFailure } from "../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import type { CreateDraftPrInput, PullRequestOps, PullRequestRef } from "../../src/real/ghClient.js";
@@ -20,6 +26,8 @@ import {
   type WorkspaceMode,
 } from "../../src/real/sandboxRunner.js";
 import { containerSkillPath, REQUIRED_SKILLS } from "../../src/real/skills.js";
+import type { OrchestratorConfig } from "../../src/real/env.js";
+import type { StageSpec } from "../../src/project/stagesConfig.js";
 import { fsWith, repoDir, testConfig, testLayout, testRunModel, worktreeDir } from "./support.js";
 
 const INTEGRATION = "integration/toy-demo";
@@ -85,6 +93,8 @@ function harness(
     stageCommits?: string[];
     worktreeExists?: boolean;
     imageMissing?: boolean;
+    config?: Partial<OrchestratorConfig>;
+    files?: Record<string, string>;
   } = {},
 ) {
   const runner = new RecordingCommandRunner();
@@ -93,7 +103,7 @@ function harness(
   if (options.stageCommits) runner.respond("--format=%s", options.stageCommits.join("\n"));
   if (options.commits) runner.respond("git log", Array.from({ length: options.commits }, (_, index) => `sha${index}`).join("\n"));
 
-  const fs = fsWith({}, options.worktreeExists === false ? [API] : [API, WORKTREE]);
+  const fs = fsWith(options.files ?? {}, options.worktreeExists === false ? [API] : [API, WORKTREE]);
   const gh = new FakeGh();
   const context = new RunContext(testRunModel(), { loadMemories: () => [], hubRepo: "example-org/hub" });
   const warnings: string[] = [];
@@ -108,7 +118,7 @@ function harness(
     runner,
     fs,
     layout: testLayout(),
-    config: testConfig(),
+    config: testConfig(options.config),
     gh,
     context,
     log: (message) => logs.push(message),
@@ -938,5 +948,109 @@ describe("verify gate", () => {
     runner.fail(/tsc -p tsconfig.ci.json/, new CommandFailure("docker", ["exec"], 1, "FAIL tests/a.test.ts\n  ECONNREFUSED 127.0.0.1:6379", ""));
     sandbox.runChecks(VERIFY);
     expect((await completion).outcome).toBe("failure");
+  });
+});
+
+describe("custom stages", () => {
+  const PROMPT_PATH = join("P:", "prompts", "security.md");
+  const SECURITY: StageSpec = { kind: "agent", name: "security", promptPath: PROMPT_PATH, agent: undefined };
+  const E2E: StageSpec = { kind: "command", name: "e2e", run: "npx playwright test" };
+  const STAGES: readonly StageSpec[] = [
+    { kind: "builtin", name: "develop" },
+    SECURITY,
+    E2E,
+    { kind: "verify", name: "verify" },
+  ];
+  const SECURITY_SPAWN: SpawnRequest = { ...SPAWN, stage: "security" };
+  const E2E_RUN: CommandStageRequest = {
+    itemNumber: 17,
+    stage: "e2e",
+    repo: "api",
+    branch: BRANCH,
+    integrationBranch: INTEGRATION,
+    command: "npx playwright test",
+  };
+  const files = { [PROMPT_PATH]: "Audit {{issue}} on {{branch}} for leaked secrets." };
+  const SECURED = "## What changed\n\n<!-- sandcastle:security -->\n## security\n\nno findings";
+
+  it("runs a custom agent stage with the owner's prompt rendered into the fresh-eyes frame", async () => {
+    const { runner, sandbox, gh, completion } = harness({ commits: 1, files, config: { stages: STAGES } });
+    gh.pullRequest = openPullRequest(SECURED);
+    sandbox.spawnStage(SECURITY_SPAWN);
+    expect(await completion).toEqual({ itemNumber: 17, stage: "security", outcome: "success" });
+    expect(runner.find("docker run")?.line).toContain("--name sc-demo-security-17-");
+    const prompt = runner.find("claude -p")?.input ?? "";
+    expect(prompt).toContain("<stage-instructions>\nAudit example-org/hub#17 on feat/17-toy-slice for leaked secrets.\n</stage-instructions>");
+    expect(prompt).toContain("<!-- sandcastle:security -->\n## security");
+    expect(prompt).toContain("`fix(security): <brief description>`");
+    expect(runner.find("claude -p")?.line).toContain("--model sonnet");
+  });
+
+  it("runs a custom agent stage on its own provider", async () => {
+    const codexSecurity: StageSpec = { ...SECURITY, agent: { provider: "codex", model: "gpt-5.5-codex" } } as StageSpec;
+    const { runner, sandbox, gh, completion } = harness({ commits: 1, files, config: { stages: [STAGES[0]!, codexSecurity] } });
+    gh.pullRequest = openPullRequest(SECURED);
+    sandbox.spawnStage(SECURITY_SPAWN);
+    await completion;
+    expect(runner.find("codex exec")?.line).toContain("--model gpt-5.5-codex");
+  });
+
+  it("sends the item back to develop with a custom stage's NEEDS-REWORK story", async () => {
+    const { sandbox, gh, completion } = harness({ commits: 1, files, config: { stages: STAGES } });
+    gh.pullRequest = openPullRequest("<!-- sandcastle:security -->\n## security\n\nNEEDS-REWORK:\n### What is wrong\ntoken logged");
+    sandbox.spawnStage(SECURITY_SPAWN);
+    expect(await completion).toMatchObject({ outcome: "failure", rework: { source: "security", story: "### What is wrong\ntoken logged" } });
+  });
+
+  it("records a custom stage's section itself when its tagged commits landed without one", async () => {
+    const { sandbox, gh, completion } = harness({
+      commits: 2,
+      files,
+      config: { stages: STAGES },
+      stageCommits: ["feat: toy slice", "fix(security): redact the token"],
+    });
+    gh.pullRequest = openPullRequest("## What changed");
+    sandbox.spawnStage(SECURITY_SPAWN);
+    expect((await completion).outcome).toBe("success");
+    expect(gh.appended[0]).toContain("<!-- sandcastle:security -->\n## security");
+    expect(gh.appended[0]).toContain("`fix(security): redact the token`");
+  });
+
+  it("fails a custom agent stage whose prompt file is gone", async () => {
+    const { sandbox, completion, warnings } = harness({ commits: 1, config: { stages: STAGES } });
+    sandbox.spawnStage(SECURITY_SPAWN);
+    expect((await completion).outcome).toBe("failure");
+    expect(warnings.join()).toMatch(/security stage prompt .* is missing/);
+  });
+
+  it("runs a command stage on a clean copy and records it on the pull request when green", async () => {
+    const { runner, sandbox, gh, completion } = harness({ commits: 1, config: { stages: STAGES } });
+    gh.pullRequest = openPullRequest("## What changed");
+    sandbox.spawnCommandStage(E2E_RUN);
+    expect(await completion).toEqual({ itemNumber: 17, stage: "e2e", outcome: "success" });
+    expect(runner.find("docker run")?.line).toContain("--name sc-demo-e2e-17-");
+    expect(runner.find("docker run")?.line).toContain(":/home/agent/source:ro");
+    expect(runner.find("npx playwright test")).toBeDefined();
+    expect(gh.appended).toEqual(["\n<!-- sandcastle:e2e -->\n## e2e\n\n`npx playwright test` passed in a clean container.\n"]);
+  });
+
+  it("records a green command stage of a rework round under that round's sentinel", async () => {
+    const { sandbox, gh, completion } = harness({ commits: 1, config: { stages: STAGES } });
+    gh.pullRequest = openPullRequest("<!-- sandcastle:e2e -->\n## e2e");
+    sandbox.spawnCommandStage({ ...E2E_RUN, rework: { round: 1, limit: 3, briefs: [{ round: 1, source: "e2e", story: "red" }] } });
+    await completion;
+    expect(gh.appended[0]).toContain("<!-- sandcastle:e2e rework=1 -->\n## e2e (rework 1)");
+  });
+
+  it("sends a red command stage back to develop with a story built from its output", async () => {
+    const { runner, sandbox, gh, completion } = harness({ commits: 1, config: { stages: STAGES } });
+    gh.pullRequest = openPullRequest("## What changed");
+    runner.fail(/npx playwright test/, new CommandFailure("docker", ["exec"], 1, "login.spec.ts: expected 200, got 500\n", "exit 1"));
+    sandbox.spawnCommandStage(E2E_RUN);
+    const result = await completion;
+    expect(result).toMatchObject({ stage: "e2e", outcome: "failure", rework: { source: "e2e" } });
+    expect(result.rework?.story).toContain("ran `npx playwright test`");
+    expect(result.rework?.story).toContain("login.spec.ts: expected 200, got 500");
+    expect(gh.appended).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import type { UiSink } from "../engine/adapters.js";
 import { OperatorError } from "../engine/operatorError.js";
+import { activeStageChain } from "../engine/stageChain.js";
 import { isParentReference, parseParentInputs, type ParentInput } from "../gh/parentInput.js";
 import type { ParentSummary } from "../gh/parents.js";
 import type { RunSnapshot } from "../gh/snapshot.js";
@@ -15,6 +16,7 @@ import {
   uiHold,
   uiItems,
   uiParent,
+  uiStageChain,
   type FeedKind,
   type RunMode,
   type UiFeedLine,
@@ -239,6 +241,7 @@ export class UiController {
     const views = engine ? engine.view() : [];
     return {
       version: 2,
+      stages: uiStageChain(activeStageChain()),
       mode: this.deps.mode,
       hubRepo: this.deps.hubRepo,
       startCap: this.deps.startCap,

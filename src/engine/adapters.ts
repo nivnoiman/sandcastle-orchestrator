@@ -1,18 +1,22 @@
 import type { TargetRepo } from "../model/runModel.js";
+import { BUILTIN_AGENT_STAGES, type BuiltinAgentStage } from "../project/stagesConfig.js";
 
-export const AGENT_STAGES = ["develop", "simplify", "review"] as const;
-export type AgentStage = (typeof AGENT_STAGES)[number];
+/** The built-in agent stages; a project's chain may add custom ones (`stages` in config.json). */
+export const AGENT_STAGES = BUILTIN_AGENT_STAGES;
+export type AgentStage = BuiltinAgentStage;
 
+/** The default chain, used when config.json declares no `stages`. */
 export const STAGE_CHAIN = ["develop", "simplify", "review", "verify"] as const;
-export type StageName = (typeof STAGE_CHAIN)[number];
+/** A stage of the project's chain: a built-in or a custom stage name. */
+export type StageName = string;
 
 export type StageOutcome = "success" | "failure" | "waiting";
 
 export type HoldReason = "rate-limit" | "auth";
 export type WaitReason = HoldReason | "transient";
 
-export const REWORK_SOURCES = ["verify", "review"] as const;
-export type ReworkSource = (typeof REWORK_SOURCES)[number];
+/** The stage that sent an item back to develop: `verify`, `review` or a custom stage. */
+export type ReworkSource = StageName;
 
 export interface ReworkBrief {
   round: number;
@@ -53,7 +57,8 @@ export const STAGE_LABELS = [
   "sc:done",
   "sc:needs-human",
 ] as const;
-export type StageLabel = (typeof STAGE_LABELS)[number];
+/** A fixed label above, or `sc:<name>` for a custom stage. */
+export type StageLabel = (typeof STAGE_LABELS)[number] | `sc:${string}`;
 
 export const RUNNING_STAGE_LABELS: Record<AgentStage, StageLabel> = {
   develop: "sc:developing",
@@ -63,17 +68,32 @@ export const RUNNING_STAGE_LABELS: Record<AgentStage, StageLabel> = {
 
 export const VERIFY_STAGE_LABEL: StageLabel = "sc:verifying";
 
-export function agentStageForLabel(label: StageLabel): AgentStage | undefined {
-  return AGENT_STAGES.find((stage) => RUNNING_STAGE_LABELS[stage] === label);
+/** Every `sc:*` label is the orchestrator's, including `sc:<name>` of custom stages a past config declared. */
+export function isStageLabel(value: string): value is StageLabel {
+  return value.startsWith("sc:");
+}
+
+export function isFixedStageLabel(value: string): boolean {
+  return (STAGE_LABELS as readonly string[]).includes(value);
 }
 
 export interface SpawnRequest {
   itemNumber: number;
-  stage: AgentStage;
+  stage: StageName;
   repo: TargetRepo;
   branch: string;
   integrationBranch: string;
   rebaseConflicts?: readonly string[];
+  rework?: ReworkContext;
+}
+
+export interface CommandStageRequest {
+  itemNumber: number;
+  stage: StageName;
+  repo: TargetRepo;
+  branch: string;
+  integrationBranch: string;
+  command: string;
   rework?: ReworkContext;
 }
 
@@ -113,6 +133,7 @@ export interface UiSink {
 
 export interface SandboxRunner {
   spawnStage(request: SpawnRequest): void;
+  spawnCommandStage(request: CommandStageRequest): void;
   spawnResolve(request: ResolveRequest): void;
   kill(itemNumber: number): void;
 }

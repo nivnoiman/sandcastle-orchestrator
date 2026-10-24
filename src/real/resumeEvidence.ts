@@ -1,6 +1,7 @@
 import { itemBranch } from "../engine/engine.js";
 import { auditedStageIndex, resumePlacement, type ResumeEvidence } from "../engine/resume.js";
 import type { StageLabel } from "../engine/adapters.js";
+import { activeStageChain, type StageSpec } from "../engine/stageChain.js";
 import type { RunModel, TargetRepo } from "../model/runModel.js";
 import type { PullRequestRef } from "./ghClient.js";
 import { hasPrSection, reworkBriefsIn } from "./stageAudit.js";
@@ -13,7 +14,11 @@ export interface ResumeEvidenceSources {
   warn(itemNumber: number, message: string): void;
 }
 
-export function collectResumeEvidence(model: RunModel, sources: ResumeEvidenceSources): ResumeEvidence[] {
+export function collectResumeEvidence(
+  model: RunModel,
+  sources: ResumeEvidenceSources,
+  chain: readonly StageSpec[] = activeStageChain(),
+): ResumeEvidence[] {
   const evidence: ResumeEvidence[] = [];
   for (const item of model.items) {
     if (item.admission === "done") continue;
@@ -29,17 +34,22 @@ export function collectResumeEvidence(model: RunModel, sources: ResumeEvidenceSo
       branchExists,
       pullRequestExists: pullRequest !== undefined,
       pullRequestMerged: false,
-      auditedStageIndex: auditedStageIndex(body, hasPrSection, reworkBriefs.at(-1)?.round ?? 0),
+      auditedStageIndex: auditedStageIndex(body, hasPrSection, reworkBriefs.at(-1)?.round ?? 0, chain),
       reworkBriefs,
     };
-    evidence.push(trustable(entry, item.admission, sources));
+    evidence.push(trustable(entry, item.admission, sources, chain));
   }
   return evidence;
 }
 
-function trustable(entry: ResumeEvidence, admission: RunModel["items"][number]["admission"], sources: ResumeEvidenceSources): ResumeEvidence {
+function trustable(
+  entry: ResumeEvidence,
+  admission: RunModel["items"][number]["admission"],
+  sources: ResumeEvidenceSources,
+  chain: readonly StageSpec[],
+): ResumeEvidence {
   try {
-    resumePlacement(entry, admission);
+    resumePlacement(entry, admission, chain);
     return entry;
   } catch (cause) {
     sources.warn(

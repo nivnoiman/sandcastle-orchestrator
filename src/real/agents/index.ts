@@ -1,4 +1,5 @@
-import type { AgentRole, ProviderName } from "../../project/agentsConfig.js";
+import { isAgentRole, type AgentRole, type ProviderName } from "../../project/agentsConfig.js";
+import type { StageSpec } from "../../project/stagesConfig.js";
 import type { CommandRunner } from "../commandRunner.js";
 import type { OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
@@ -34,13 +35,30 @@ export function defaultAgent(config: AgentSettings): ResolvedAgent {
   return { provider, model: choice.model ?? (provider.name === "claude" ? config.model : undefined) };
 }
 
+type StageAgentSettings = AgentSettings & { stages?: readonly StageSpec[] };
+
+/** The agent for a chain stage: a built-in role as `resolveAgent`, a custom agent stage from its own entry (else `agents.default`). */
+export function resolveStageAgent(config: StageAgentSettings, stage: string): ResolvedAgent {
+  if (isAgentRole(stage)) return resolveAgent(config, stage);
+  const spec = config.stages?.find((candidate) => candidate.name === stage);
+  if (spec?.kind !== "agent") throw new Error(`"${stage}" is not an agent stage of this project`);
+  const choice = spec.agent ?? config.agents.default;
+  const provider = providerNamed(choice.provider);
+  if (choice.model !== undefined || provider.name !== "claude") return { provider, model: choice.model };
+  return { provider, model: config.reviewModel };
+}
+
 /** One agent per provider in use, default first — what the auth probe and preflight must cover. */
-export function agentsInUse(config: AgentSettings): ResolvedAgent[] {
+export function agentsInUse(config: StageAgentSettings): ResolvedAgent[] {
   const agents = new Map<ProviderName, ResolvedAgent>();
   const fallback = defaultAgent(config);
   agents.set(fallback.provider.name, fallback);
-  for (const role of Object.keys(config.agents.roles) as AgentRole[]) {
-    const agent = resolveAgent(config, role);
+  const customStages = (config.stages ?? []).filter((stage) => stage.kind === "agent").map((stage) => stage.name);
+  const inUse = [
+    ...(Object.keys(config.agents.roles) as AgentRole[]).map((role) => resolveAgent(config, role)),
+    ...customStages.map((stage) => resolveStageAgent(config, stage)),
+  ];
+  for (const agent of inUse) {
     if (!agents.has(agent.provider.name)) agents.set(agent.provider.name, agent);
   }
   return [...agents.values()];

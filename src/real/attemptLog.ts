@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { FileSystemPort } from "./fileSystem.js";
 import type { SandcastleLayout } from "./paths.js";
 
-export const ATTEMPT_ID = /^(\d+)-([a-z]+)-(\d+)$/;
+export const ATTEMPT_ID = /^(\d+)-([a-z][a-z0-9-]*)-(\d+)$/;
 export const LOG_READ_LIMIT = 512 * 1024;
 
 export interface AttemptRecord {

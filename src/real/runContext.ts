@@ -1,4 +1,4 @@
-import type { AgentStage, ResolveRequest, SpawnRequest } from "../engine/adapters.js";
+import type { ResolveRequest, SpawnRequest } from "../engine/adapters.js";
 import { itemBranch } from "../engine/engine.js";
 import type { RunModel, TargetRepo, WorkItem } from "../model/runModel.js";
 import type { ResolvedMemory } from "./memories.js";
@@ -74,7 +74,7 @@ export class RunContext {
 
   promptContext(request: SpawnRequest): StagePromptContext {
     return {
-      stage: request.stage satisfies AgentStage,
+      stage: request.stage,
       ...this.resolveContext(request),
       rebaseConflicts: request.rebaseConflicts ?? [],
       ...(request.rework ? { rework: request.rework } : {}),

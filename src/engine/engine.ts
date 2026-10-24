@@ -2,11 +2,7 @@ import type { RunModel, WorkItem } from "../model/runModel.js";
 import { knownRepos } from "../project/projectConfig.js";
 import {
   isRebaseConflict,
-  RUNNING_STAGE_LABELS,
-  STAGE_CHAIN,
-  VERIFY_STAGE_LABEL,
   type Adapters,
-  type AgentStage,
   type ReworkBrief,
   type ReworkContext,
   type ReworkRequest,
@@ -21,6 +17,7 @@ import { OperatorError } from "./operatorError.js";
 import { parkComment } from "./parkComment.js";
 import { resumePlacement, type ResumeEvidence } from "./resume.js";
 import { REWORK_LIMIT_DEFAULT, reworkComment, reworkLimitDetail } from "./rework.js";
+import { activeStageChain, commandFor, runningStageLabel, stageNames, type StageSpec } from "./stageChain.js";
 import { LocalSlots, type WorkerSlots } from "./slots.js";
 import { TRANSIENT_BACKOFF_MS, transientBackoffMs, transientSignature } from "./transient.js";
 import { messageOf } from "../messageOf.js";
@@ -65,6 +62,8 @@ export interface EngineOptions {
   reworkLimit?: number;
   slots?: WorkerSlots;
   hold?: RunHold;
+  /** The stage chain; defaults to the active project's (`stages` in config.json). */
+  stages?: readonly StageSpec[];
 }
 
 export interface ItemView {
@@ -124,10 +123,6 @@ export function itemBranch(item: WorkItem): string {
   return `feat/${item.number}-${slugify(item.title)}`;
 }
 
-function isAgentStage(stage: StageName): stage is AgentStage {
-  return stage !== "verify";
-}
-
 function sameNumbers(left: readonly number[], right: readonly number[]): boolean {
   if (left.length !== right.length) return false;
   const sortedLeft = [...left].sort((a, b) => a - b);
@@ -168,15 +163,14 @@ function validReworkLimit(value: number): number {
   return value;
 }
 
-function labelTargetFor(state: ItemState): LabelTarget {
+function labelTargetFor(state: ItemState, stages: readonly StageSpec[]): LabelTarget {
   if (state.phase === "held") return undefined;
   if (state.phase === "blocked") return "sc:blocked";
   if (state.phase === "queued") return "sc:queued";
   if (state.phase === "done") return "sc:done";
   if (state.phase !== "running") return KEEP_LABEL;
-  const stage = STAGE_CHAIN[state.nextStageIndex];
-  if (!stage) return KEEP_LABEL;
-  return isAgentStage(stage) ? RUNNING_STAGE_LABELS[stage] : VERIFY_STAGE_LABEL;
+  const stage = stages[state.nextStageIndex];
+  return stage ? runningStageLabel(stage) : KEEP_LABEL;
 }
 
 export const RATE_LIMIT_FALLBACK_MS = 5 * 60_000;
@@ -203,6 +197,7 @@ export class Engine {
   private started = false;
   private newStartsPaused = false;
   private readonly runHold: RunHold;
+  private readonly stages: readonly StageSpec[];
 
   constructor(
     model: RunModel,
@@ -215,6 +210,7 @@ export class Engine {
     this.parentNumber = model.parentNumber;
     this.slots = options.slots ?? new LocalSlots();
     this.runHold = options.hold ?? new RunHold();
+    this.stages = options.stages ?? activeStageChain();
     for (const item of model.items) this.states.set(item.number, this.freshState(item));
     for (const state of this.states.values()) state.phase = this.initialPhase(state.item);
   }
@@ -277,7 +273,7 @@ export class Engine {
     if (state.phase !== "running") {
       throw new Error(`completion for #${completion.itemNumber} but its phase is "${state.phase}"`);
     }
-    const runningStage = STAGE_CHAIN[state.nextStageIndex];
+    const runningStage = this.stages[state.nextStageIndex]?.name;
     if (runningStage !== completion.stage) {
       throw new Error(
         `completion for #${completion.itemNumber} stage "${completion.stage}" but "${runningStage}" is running`,
@@ -417,8 +413,8 @@ export class Engine {
       title: state.item.title,
       repo: state.item.repo,
       phase: state.phase,
-      stage: state.phase === "done" ? undefined : STAGE_CHAIN[state.nextStageIndex],
-      stageIndex: state.phase === "done" ? STAGE_CHAIN.length : state.nextStageIndex,
+      stage: state.phase === "done" ? undefined : this.stages[state.nextStageIndex]?.name,
+      stageIndex: state.phase === "done" ? this.stages.length : state.nextStageIndex,
       branch: state.branch,
       dependsOn: [...state.item.dependsOn],
       blockers: this.blockersOf(state.item),
@@ -487,7 +483,7 @@ export class Engine {
       `${request.source} sent it back to develop — rework round ${brief.round}/${state.reworkLimit}`,
     );
     try {
-      this.adapters.gh.comment(state.item.number, reworkComment(brief, state.reworkLimit));
+      this.adapters.gh.comment(state.item.number, reworkComment(brief, state.reworkLimit, stageNames(this.stages)));
     } catch (cause) {
       this.adapters.ui.warn(
         state.item.number,
@@ -569,7 +565,7 @@ export class Engine {
   }
 
   private reconcileLabel(state: ItemState): void {
-    const target = labelTargetFor(state);
+    const target = labelTargetFor(state, this.stages);
     if (target === KEEP_LABEL) return;
     if (target === undefined) {
       this.forgetLabel(state);
@@ -602,10 +598,10 @@ export class Engine {
       if (!found) continue;
       state.branchCreated = found.branchExists;
       this.restoreRework(state, found);
-      const placement = resumePlacement(found, state.item.admission);
+      const placement = resumePlacement(found, state.item.admission, this.stages);
       if (placement.kind === "recompute") continue;
       if (placement.kind === "done") {
-        state.nextStageIndex = STAGE_CHAIN.length;
+        state.nextStageIndex = this.stages.length;
         this.moveTo(state, "done");
         continue;
       }
@@ -798,20 +794,49 @@ export class Engine {
   }
 
   private startStage(state: ItemState): void {
-    const stage = STAGE_CHAIN[state.nextStageIndex];
+    const stage = this.stages[state.nextStageIndex];
     if (!stage) {
       this.freeSlot();
       throw new Error(`#${state.item.number} has no stage at index ${state.nextStageIndex}`);
     }
-    if (isAgentStage(stage)) {
-      this.startAgentStage(state, stage);
+    if (stage.kind === "verify") {
+      this.moveTo(state, "running");
+      this.startVerify(state);
       return;
     }
-    this.moveTo(state, "running");
-    this.startVerify(state);
+    if (stage.kind !== "command") {
+      this.startAgentStage(state, stage.name);
+      return;
+    }
+    const command = commandFor(stage, state.item.repo);
+    if (command !== undefined) {
+      this.startCommandStage(state, stage.name, command);
+      return;
+    }
+    this.adapters.ui.note(state.item.number, `${stage.name} has no command for ${state.item.repo} — skipping it`);
+    state.nextStageIndex += 1;
+    this.startStage(state);
   }
 
-  private startAgentStage(state: ItemState, stage: AgentStage): void {
+  private startCommandStage(state: ItemState, stage: StageName, command: string): void {
+    this.moveTo(state, "running");
+    if (!this.ensureWorktree(state, `${stage} stage`)) return;
+    try {
+      this.adapters.sandbox.spawnCommandStage({
+        itemNumber: state.item.number,
+        stage,
+        repo: state.item.repo,
+        branch: state.branch,
+        integrationBranch: this.integrationBranch,
+        command,
+        ...withRework(this.reworkContext(state)),
+      });
+    } catch (cause) {
+      this.abandonStart(state, `${stage} stage could not start — the sandbox refused to spawn`, messageOf(cause));
+    }
+  }
+
+  private startAgentStage(state: ItemState, stage: StageName): void {
     const { git, sandbox } = this.adapters;
     this.moveTo(state, "running");
     let rebaseConflicts: string[] = [];
