@@ -1,4 +1,4 @@
-import { STAGE_LABELS, type StageLabel } from "../engine/adapters.js";
+import { isStageLabel, STAGE_LABELS, type StageLabel } from "../engine/adapters.js";
 import { itemBranch } from "../engine/engine.js";
 import { OperatorError } from "../engine/operatorError.js";
 import type { RunModel, TargetRepo } from "../model/runModel.js";
@@ -106,7 +106,10 @@ function planLabels(deps: ResetDeps): LabelPlan[] {
     if (!inRun.has(issue.number)) continue;
     if (issue.state === "CLOSED") continue;
     if (issue.labels.includes("sc:done")) continue;
-    const remove = ORCHESTRATOR_LABELS.filter((label) => issue.labels.includes(label));
+    const remove = [
+      ...ORCHESTRATOR_LABELS.filter((label) => issue.labels.includes(label)),
+      ...issue.labels.filter(isStageLabel).filter((label) => !ORCHESTRATOR_LABELS.includes(label)),
+    ];
     const swapToAgent = issue.labels.includes("sc:needs-human") && issue.labels.includes("ready-for-human");
     if (remove.length === 0 && !swapToAgent) continue;
     plans.push({ itemNumber: issue.number, remove, swapToAgent });

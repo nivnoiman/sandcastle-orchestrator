@@ -1,4 +1,4 @@
-import { STAGE_LABELS, type GhClient, type MergedPullRequest, type StageLabel } from "../engine/adapters.js";
+import { isFixedStageLabel, isStageLabel, type GhClient, type MergedPullRequest, type StageLabel } from "../engine/adapters.js";
 import type { TargetRepo } from "../model/runModel.js";
 import { integrationBase, repoSlug } from "../project/projectConfig.js";
 import type { CommandRunner } from "./commandRunner.js";
@@ -59,9 +59,6 @@ export interface GhClientDeps {
   warn: (itemNumber: number, message: string) => void;
 }
 
-function isStageLabel(value: string): value is StageLabel {
-  return (STAGE_LABELS as readonly string[]).includes(value);
-}
 
 function parsePullRequest(value: unknown): PullRequestRef | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -108,6 +105,8 @@ function parseLabelNames(raw: string): string[] {
     .filter((name): name is string => typeof name === "string");
 }
 
+const CUSTOM_STAGE_LABEL_COLOR = "5319E7";
+
 interface PendingLabelWrite {
   description: string;
   write: () => void;
@@ -115,11 +114,13 @@ interface PendingLabelWrite {
 
 export class RealGhClient implements GhClient, PullRequestOps {
   private readonly pendingLabels = new Map<number, PendingLabelWrite[]>();
+  private readonly createdLabels = new Set<string>();
 
   constructor(private readonly deps: GhClientDeps) {}
 
   setStageLabel(itemNumber: number, label: StageLabel): void {
     this.mirror(itemNumber, `set ${label}`, () => {
+      this.ensureCustomLabel(label);
       const stale = this.currentLabels(itemNumber).filter((name) => isStageLabel(name) && name !== label);
       const args = ["issue", "edit", String(itemNumber), "--repo", this.deps.hubRepo, "--add-label", label];
       for (const name of stale) args.push("--remove-label", name);
@@ -233,6 +234,16 @@ export class RealGhClient implements GhClient, PullRequestOps {
 
   stageLabels(itemNumber: number): StageLabel[] {
     return this.currentLabels(itemNumber).filter(isStageLabel);
+  }
+
+  /** Custom stages' `sc:<name>` labels are not created by hand; `--force` makes this idempotent across runs. */
+  private ensureCustomLabel(label: StageLabel): void {
+    if (isFixedStageLabel(label) || this.createdLabels.has(label)) return;
+    this.gh([
+      "label", "create", label, "--repo", this.deps.hubRepo, "--force",
+      "--color", CUSTOM_STAGE_LABEL_COLOR, "--description", `sandcastle custom stage ${label.slice("sc:".length)}`,
+    ]);
+    this.createdLabels.add(label);
   }
 
   private currentLabels(itemNumber: number): string[] {

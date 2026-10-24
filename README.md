@@ -16,8 +16,8 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Part | What it does |
 |---|---|
 | Scheduler | Items run as a DAG of native *blocked-by* edges under a worker cap, deepest stage first. |
-| Stage chain | develop (test-first), simplify, review, verify gate (rebase, checks, squash-merge). Each stage is a fresh agent. |
-| Rework | A red gate or `NEEDS-REWORK:` from review sends the item back to develop with a written brief, up to a limit. Then it parks. |
+| Stage chain | develop (test-first), simplify, review, verify gate (rebase, checks, squash-merge). Each stage is a fresh agent. Custom agent and command stages can be added in config. |
+| Rework | A red gate, a red command stage or `NEEDS-REWORK:` from review or a custom agent stage sends the item back to develop with a written brief, up to a limit. Then it parks. |
 | Park and hold | `ready-for-agent` admits an item; without it the item is held. Parked items get `ready-for-human`. Flipping the label back resumes from the failed stage. |
 | Crash-resume | `sc:*` labels and pull-request markers are the durable state. A restart resumes every item where it was. |
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
@@ -129,6 +129,7 @@ A multi-repo example with a compose verify environment is in [`examples/demo/.sa
 | `verify` | `{ "strategy": "none" }` | Feature Verify strategy, see below |
 | `ui.port` | `7777` | Control plane port for this project |
 | `agents` | `{ "default": "claude" }` | Which agent CLI runs each stage, see [Agent providers](#agent-providers) |
+| `stages` | `["develop", "simplify", "review", "verify"]` | The per-item stage chain, see [Stages](#stages) |
 
 Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `7777`.
 
@@ -157,6 +158,35 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 - `sandcastle smoke --agent=codex` checks the codex install, home and flags in a container. It makes a real call only when a Codex login or `CODEX_API_KEY` is present.
 
 > **Status:** `claude` is the tested path. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
+
+### Stages
+
+`stages` lists the per-item chain in order. Leave it out to keep the default chain. Add a custom stage by inserting an entry where it should run:
+
+```json
+"stages": [
+  "develop",
+  "simplify",
+  "review",
+  { "name": "security", "kind": "agent", "prompt": ".sandcastle/prompts/security.md", "provider": "codex", "model": "gpt-5.5-codex" },
+  { "name": "e2e", "kind": "command", "run": { "web": "pnpm playwright test" } },
+  "verify"
+]
+```
+
+- Built-in stages are the strings `develop`, `simplify`, `review` and `verify`. `develop` must come first. `verify` must come last, and is appended when left out. `simplify` and `review` can be dropped.
+- Custom stage names are lower-case kebab, at most 30 characters, unique, and not a built-in or reserved word. Each one gets its own `sc:<name>` label, created on the hub the first time it is used.
+- Order is the position in the list. A failure at any stage that asks for rework sends the item back to develop, and the whole chain runs again. `SANDCASTLE_REWORK_LIMIT` (default 3) caps rework rounds per item across all stages.
+
+| Kind | Fields | What it does |
+|---|---|---|
+| `agent` | `prompt` (required, a file relative to the project root), `provider`, `model` | A fresh container and agent, like review. Your prompt file is the method; sandcastle wraps it with the issue spec, required reading, memories and the stage contract. The agent commits fixes as `fix(<name>):` and appends a `<!-- sandcastle:<name> -->` section to the pull request. `NEEDS-REWORK:` in that section sends the item back to develop, and `UNFIXABLE:` parks it. |
+| `command` | `run` (required): one command, or a map of repo name to command | Bootstraps a clean copy of the item branch in a fresh container and runs the command. Green appends a `<!-- sandcastle:<name> -->` section to the pull request. Red sends the item back to develop with the command output as the brief. A repo missing from a `run` map skips the stage for that repo. |
+
+- Prompt files can use `{{issue}}`, `{{issueNumber}}`, `{{title}}`, `{{repo}}`, `{{branch}}`, `{{integrationBranch}}`, `{{feature}}`, `{{stage}}` and `{{round}}`. An unknown placeholder is a config error. The file is read again at every stage start, so edits apply to the next run of the stage.
+- `provider` and `model` take the same values as [Agent providers](#agent-providers). Without them the stage uses `agents.default`, with `SANDCASTLE_REVIEW_MODEL` for claude. Put them on the stage entry, not under `agents`.
+- Command stages do not rebase the branch first. The verify gate still rebases and runs `checks` before any merge.
+- Crash-resume places an item at a custom stage from its `sc:<name>` label, or from the pull-request sections. If a label names a stage the config no longer has, sandcastle warns and places the item from its pull request.
 
 ### Feature Verify strategies
 
@@ -219,6 +249,7 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `repo:<name>` | You, one per repo |
 | `ready-for-agent`, `ready-for-human` | You, and the orchestrator on park |
 | `sc:queued` `sc:blocked` `sc:developing` `sc:simplifying` `sc:in-review` `sc:verifying` `sc:done` `sc:needs-human` | The orchestrator only. Never set these by hand: crash-resume reads them. |
+| `sc:<name>` per custom stage | The orchestrator only, created on demand. See [Stages](#stages). |
 
 `sandcastle validate` enforces all of it and names the offending issue for every violation: version `v1`, slug format, `required_reading` keys within the repos used, one known `repo:` label per item, sibling-only edges, no cycles.
 

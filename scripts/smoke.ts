@@ -28,6 +28,7 @@ import {
   withContainerEnvFile,
 } from "../src/real/sandboxRunner.js";
 import { isProviderName, PROVIDER_NAMES, type ProviderName } from "../src/project/agentsConfig.js";
+import { DEFAULT_STAGES } from "../src/project/stagesConfig.js";
 import { providerNamed, snapshotCredential, syncBackCredential } from "../src/real/agents/index.js";
 import { agentWaitFrom } from "../src/real/agentFailure.js";
 import { codexLogin, CODEX_FLAGS } from "../src/real/agents/codex.js";
@@ -141,6 +142,7 @@ try {
       claudeOauthToken: undefined,
       codexApiKey,
       agents: { default: { provider: provider.name, model: undefined }, roles: {} },
+      stages: DEFAULT_STAGES,
       model: "opus",
       reviewModel: "sonnet",
       imageTag: image,

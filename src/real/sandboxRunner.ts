@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { assertGitControlUnchanged, snapshotGitControl, type GitControlSnapshot } from "./gitGuard.js";
 import type {
+  CommandStageRequest,
   SandboxRunner,
   ResolveRequest,
   ReworkContext,
@@ -26,6 +27,7 @@ import {
   defaultAgent,
   describeAgent,
   resolveAgent,
+  resolveStageAgent,
   snapshotCredential,
   syncBackCredential,
   type AgentProvider,
@@ -48,7 +50,14 @@ import type { FileSystemPort } from "./fileSystem.js";
 import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
 import type { PullRequestOps } from "./ghClient.js";
 import { CONTAINER_HOME, repoRoot, toDockerPath, worktreePath, type SandcastleLayout } from "./paths.js";
-import { buildResolvePrompt, buildSalvagePrompt, buildStagePrompt, pullRequestTitle } from "./promptBuilder.js";
+import {
+  buildResolvePrompt,
+  buildSalvagePrompt,
+  buildStagePrompt,
+  pullRequestTitle,
+  renderStageInstructions,
+  type StagePromptContext,
+} from "./promptBuilder.js";
 import type { RunContext } from "./runContext.js";
 import {
   hasPrSection,
@@ -59,7 +68,8 @@ import {
   prSectionHeading,
   reworkBriefSection,
   reworkBriefSentinel,
-  STAGE_COMMIT_TAG,
+  prSectionMarker,
+  stageCommitTag,
   taggedCommitSubjects,
   unfixableReason,
   type FreshEyesStage,
@@ -152,6 +162,31 @@ export function verifyReworkStory(request: VerifyRequest, failure: CheckFailure,
     "### What a fix must achieve",
     `\`${failure.checks}\` passes on top of \`origin/${request.integrationBranch}\`, without skipping, deleting or weakening a test, a lint rule or a type.`,
   ].join("\n");
+}
+
+export function commandReworkStory(request: CommandStageRequest, failure: CheckFailure, subjects: readonly string[]): string {
+  const commits = subjects.length > 0 ? subjects.map((subject) => `- \`${subject}\``) : ["- _none found_"];
+  const output = failure.outputTail.trim() || failure.message;
+  return [
+    "### What happened",
+    `The \`${request.stage}\` stage copied \`${request.branch}\` into a clean container and ran \`${failure.checks}\`. It failed, so the item cannot move on to the verify gate.`,
+    "",
+    "### Why it matters",
+    `This project gates every item on \`${request.stage}\`. Red here means the change breaks what that check protects.`,
+    "",
+    "### What the branch contains (newest first)",
+    ...commits,
+    "",
+    "### Evidence — the last output of the command",
+    fencedBlock(boundedTail(output, VERIFY_STORY_OUTPUT_LIMIT)),
+    "",
+    "### What a fix must achieve",
+    `\`${failure.checks}\` passes on \`${request.branch}\`, without skipping, deleting or weakening a test, a lint rule or a type.`,
+  ].join("\n");
+}
+
+export function commandTrailSection(request: CommandStageRequest, round: number): string {
+  return ["", prSectionMarker(request.stage, round), "", `\`${request.command}\` passed in a clean container.`, ""].join("\n");
 }
 
 export function containerGitDir(absoluteGitDir: string): string {
@@ -278,6 +313,11 @@ export class DockerSandboxRunner implements SandboxRunner {
     this.launch(request.itemNumber, request.stage, (attempt) => this.runAgentStage(request, attempt));
   }
 
+  spawnCommandStage(request: CommandStageRequest): void {
+    this.deps.context.rememberBranch(request.itemNumber, request.branch);
+    this.launch(request.itemNumber, request.stage, (attempt) => this.runCommandStage(request, attempt));
+  }
+
   spawnResolve(request: ResolveRequest): void {
     this.deps.context.rememberBranch(request.itemNumber, request.branch);
     this.launch(request.itemNumber, "verify", (attempt) => this.runResolve(request, attempt), "resolve");
@@ -401,11 +441,11 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private async runAgentStage(request: SpawnRequest, attempt: string): Promise<StageResult> {
-    const prompt = buildStagePrompt(this.deps.context.promptContext(request));
+    const prompt = buildStagePrompt(this.stagePromptContext(request));
     const worktree = this.requireWorktree(request.repo, request.branch);
     const baseline = this.prepareRework(request, worktree);
 
-    const agent = resolveAgent(this.deps.config, request.stage);
+    const agent = resolveStageAgent(this.deps.config, request.stage);
     try {
       await this.inContainer(request.stage, attempt, request, worktree, agent, async (container) => {
         await this.bootstrap(container, request.repo, request.itemNumber, attempt);
@@ -420,6 +460,17 @@ export class DockerSandboxRunner implements SandboxRunner {
     return this.settleOutcome(request, worktree, baseline);
   }
 
+  /** Adds a custom agent stage's prompt file, read fresh so edits apply to the next start. */
+  private stagePromptContext(request: SpawnRequest): StagePromptContext {
+    const context = this.deps.context.promptContext(request);
+    const spec = this.deps.config.stages.find((stage) => stage.name === request.stage);
+    if (spec?.kind !== "agent") return context;
+    const text = this.deps.fs.readText(spec.promptPath);
+    if (text === undefined) throw new Error(`the ${spec.name} stage prompt ${spec.promptPath} is missing`);
+    const stageInstructions = renderStageInstructions(text, context, `stage ${spec.name} prompt (${spec.promptPath})`);
+    return { ...context, stageInstructions };
+  }
+
   private async salvage(request: SpawnRequest, attempt: string, worktree: string, cause: unknown, baseline: number | undefined): Promise<void> {
     const decision = this.salvageDecision(request, worktree, baseline);
     if (decision.kind !== "run") {
@@ -432,8 +483,8 @@ export class DockerSandboxRunner implements SandboxRunner {
       request.itemNumber,
       `${decision.reason} — running a constrained salvage pass in a fresh container (${budget}s idle budget)`,
     );
-    const prompt = buildSalvagePrompt(this.deps.context.promptContext(request));
-    const agent = resolveAgent(this.deps.config, request.stage);
+    const prompt = buildSalvagePrompt(this.stagePromptContext(request));
+    const agent = resolveStageAgent(this.deps.config, request.stage);
     try {
       await this.inContainer("salvage", attempt, request, worktree, agent, async (container) => {
         await this.bootstrap(container, request.repo, request.itemNumber, attempt);
@@ -517,20 +568,20 @@ export class DockerSandboxRunner implements SandboxRunner {
     if (unfixable) {
       throw new Error(`${stage} declared the work unfixable in place on ${pullRequest.url}: ${unfixable}`);
     }
-    const story = stage === "review" ? needsReworkStory(pullRequest.body, round) : undefined;
+    const story = stage === "simplify" ? undefined : needsReworkStory(pullRequest.body, round, stage);
     if (story) {
-      this.deps.log(`#${request.itemNumber} review asked for rework on ${pullRequest.url}`);
+      this.deps.log(`#${request.itemNumber} ${stage} asked for rework on ${pullRequest.url}`);
       return {
         outcome: "failure",
-        detail: `review asked for rework on ${pullRequest.url}`,
-        rework: { source: "review", story },
+        detail: `${stage} asked for rework on ${pullRequest.url}`,
+        rework: { source: stage, story },
       };
     }
     if (hasPrSection(pullRequest.body, stage, round)) {
       this.deps.log(`#${request.itemNumber} ${stage} done: ${pullRequest.url}`);
       return { outcome: "success" };
     }
-    const tag = STAGE_COMMIT_TAG[stage];
+    const tag = stageCommitTag(stage);
     const subjects = taggedCommitSubjects(this.subjectsSince(request, worktree, baseline), stage);
     if (subjects.length === 0) {
       this.deps.warn(
@@ -683,12 +734,57 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
   }
 
+  private async runCommandStage(request: CommandStageRequest, attempt: string): Promise<StageResult> {
+    try {
+      await this.runInCleanCopy(request.stage, attempt, request, request.command);
+    } catch (cause) {
+      if (!(cause instanceof CheckFailure) || this.cancelledAttempts.has(attempt)) throw cause;
+      const worktree = this.requireWorktree(request.repo, request.branch);
+      const subjects = commitSubjectsAhead(this.deps.runner, worktree, request.integrationBranch);
+      this.deps.warn(request.itemNumber, `${request.stage} red — sending it back to develop: ${cause.message.slice(0, 300)}`);
+      return {
+        outcome: "failure",
+        detail: this.describe(cause),
+        rework: { source: request.stage, story: commandReworkStory(request, cause, subjects) },
+      };
+    }
+    this.recordCommandTrail(request);
+    this.deps.log(`#${request.itemNumber} ${request.stage} green: ${request.command}`);
+    return { outcome: "success" };
+  }
+
+  /** A pull-request section per green command stage, so a restart resumes past it instead of re-running it. */
+  private recordCommandTrail(request: CommandStageRequest): void {
+    const round = reworkRoundOf(request);
+    const pullRequest = this.deps.gh.findPullRequest(request.repo, request.branch);
+    if (!pullRequest) {
+      this.deps.warn(request.itemNumber, `${request.stage} is green but ${request.branch} has no pull request to record it on`);
+      return;
+    }
+    if (hasPrSection(pullRequest.body, request.stage, round)) return;
+    try {
+      this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, commandTrailSection(request, round));
+    } catch (cause) {
+      this.deps.warn(request.itemNumber, `${request.stage} is green but recording it on ${pullRequest.url} failed: ${messageOf(cause)}`);
+    }
+  }
+
   private async runVerifyChecks(request: VerifyRequest, attempt: string): Promise<StageResult> {
+    await this.runInCleanCopy("verify", attempt, request, checkCommand(this.deps.config, request.repo));
+    return { outcome: "success" };
+  }
+
+  /** Bootstraps a copy of the branch in a fresh container and runs `checks`; red throws `CheckFailure`. */
+  private async runInCleanCopy(
+    stage: string,
+    attempt: string,
+    request: { itemNumber: number; repo: TargetRepo; branch: string },
+    checks: string,
+  ): Promise<void> {
     const worktree = this.requireWorktree(request.repo, request.branch);
-    const checks = checkCommand(this.deps.config, request.repo);
-    await this.inContainer("verify", attempt, request, worktree, undefined, async (container) => {
+    await this.inContainer(stage, attempt, request, worktree, undefined, async (container) => {
       await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-      this.deps.log(`#${request.itemNumber} verify: ${checks}`);
+      this.deps.log(`#${request.itemNumber} ${stage}: ${checks}`);
       const tail = outputTail(CHECK_OUTPUT_TAIL);
       const teeChecks = this.tee(attempt, `\n--- checks: ${checks} ---\n`);
       try {
@@ -707,7 +803,6 @@ export class DockerSandboxRunner implements SandboxRunner {
       }
     }, "copy");
     this.assertLive(attempt);
-    return { outcome: "success" };
   }
 
   private async inContainer(

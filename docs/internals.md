@@ -15,6 +15,10 @@ Agent CLIs are pluggable per stage (`src/real/agents/`). The design and the Code
 such as token refresh, failure parsing and skill delivery, are in
 [design/agent-providers.md](design/agent-providers.md).
 
+The stage chain below is the default. A project can drop simplify or review and add custom
+agent or command stages with `stages` in its config (`src/project/stagesConfig.ts`); see
+[design/configurable-stages.md](design/configurable-stages.md).
+
 A project is configured by `.sandcastle/config.json` at the root of the consuming repo.
 The CLI finds it with `--config=<path>`, then `SANDCASTLE_CONFIG`, then by walking up from
 the current directory to the first `.sandcastle/config.json`. `--config` and

@@ -1,4 +1,5 @@
 import { STAGE_CHAIN, type HoldReason } from "../engine/adapters.js";
+import { stageNames, type StageSpec } from "../engine/stageChain.js";
 import type { ItemPhase, ItemView, StallSummary } from "../engine/engine.js";
 import type { RunModel } from "../model/runModel.js";
 import { hubIssueUrl } from "../real/ghClient.js";
@@ -9,6 +10,11 @@ import type { QueueSettings } from "./runQueue.js";
 export type RunMode = "dry" | "real";
 
 export const UI_STAGE_CHAIN = ["queued", ...STAGE_CHAIN, "merged"] as const;
+
+/** The dashboard chain for a run: queued, every configured stage, merged. */
+export function uiStageChain(chain: readonly StageSpec[]): string[] {
+  return ["queued", ...stageNames(chain), "merged"];
+}
 
 export interface UiItem extends ItemView {
   issueUrl: string;
@@ -59,6 +65,8 @@ export interface UiQueueSettings extends QueueSettings {
 
 export interface UiState {
   version: 2;
+  /** `queued`, the configured stage chain, `merged`. */
+  stages: string[];
   mode: RunMode;
   hubRepo: string;
   startCap: number;

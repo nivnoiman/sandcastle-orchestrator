@@ -1,7 +1,8 @@
-import type { AgentStage, ReworkContext } from "../engine/adapters.js";
+import type { AgentStage, ReworkContext, StageName } from "../engine/adapters.js";
 import { integrationBase } from "../project/projectConfig.js";
 import { reworkRoundOf, reworkTitle } from "../engine/rework.js";
 import type { TargetRepo, WorkItem } from "../model/runModel.js";
+import { assertStagePromptPlaceholders, STAGE_PROMPT_PLACEHOLDER, type StagePromptPlaceholder } from "../project/stagesConfig.js";
 import { serviceRepoSlug } from "./ghClient.js";
 import type { ResolvedMemory } from "./memories.js";
 import { containerSkillPath, type RequiredSkill } from "./skills.js";
@@ -10,12 +11,14 @@ import {
   prSectionMarker,
   prSectionSentinel,
   REWORK_COMMIT_TAG,
-  STAGE_COMMIT_TAG,
+  stageCommitTag,
   type FreshEyesStage,
 } from "./stageAudit.js";
 
 export interface StagePromptContext {
-  stage: AgentStage;
+  stage: StageName;
+  /** A custom agent stage's prompt file, already rendered. */
+  stageInstructions?: string;
   item: WorkItem;
   branch: string;
   integrationBranch: string;
@@ -28,11 +31,11 @@ export interface StagePromptContext {
   rework?: ReworkContext;
 }
 
-export type ResolvePromptContext = Omit<StagePromptContext, "stage">;
+export type ResolvePromptContext = Omit<StagePromptContext, "stage" | "stageInstructions">;
 
 export type StagePromptBuilder = (context: StagePromptContext) => string;
 
-interface FreshEyesSpec {
+interface BuiltinFreshEyesSpec {
   skill: RequiredSkill;
   verb: string;
   subject: string;
@@ -40,7 +43,17 @@ interface FreshEyesSpec {
   scopeRule: string;
 }
 
-const FRESH_EYES_SPECS: Record<FreshEyesStage, FreshEyesSpec> = {
+interface FreshEyesSpec {
+  opening: string;
+  instructions: string[];
+  method: string;
+  methodNoun: string;
+  verb: string;
+  mandate: string;
+  scopeRule: string;
+}
+
+const FRESH_EYES_SPECS: Record<Exclude<AgentStage, "develop">, BuiltinFreshEyesSpec> = {
   simplify: {
     skill: "simplify",
     verb: "Simplify",
@@ -60,6 +73,63 @@ const FRESH_EYES_SPECS: Record<FreshEyesStage, FreshEyesSpec> = {
       "Fix bugs, standards breaches and spec gaps, including any the simplify stage named and left for you. Do not implement anything the sub-issue never asked for, and do not refactor for taste — the simplify stage already made that pass.",
   },
 };
+
+function isBuiltinFreshEyesStage(stage: StageName): stage is keyof typeof FRESH_EYES_SPECS {
+  return Object.hasOwn(FRESH_EYES_SPECS, stage);
+}
+
+function freshEyesSpec(context: StagePromptContext, stage: FreshEyesStage): FreshEyesSpec {
+  if (isBuiltinFreshEyesStage(stage)) {
+    const builtin = FRESH_EYES_SPECS[stage];
+    return {
+      opening: `${builtin.verb} the ${builtin.subject}`,
+      instructions: [],
+      method: `**1. Read the skill.** Read \`${containerSkillPath(builtin.skill)}\` and follow it — it is the method for this stage, so do not improvise your own.`,
+      methodNoun: "the skill",
+      verb: builtin.verb,
+      mandate: builtin.mandate,
+      scopeRule: builtin.scopeRule,
+    };
+  }
+  const instructions = context.stageInstructions;
+  if (instructions === undefined) {
+    throw new Error(`stage "${stage}" is not a built-in stage and its prompt context carries no stage instructions`);
+  }
+  return {
+    opening: `Run the ${stage} stage on the implementation`,
+    instructions: [
+      "## Stage instructions (from the project owner)",
+      "The text between the `<stage-instructions>` markers is this stage's method. Follow it inside the contract below; where they disagree, the contract wins.",
+      "",
+      "<stage-instructions>",
+      instructions.trim(),
+      "</stage-instructions>",
+      "",
+    ],
+    method: "**1. Read the stage instructions.** The `<stage-instructions>` block above is the method for this stage — follow it, and do not improvise your own.",
+    methodNoun: "the stage instructions",
+    verb: `Run the ${stage} stage`,
+    mandate: "Do what the stage instructions ask.",
+    scopeRule: "Stay inside what the stage instructions ask. Do not implement anything the sub-issue never asked for, and do not refactor for taste.",
+  };
+}
+
+/** Fills `{{issue}}`, `{{branch}}` … in a custom stage's prompt file; an unknown placeholder throws. */
+export function renderStageInstructions(text: string, context: Omit<StagePromptContext, "stageInstructions">, where: string): string {
+  assertStagePromptPlaceholders(text, where);
+  const values: Record<StagePromptPlaceholder, string> = {
+    issue: issueRef(context),
+    issueNumber: String(context.item.number),
+    title: context.item.title,
+    repo: context.item.repo,
+    branch: context.branch,
+    integrationBranch: context.integrationBranch,
+    feature: context.feature,
+    stage: context.stage,
+    round: String(reworkRoundOf(context)),
+  };
+  return text.replace(STAGE_PROMPT_PLACEHOLDER, (_match, name: StagePromptPlaceholder) => values[name]);
+}
 
 const CONVENTIONAL_TITLE = /^(feat|fix|docs|refactor|test|chore)(\([^)]*\))?:\s/;
 
@@ -178,7 +248,7 @@ const REWORK_FIX_TEMPLATE = [
 
 function appendSectionBlock(
   context: StagePromptContext,
-  stage: AgentStage,
+  stage: StageName,
   template: readonly string[] = FINDINGS_TEMPLATE,
 ): string[] {
   const slug = serviceRepoSlug(context.item.repo);
@@ -260,7 +330,7 @@ function reworkHistory(context: StagePromptContext): string[] {
 }
 
 function needsReworkRule(stage: FreshEyesStage, sentinel: string): string[] {
-  if (stage !== "review") return [];
+  if (stage === "simplify") return [];
   return [
     `- If you find a defect that is too big to fix in place inside this stage's scope — a wrong approach, a missing behaviour, an acceptance criterion not met — do not commit a half-fix. Append your section as in step 6 with the \`${sentinel}\` marker, then a line \`NEEDS-REWORK:\` followed by the story below, and stop. Sandcastle sends the item back to develop with exactly that story as its brief. The developer has not seen your reasoning, so write it for a fresh agent who must act on it alone:`,
     "  ```",
@@ -276,17 +346,18 @@ function needsReworkRule(stage: FreshEyesStage, sentinel: string): string[] {
 }
 
 function buildFreshEyesPrompt(context: StagePromptContext, stage: FreshEyesStage): string {
-  const spec = FRESH_EYES_SPECS[stage];
+  const spec = freshEyesSpec(context, stage);
   const round = reworkRoundOf(context);
   const section = prSectionHeading(stage, round);
   const sentinel = prSectionSentinel(stage, round);
-  const tag = STAGE_COMMIT_TAG[stage];
+  const tag = stageCommitTag(stage);
   const slug = serviceRepoSlug(context.item.repo);
   return [
-    `${spec.verb} the ${spec.subject} of sub-issue ${issueRef(context)} from the "${context.feature}" run (parent ${context.hubRepo}#${context.parentNumber}). You are a fresh agent — you did not write this code, and that is the point.`,
+    `${spec.opening} of sub-issue ${issueRef(context)} from the "${context.feature}" run (parent ${context.hubRepo}#${context.parentNumber}). You are a fresh agent — you did not write this code, and that is the point.`,
     "",
     ...sharedHeader(context),
     "",
+    ...spec.instructions,
     ...reworkHistory(context),
     "## What is already on the branch",
     `- Earlier stages committed to \`${context.branch}\` and opened a DRAFT pull request against \`${context.integrationBranch}\`.`,
@@ -295,9 +366,9 @@ function buildFreshEyesPrompt(context: StagePromptContext, stage: FreshEyesStage
     "",
     "## Contract (do these in order — non-negotiable)",
     "",
-    `**1. Read the skill.** Read \`${containerSkillPath(spec.skill)}\` and follow it — it is the method for this stage, so do not improvise your own. Then read the required reading above and the code the diff touches.`,
+    `${spec.method} Then read the required reading above and the code the diff touches.`,
     "",
-    `**2. ${spec.verb}.** ${spec.mandate} The fixed point the skill asks for is \`origin/${context.integrationBranch}\`; the spec it asks for is the sub-issue above — do not go hunting for another one. Only the diff is in scope; untouched code it merely sits next to is not.`,
+    `**2. ${spec.verb}.** ${spec.mandate} The fixed point ${spec.methodNoun} asks for is \`origin/${context.integrationBranch}\`; the spec it asks for is the sub-issue above — do not go hunting for another one. Only the diff is in scope; untouched code it merely sits next to is not.`,
     "",
     `**3. APPLY every finding — find → apply → commit.** Reporting findings without fixing them fails this stage. ${spec.scopeRule} You may deliberately skip a finding, but every skipped finding must be named with its reason in step 6.`,
     "",
@@ -408,7 +479,7 @@ function buildDevelopSalvagePrompt(context: StagePromptContext): string {
 function buildFreshEyesSalvagePrompt(context: StagePromptContext, stage: FreshEyesStage): string {
   const section = prSectionHeading(stage, reworkRoundOf(context));
   const sentinel = prSectionSentinel(stage, reworkRoundOf(context));
-  const tag = STAGE_COMMIT_TAG[stage];
+  const tag = stageCommitTag(stage);
   return [
     `Salvage pass for the ${stage} stage of sub-issue ${issueRef(context)} — the previous ${stage} agent ran out of time part-way through its contract. Finish that contract and nothing else.`,
     "",
@@ -462,18 +533,6 @@ export function buildResolvePrompt(context: ResolvePromptContext, files: readonl
     "- Write COMMENT-FREE code: this repo's standard is zero explanatory comments.",
   ].join("\n");
 }
-
-const BUILDERS: Record<AgentStage, StagePromptBuilder> = {
-  develop: buildDevelopPrompt,
-  simplify: (context) => buildFreshEyesPrompt(context, "simplify"),
-  review: (context) => buildFreshEyesPrompt(context, "review"),
-};
-
-const SALVAGE_BUILDERS: Record<AgentStage, StagePromptBuilder> = {
-  develop: buildDevelopSalvagePrompt,
-  simplify: (context) => buildFreshEyesSalvagePrompt(context, "simplify"),
-  review: (context) => buildFreshEyesSalvagePrompt(context, "review"),
-};
 
 export interface VerifyServiceContext {
   repo: TargetRepo;
@@ -733,10 +792,12 @@ export function buildPolishPrompt(context: PolishPromptContext): string {
 
 export function buildStagePrompt(context: StagePromptContext): string {
   if (context.stage === "develop" && context.rework) return buildReworkDevelopPrompt(context, context.rework);
-  return BUILDERS[context.stage](context);
+  if (context.stage === "develop") return buildDevelopPrompt(context);
+  return buildFreshEyesPrompt(context, context.stage);
 }
 
 export function buildSalvagePrompt(context: StagePromptContext): string {
   if (context.stage === "develop" && context.rework) return buildReworkSalvagePrompt(context, context.rework);
-  return SALVAGE_BUILDERS[context.stage](context);
+  if (context.stage === "develop") return buildDevelopSalvagePrompt(context);
+  return buildFreshEyesSalvagePrompt(context, context.stage);
 }

@@ -251,6 +251,7 @@
 
 <script>
 const UI_STAGES = ["queued", "develop", "simplify", "review", "verify", "merged"];
+let uiStages = UI_STAGES;
 const ACTIVE_PHASES = ["held", "blocked", "queued", "running", "awaiting", "waiting", "parked"];
 const COLLAPSED_PHASES = ["done"];
 const PARENT_GROUPS = [
@@ -353,15 +354,15 @@ async function get(path) {
 }
 
 function stageIndexOf(item) {
-  if (item.phase === "done") return UI_STAGES.length - 1;
+  if (item.phase === "done") return uiStages.length - 1;
   if (item.phase === "queued" || item.phase === "blocked" || item.phase === "held") return 0;
-  return item.stage ? UI_STAGES.indexOf(item.stage) : UI_STAGES.length - 1;
+  return item.stage ? uiStages.indexOf(item.stage) : uiStages.length - 1;
 }
 
 function buildChain(item) {
   const chain = el("div", { cls: "chain" });
   const current = stageIndexOf(item);
-  UI_STAGES.forEach((stage, index) => {
+  uiStages.forEach((stage, index) => {
     if (index > 0) chain.append(el("span", { cls: "arrow", text: "→" }));
     let cls = "node";
     if (index < current) cls += " past";
@@ -667,6 +668,7 @@ function selectRun(parent) {
 
 function render(state) {
   lastState = state;
+  uiStages = state.stages || UI_STAGES;
   chooseRun(state);
   const view = selectedView(state);
   syncInput("cap", state.queueSettings.globalCap);

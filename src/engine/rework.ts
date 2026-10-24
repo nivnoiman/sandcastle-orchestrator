@@ -1,4 +1,4 @@
-import type { ReworkBrief, ReworkContext } from "./adapters.js";
+import { STAGE_CHAIN, type ReworkBrief, type ReworkContext, type StageName } from "./adapters.js";
 
 export const REWORK_LIMIT_DEFAULT = 3;
 
@@ -14,10 +14,10 @@ export function reworkHeading(brief: ReworkBrief, limit: number): string {
   return `## ${reworkTitle(brief, limit)}`;
 }
 
-export function reworkComment(brief: ReworkBrief, limit: number): string {
+export function reworkComment(brief: ReworkBrief, limit: number, chain: readonly StageName[] = STAGE_CHAIN): string {
   return [
     `sandcastle sent this item back to develop — rework round ${brief.round} of ${limit}, raised by the ${brief.source} stage.`,
-    "It re-runs develop → simplify → review → verify with the story below as its brief.",
+    `It re-runs ${chain.join(" → ")} with the story below as its brief.`,
     "",
     reworkHeading(brief, limit),
     "",
