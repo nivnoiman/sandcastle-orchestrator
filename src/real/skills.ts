@@ -26,3 +26,9 @@ export function assertSkillsInstalled(fs: FileSystemPort, layout: SandcastleLayo
     )}\nInstall them into your ~/.claude (see README → Agent skills), then start sandcastle again.`,
   );
 }
+
+/** GNU tar exits 1 for non-fatal warnings (file changed as we read it, cannot stat); only 2+ is a real failure. */
+export function tarCopyCommand(fromDir: string, entries: readonly string[], toDir: string): string {
+  const sources = entries.map((entry) => `./${entry}`).join(" ");
+  return `{ tar -C ${fromDir} --ignore-failed-read -cf - ${sources} | tar -C ${toDir} -xf -; [ $? -le 1 ]; }`;
+}

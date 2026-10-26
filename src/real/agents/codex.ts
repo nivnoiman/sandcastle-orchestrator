@@ -3,6 +3,7 @@ import { agentDetail, AgentWaitError, jsonLines } from "../agentFailure.js";
 import type { Mount } from "../docker.js";
 import type { OrchestratorConfig } from "../env.js";
 import { codexDirOf, CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
+import { tarCopyCommand } from "../skills.js";
 import { assertQuotableModel, CONTAINER_AUTOCRLF, HOST_CLAUDE_DIR, requiredSkillChecks } from "./claude.js";
 import type { AgentProvider, RefreshableCredential } from "./provider.js";
 
@@ -31,7 +32,7 @@ export function codexHydrateCommand(): string {
     "set -o pipefail",
     `rm -rf ${CONTAINER_CODEX_DIR} ${CONTAINER_HOME}/.claude ${CONTAINER_HOME}/.agents`,
     `mkdir -p ${CONTAINER_CODEX_DIR} ${CONTAINER_HOME}/.claude ${CONTAINER_HOME}/.agents`,
-    `tar -C ${HOST_CLAUDE_DIR} --ignore-failed-read -cf - ./skills ./commands | tar -C ${CONTAINER_HOME}/.claude -xf -`,
+    tarCopyCommand(HOST_CLAUDE_DIR, ["skills", "commands"], `${CONTAINER_HOME}/.claude`),
     `ln -s ${CONTAINER_HOME}/.claude/skills ${CONTAINER_AGENTS_SKILLS}`,
     `printf 'cli_auth_credentials_store = "file"\\n' > ${CONTAINER_CODEX_DIR}/config.toml`,
     `if [ -f ${HOST_CODEX_DIR}/auth.json ]; then install -m 600 ${HOST_CODEX_DIR}/auth.json ${CONTAINER_CODEX_DIR}/auth.json; fi`,

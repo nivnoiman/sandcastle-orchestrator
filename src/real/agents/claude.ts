@@ -3,7 +3,7 @@ import { classifyAgentOutput } from "../agentFailure.js";
 import type { Mount } from "../docker.js";
 import { agentAuthEnv } from "../env.js";
 import { claudeJsonPath, CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
-import { containerSkillPath, REQUIRED_SKILLS } from "../skills.js";
+import { containerSkillPath, REQUIRED_SKILLS, tarCopyCommand } from "../skills.js";
 import type { AgentProvider } from "./provider.js";
 
 export const HOST_CLAUDE_DIR = `${CONTAINER_HOME}/.claude-host`;
@@ -37,12 +37,11 @@ export function requiredSkillChecks(): string[] {
 }
 
 export function hydrateHomeCommand(): string {
-  const copied = HYDRATE_COPIED_ENTRIES.map((entry) => `./${entry}`).join(" ");
   return [
     "set -o pipefail",
     `rm -rf ${CONTAINER_HOME}/.claude ${CONTAINER_HOME}/.claude.json`,
     `mkdir -p ${CONTAINER_HOME}/.claude`,
-    `tar -C ${HOST_CLAUDE_DIR} --ignore-failed-read -cf - ${copied} | tar -C ${CONTAINER_HOME}/.claude -xf -`,
+    tarCopyCommand(HOST_CLAUDE_DIR, HYDRATE_COPIED_ENTRIES, `${CONTAINER_HOME}/.claude`),
     `cp -a --no-preserve=ownership ${HOST_CLAUDE_JSON} ${CONTAINER_HOME}/.claude.json`,
     `git config --global core.autocrlf ${CONTAINER_AUTOCRLF}`,
     ...requiredSkillChecks(),
