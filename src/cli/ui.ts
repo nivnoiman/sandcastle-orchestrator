@@ -9,7 +9,7 @@ import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapsho
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { controlPlaneHost } from "../real/controlPlane.js";
-import { resolveLayout } from "../real/env.js";
+import { clampIdleTimeout, resolveLayout } from "../real/env.js";
 import { nodeFileSystem } from "../real/fileSystem.js";
 import { processIsAlive } from "../real/lock.js";
 import { defaultLayout } from "../real/paths.js";
@@ -126,6 +126,12 @@ function failStage(pending: PendingStage): string | undefined {
   return `injected failure — the ui was started with --fail=${key}`;
 }
 
+function envNumber(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 const log = (message: string): void => console.log(message);
 
 function loadQueue(): RunQueue {
@@ -204,6 +210,7 @@ const controller = new UiController({
   globalCap: host ? { get: () => host.globalCap(), set: (value: number) => host.setGlobalCap(value) } : undefined,
   reset,
   now: () => new Date(),
+  idleTimeoutSeconds: clampIdleTimeout(idleTimeoutSeconds ?? envNumber(process.env["SANDCASTLE_IDLE_TIMEOUT"])),
 });
 
 const server = await startUiServer(controller, port).catch((cause: unknown) => {

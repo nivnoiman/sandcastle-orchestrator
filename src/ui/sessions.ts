@@ -60,6 +60,7 @@ export async function realSession(request: StartSessionRequest, options: RealSes
     attempts: {
       list: (itemNumber) => run.logs.list(itemNumber),
       read: (id, from) => run.logs.read(id, from),
+      lastOutputAt: (itemNumber) => run.logs.lastOutputAt(itemNumber),
     },
     tick: () => run.tick(),
     stop: () => run.stop(),

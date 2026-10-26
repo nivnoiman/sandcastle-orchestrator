@@ -40,6 +40,8 @@ type LabelTarget = StageLabel | undefined | typeof KEEP_LABEL;
 interface ItemState {
   item: WorkItem;
   phase: ItemPhase;
+  /** Epoch ms of the last Phase or Stage change (the Phase Clock). */
+  phaseSince: number;
   nextStageIndex: number;
   branch: string;
   branchCreated: boolean;
@@ -64,6 +66,8 @@ export interface EngineOptions {
   hold?: RunHold;
   /** The stage chain; defaults to the active project's (`stages` in config.json). */
   stages?: readonly StageSpec[];
+  /** Epoch ms clock stamping the Phase Clock; defaults to `Date.now`. */
+  now?: () => number;
 }
 
 export interface ItemView {
@@ -71,6 +75,8 @@ export interface ItemView {
   title: string;
   repo: WorkItem["repo"];
   phase: ItemPhase;
+  /** ISO time of the last Phase or Stage change. */
+  phaseSince: string;
   stage: StageName | undefined;
   stageIndex: number;
   branch: string;
@@ -198,6 +204,7 @@ export class Engine {
   private newStartsPaused = false;
   private readonly runHold: RunHold;
   private readonly stages: readonly StageSpec[];
+  private readonly clock: () => number;
 
   constructor(
     model: RunModel,
@@ -211,8 +218,9 @@ export class Engine {
     this.slots = options.slots ?? new LocalSlots();
     this.runHold = options.hold ?? new RunHold();
     this.stages = options.stages ?? activeStageChain();
+    this.clock = options.now ?? Date.now;
     for (const item of model.items) this.states.set(item.number, this.freshState(item));
-    for (const state of this.states.values()) state.phase = this.initialPhase(state.item);
+    for (const state of this.states.values()) this.setPhase(state, this.initialPhase(state.item));
   }
 
   static resume(
@@ -413,6 +421,7 @@ export class Engine {
       title: state.item.title,
       repo: state.item.repo,
       phase: state.phase,
+      phaseSince: new Date(state.phaseSince).toISOString(),
       stage: state.phase === "done" ? undefined : this.stages[state.nextStageIndex]?.name,
       stageIndex: state.phase === "done" ? this.stages.length : state.nextStageIndex,
       branch: state.branch,
@@ -444,6 +453,7 @@ export class Engine {
     return {
       item,
       phase: "blocked",
+      phaseSince: this.clock(),
       nextStageIndex: 0,
       branch: itemBranch(item),
       branchCreated: false,
@@ -559,8 +569,13 @@ export class Engine {
     return state;
   }
 
-  private moveTo(state: ItemState, phase: ItemPhase): void {
+  private setPhase(state: ItemState, phase: ItemPhase): void {
     state.phase = phase;
+    state.phaseSince = this.clock();
+  }
+
+  private moveTo(state: ItemState, phase: ItemPhase): void {
+    this.setPhase(state, phase);
     this.reconcileLabel(state);
   }
 
@@ -608,15 +623,15 @@ export class Engine {
       state.nextStageIndex = placement.stageIndex;
       if (placement.kind === "parked") {
         if (placement.parkReason) this.park(state, placement.parkReason, undefined);
-        else state.phase = "parked";
+        else this.setPhase(state, "parked");
         continue;
       }
-      state.phase = "awaiting";
+      this.setPhase(state, "awaiting");
       if (placement.wasParked) this.adapters.gh.removeLabel(state.item.number, "sc:needs-human");
     }
     for (const state of this.statesByNumber()) {
       if (state.phase !== "blocked") continue;
-      if (this.dependenciesSatisfied(state.item)) state.phase = "queued";
+      if (this.dependenciesSatisfied(state.item)) this.setPhase(state, "queued");
     }
     for (const state of this.statesByNumber()) this.reconcileLabel(state);
     this.fillSlots();
@@ -815,6 +830,7 @@ export class Engine {
     }
     this.adapters.ui.note(state.item.number, `${stage.name} has no command for ${state.item.repo} — skipping it`);
     state.nextStageIndex += 1;
+    state.phaseSince = this.clock();
     this.startStage(state);
   }
 
