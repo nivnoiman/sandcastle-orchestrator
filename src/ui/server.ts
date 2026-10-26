@@ -109,13 +109,27 @@ function guardOrigin(request: Request, response: Response, next: NextFunction): 
   next();
 }
 
-export function createUiApp(controller: UiController): Express {
+/** Identity of this Project Server, served at `/api/instance` (for the Dashboard and the idle-mode picker). */
+export interface InstanceInfo {
+  dir: string;
+  name: string;
+  mode: "dry" | "real";
+  /** True while started without a parent: the operator picks one in the UI. */
+  idle: boolean;
+  pid: number;
+}
+
+export function createUiApp(controller: UiController, instance?: InstanceInfo): Express {
   const app = express();
   app.use(guardOrigin);
   app.use(express.json());
 
   app.get("/", (_request, response) => {
     response.sendFile(PAGE_FILE);
+  });
+
+  app.get("/api/instance", (_request, response) => {
+    response.json({ ok: true, result: instance ?? null });
   });
 
   app.get("/api/state", (_request, response) => {
@@ -298,8 +312,13 @@ export interface UiServer {
   close(): Promise<void>;
 }
 
-export function startUiServer(controller: UiController, port = DEFAULT_UI_PORT, host = UI_HOST): Promise<UiServer> {
-  const server: Server = createServer(createUiApp(controller));
+export function startUiServer(
+  controller: UiController,
+  port = DEFAULT_UI_PORT,
+  host = UI_HOST,
+  instance?: InstanceInfo,
+): Promise<UiServer> {
+  const server: Server = createServer(createUiApp(controller, instance));
   const sockets = new Set<import("node:net").Socket>();
   server.on("connection", (socket) => {
     sockets.add(socket);
