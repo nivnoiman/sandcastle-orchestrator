@@ -52,6 +52,15 @@ describe("board render", () => {
     expect(html).toContain("1 merged");
   });
 
+  it("shows a settled dry run's strip and gate cards as skipped, never idle or current", () => {
+    const settled = uiRun(11, [uiItem(1, "done")], { complete: true, settled: true });
+    const html = main(ui([boardProject("alpha", uiState([settled], { mode: "dry" }), { mode: "dry" })]));
+    expect(html).not.toContain('class="step active"');
+    expect(html).not.toContain('class="gate idle"');
+    expect(html).toContain('class="gate skipped"');
+    expect(html).toContain("dry run — nothing to polish");
+  });
+
   it("escapes item titles", () => {
     const html = main(ui([boardProject("alpha", uiState([run]))]));
     expect(html).not.toContain("<script>alert(1)</script>");

@@ -66,6 +66,35 @@ describe("Run Lifecycle", () => {
     expect(finished.map((step) => step.state)).toEqual(["done", "done", "done", "done", "active"]);
     expect(finished[4]?.detail).toBe("2 for your merge");
   });
+
+  it("finishes the strip on a settled run whose gates never ran", () => {
+    const steps = lifecycleSteps(uiRun(1, [uiItem(1, "done")], { complete: true, settled: true }), "dry");
+    expect(steps.map((step) => `${step.id}:${step.state}`)).toEqual(["items:done", "integration:done", "verify:skipped", "polish:skipped", "prs:skipped"]);
+    expect(steps[2]?.detail).toBe("skipped — dry run — nothing to verify");
+    expect(steps[3]?.detail).toBe("skipped — dry run — nothing to polish");
+
+    const redVerify = lifecycleSteps(
+      uiRun(1, [uiItem(1, "done")], {
+        complete: true,
+        settled: true,
+        featureVerify: { phase: "red", counts: { pass: 0, fail: 1, requiresStg: 0 }, reason: undefined, pullRequests: [] },
+      }),
+    );
+    expect(redVerify.map((step) => step.state)).toEqual(["done", "done", "failed", "skipped", "skipped"]);
+    expect(redVerify[3]?.detail).toBe("skipped — feature verify is red");
+  });
+
+  it("marks every step done on a settled run with green gates", () => {
+    const steps = lifecycleSteps(
+      uiRun(1, [uiItem(1, "done")], {
+        complete: true,
+        settled: true,
+        featureVerify: { phase: "green", counts: { pass: 2, fail: 0, requiresStg: 0 }, reason: undefined, pullRequests: ["u1"] },
+        polish: { ...idlePolish(), phase: "green", pullRequests: ["u1"] },
+      }),
+    );
+    expect(steps.map((step) => step.state)).toEqual(["done", "done", "done", "done", "done"]);
+  });
 });
 
 describe("clock formatting", () => {
