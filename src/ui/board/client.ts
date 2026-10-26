@@ -35,6 +35,8 @@ export interface ProjectSource {
   idle?: boolean;
 }
 
+export type BoardAction = "restart" | "pause-all";
+
 export interface BoardOptions {
   root: HTMLElement;
   scope?: BoardScope;
@@ -43,8 +45,8 @@ export interface BoardOptions {
   /** Re-run a `projects` function this often; Dashboards pass their poll interval. */
   refreshProjectsMs?: number;
   dashboardUrl?: string;
-  /** Called for actions the board cannot perform itself, e.g. restarting a Project Server. */
-  onAction?: (action: "restart", projectId: string) => void;
+  /** Called for actions the board cannot perform itself, e.g. restarting a Project Server. A returned message is shown as a toast; a rejection as an error. */
+  onAction?: (action: BoardAction, projectId: string) => void | string | Promise<void | string>;
 }
 
 export interface BoardHandle {
@@ -611,6 +613,16 @@ export function mountBoard(options: BoardOptions): BoardHandle {
 
   // ---- events ----
 
+  function runAction(action: BoardAction, projectId: string): void {
+    if (!options.onAction) return toast("info", 'Run "sandcastle ui" inside the project directory to restart it.');
+    Promise.resolve(options.onAction(action, projectId)).then(
+      (message) => {
+        if (typeof message === "string") toast("info", message);
+      },
+      (cause: unknown) => toast("error", cause instanceof Error ? cause.message : String(cause)),
+    );
+  }
+
   function onAttentionAction(act_: string, element: HTMLElement, project: BoardProject): void {
     const itemNumber = Number(element.dataset["n"]) || undefined;
     const runNumber = Number(element.dataset["run"]) || undefined;
@@ -628,8 +640,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       const feed = Array.from(root.querySelectorAll<HTMLElement>(".feed-panel")).find((panel) => panel.offsetParent !== null);
       feed?.scrollIntoView({ block: "center" });
     } else if (act_ === "att-restart") {
-      if (options.onAction) options.onAction("restart", project.id);
-      else toast("info", `Restart ${project.name} with "sandcastle ui" inside its project directory.`);
+      runAction("restart", project.id);
     }
   }
 
@@ -660,6 +671,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return;
     }
     if (action === "theme") return cycleTheme();
+    if (action === "pause-all") return runAction("pause-all", "");
     if (action === "switch") return openSwitcher();
     if (action === "feed-scope") {
       ui.feedAll = element.dataset["scope"] === "all";
@@ -723,7 +735,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       if (id) selectAttempt(project, id);
       return;
     }
-    if (action === "restart") options.onAction?.("restart", project.id);
+    if (action === "restart") runAction("restart", project.id);
   }
 
   function onChange(event: Event): void {

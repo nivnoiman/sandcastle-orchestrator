@@ -262,6 +262,7 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `sandcastle dry-run <parent \| fixture.json> [--cap=N]` | Simulate scheduling with fake adapters (no tokens) |
 | `sandcastle preflight <parent> [--skip-verify]` | Every start-time check, no lock, no tokens |
 | `sandcastle ui <parent \| fixture.json> [--cap=N] [--port=N] [--dry] [--fail=<item>:<stage>]` | Control plane in the browser. `--dry` simulates that parent. No argument starts an Idle Project Server (real mode; pick the parent in the UI). Running servers register in `~/.sandcastle/instances.json`. |
+| `sandcastle dashboard [--detach] [--open] [--port=N]` | Multi-project dashboard on `127.0.0.1:7700`. Lists Known Projects from the registry, proxies each running Project Server (state, live events, actions), starts a stopped one (idle, real mode), and pauses every project at once. `--detach` backgrounds it and a repeated call reuses it; `--open` opens the browser on the project you are in. |
 | `sandcastle start <parent> [--cap=N] [--skip-verify]` | Headless real run (spends tokens) |
 | `sandcastle reset <parent> [--apply]` | Clear a killed run's containers, worktrees and labels. Prints the plan without `--apply`. |
 | `sandcastle smoke [repo] [--agent=claude\|codex]` | Container, git plumbing and agent-home check. Non-billed, except a codex smoke with a login makes one tiny call. |
