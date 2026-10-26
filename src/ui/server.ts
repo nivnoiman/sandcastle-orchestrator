@@ -7,6 +7,7 @@ import type { UiController } from "./controller.js";
 import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
 import { messageOf } from "../messageOf.js";
 import { DEFAULT_UI_PORT, isTcpPort, tcpPort } from "../project/projectConfig.js";
+import { boardPage, mountBoardAssets, warmBoardAssets } from "./board/assets.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
 
@@ -125,8 +126,14 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
   app.use(express.json());
 
   app.get("/", (_request, response) => {
+    response.type("html").set("cache-control", "no-cache").send(boardPage());
+  });
+
+  app.get("/legacy", (_request, response) => {
     response.sendFile(PAGE_FILE);
   });
+
+  mountBoardAssets(app);
 
   app.get("/api/instance", (_request, response) => {
     response.json({ ok: true, result: instance ?? null });
@@ -318,6 +325,7 @@ export function startUiServer(
   host = UI_HOST,
   instance?: InstanceInfo,
 ): Promise<UiServer> {
+  warmBoardAssets();
   const server: Server = createServer(createUiApp(controller, instance));
   const sockets = new Set<import("node:net").Socket>();
   server.on("connection", (socket) => {

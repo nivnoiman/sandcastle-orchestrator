@@ -603,7 +603,8 @@ the expand choices live in the page's module scope, never in the DOM the rendere
 replaces, so neither an SSE `state` event nor a parent refresh reopens a section the
 operator collapsed, discards what they were typing, or moves what start will run.
 
-`src/ui/server.ts` is Express + SSE: `GET /` (page), `GET /api/state` (full
+`src/ui/server.ts` is Express + SSE: `GET /` (the Board View), `GET /legacy` (the original
+page, unchanged), `GET /board/board.js|css|fonts/*` (assets), `GET /api/state` (full
 projection), `GET /api/events` (a `state` event whenever the projection actually
 changes, plus `feed` lines), `GET /api/parents` (open `sandcastle`-labelled hub issues
 via `gh`), `POST /api/run`, `/api/items/:n/cancel`, `/api/items/:n/retry`,
@@ -611,6 +612,12 @@ via `gh`), `POST /api/run`, `/api/items/:n/cancel`, `/api/items/:n/retry`,
 run cannot honour is a 409 carrying the engine's own `OperatorError` message (for
 example, that only a running item can be cancelled); anything else (a `gh`
 outage, a bug) is a 500, because dressing an unexpected failure as a conflict hides it.
+
+The Board View (`src/ui/board/`) is plain TypeScript bundled in memory by esbuild when the
+server starts (ADR 0002). Pure functions turn state into HTML strings (`view/`, `attention.ts`,
+`model.ts`, `format.ts`) and are unit-tested; `client.ts` owns fetch, SSE and events. The bundle
+exposes `SandcastleBoard.mountBoard({ root, scope, projects, ... })`: a Dashboard passes
+`scope: "dashboard"` and one `{ id, name, apiBase, legacyHref }` per Project Server.
 
 The page is local, but "local" is not a boundary on its own: any page in the browser
 can POST to `127.0.0.1`. So every POST must carry `x-sandcastle: 1`, a header a

@@ -24,6 +24,7 @@
     "preflight": "tsx src/cli/preflight.ts"
   },
   "dependencies": {
+    "esbuild": "0.28.2",
     "express": "^5.2.1",
     "yaml": "^2.5.0"
   },
