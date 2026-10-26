@@ -5,6 +5,7 @@ import {
   bucketCounts,
   groupByColumn,
   lifecycleSteps,
+  runGates,
   runHint,
   type BoardProject,
   type LifecycleStep,
@@ -158,7 +159,7 @@ function pipeline(ui: BoardUi, project: BoardProject, run: UiRun): string {
 }
 
 function stepMarkup(step: LifecycleStep): string {
-  return `<li class="step ${step.state}"><span class="step-node" aria-hidden="true"></span><span class="step-label">${esc(step.label)}</span><span class="step-detail">${esc(step.detail)}</span></li>`;
+  return `<li class="step ${step.state}" title="${esc(step.detail)}"><span class="step-node" aria-hidden="true"></span><span class="step-label">${esc(step.label)}</span><span class="step-detail">${esc(step.detail)}</span></li>`;
 }
 
 function prLinks(urls: readonly string[]): string {
@@ -166,14 +167,13 @@ function prLinks(urls: readonly string[]): string {
   return `<div class="pr-links">${urls.map((url) => externalLink(url, `${icon("pr")}${esc(prLabel(url))}`)).join("")}</div>`;
 }
 
-function gateCards(run: UiRun): string {
-  const verify = run.featureVerify;
-  const polish = run.polish;
+function gateCards(run: UiRun, mode: BoardProject["mode"]): string {
+  const { featureVerify: verify, polish } = runGates(run, mode);
   const verifyTone = { running: "run", fixing: "wait", waiting: "wait", green: "done", red: "park", skipped: "", idle: "" }[verify.phase];
   const polishTone = { running: "run", green: "done", reverted: "wait", skipped: "", idle: "" }[polish.phase];
   const round = verify.rework ? `<div class="gd">Fix round ${verify.rework.round}/${verify.rework.limit}</div>` : "";
   const scenarios =
-    verify.phase === "idle"
+    verify.phase === "idle" || verify.phase === "skipped"
       ? ""
       : `<div class="scen"><span><b>${verify.counts.pass}</b> pass</span><span class="f"><b>${verify.counts.fail}</b> fail</span><span><b>${verify.counts.requiresStg}</b> requires-STG</span></div>`;
   const verifyText = verify.reason ?? (verify.phase === "idle" ? `Starts when all ${run.items.length} items merge into ${run.parent.integrationBranch}.` : "");
@@ -249,13 +249,13 @@ export function renderRunTabs(ui: BoardUi, project: BoardProject, selected: UiRu
 }
 
 export function renderRunPanel(ui: BoardUi, project: BoardProject, run: UiRun): string {
-  const steps = lifecycleSteps(run);
+  const steps = lifecycleSteps(run, project.mode);
   return `<div class="runpanel" role="tabpanel">
     ${runBar(project, run)}
     <ol class="lifecycle" aria-label="Run Lifecycle">${steps.map(stepMarkup).join("")}</ol>
     ${progress(run)}
     ${banners(run, ui.nowMs)}
-    ${gateCards(run)}
+    ${gateCards(run, project.mode)}
     ${pipeline(ui, project, run)}
   </div>`;
 }

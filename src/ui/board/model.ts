@@ -98,34 +98,62 @@ function polishStepState(phase: UiRun["polish"]["phase"]): StepState {
   return phase === "idle" ? "pending" : "active";
 }
 
-/** Run Lifecycle: Items → Integration → Feature Verify → Polish → PRs. */
-export function lifecycleSteps(run: UiRun): LifecycleStep[] {
+function allItemsMerged(run: Pick<UiRun, "items">): boolean {
+  return run.items.length > 0 && run.items.every((item) => item.phase === "done");
+}
+
+function idleVerifyReason(run: UiRun, mode: RunMode): string {
+  if (!allItemsMerged(run)) return "run ended before every item merged";
+  return mode === "dry" ? "dry run — nothing to verify" : "did not run";
+}
+
+function idlePolishReason(run: UiRun, mode: RunMode, verify: UiRun["featureVerify"]): string {
+  if (verify.phase === "red") return "feature verify is red";
+  if (verify.phase === "skipped") return verify.reason ?? "feature verify was skipped";
+  if (!allItemsMerged(run)) return "run ended before every item merged";
+  return mode === "dry" ? "dry run — nothing to polish" : "did not run";
+}
+
+/** Feature Verify and Polish as a settled run reads them: a gate still idle then never ran, so it is skipped. */
+export function runGates(run: UiRun, mode: RunMode = "real"): Pick<UiRun, "featureVerify" | "polish"> {
+  if (!run.settled) return { featureVerify: run.featureVerify, polish: run.polish };
+  const featureVerify =
+    run.featureVerify.phase === "idle" ? { ...run.featureVerify, phase: "skipped" as const, reason: idleVerifyReason(run, mode) } : run.featureVerify;
+  const polish = run.polish.phase === "idle" ? { ...run.polish, phase: "skipped" as const, reason: idlePolishReason(run, mode, run.featureVerify) } : run.polish;
+  return { featureVerify, polish };
+}
+
+function gateDetail(phase: string, reason: string | undefined): string {
+  return phase === "skipped" && reason ? `skipped — ${reason}` : phase;
+}
+
+function prsStep(run: UiRun, prsReady: boolean, prs: readonly string[]): LifecycleStep {
+  const base = { id: "prs", label: "PRs" } as const;
+  if (run.settled && prs.length > 0) return { ...base, state: "done", detail: `${prs.length} for your merge` };
+  if (run.settled) return { ...base, state: "skipped", detail: "none opened" };
+  if (prsReady) return { ...base, state: "active", detail: `${prs.length || "ready"} for your merge` };
+  return { ...base, state: "pending", detail: "after polish" };
+}
+
+/** Run Lifecycle: Items → Integration → Feature Verify → Polish → PRs. Once the run settled no step stays active. */
+export function lifecycleSteps(run: UiRun, mode: RunMode = "real"): LifecycleStep[] {
   const total = run.items.length;
   const done = run.items.filter((item) => item.phase === "done").length;
-  const allDone = total > 0 && done === total;
-  const { featureVerify: verify, polish } = run;
-  const afterIntegration = verify.phase !== "idle" || polish.phase !== "idle";
+  const allDone = allItemsMerged(run);
+  const gates = runGates(run, mode);
+  const { featureVerify: verify, polish } = gates;
+  const afterIntegration = run.settled || verify.phase !== "idle" || polish.phase !== "idle";
   const verifyCleared = verify.phase === "green" || verify.phase === "skipped";
   const polishCleared = polish.phase === "green" || polish.phase === "skipped" || polish.phase === "reverted";
-  const prsReady = verifyCleared && polishCleared;
-  const prs = runPullRequests(run);
+  const itemsState: StepState = allDone ? "done" : run.settled ? "warn" : "active";
+  const integrationState: StepState = !allDone ? (run.settled ? "skipped" : "pending") : afterIntegration ? "done" : "active";
 
   return [
-    { id: "items", label: "Items", state: allDone ? "done" : "active", detail: `${done}/${total} merged` },
-    {
-      id: "integration",
-      label: "Integration",
-      state: !allDone ? "pending" : afterIntegration ? "done" : "active",
-      detail: allDone ? "all merged" : `${total - done} to go`,
-    },
-    { id: "verify", label: "Feature Verify", state: verifyStepState(verify.phase), detail: verify.phase },
-    { id: "polish", label: "Polish", state: polishStepState(polish.phase), detail: polish.phase },
-    {
-      id: "prs",
-      label: "PRs",
-      state: prsReady ? "active" : "pending",
-      detail: prsReady ? `${prs.length || "ready"} for your merge` : "after polish",
-    },
+    { id: "items", label: "Items", state: itemsState, detail: `${done}/${total} merged` },
+    { id: "integration", label: "Integration", state: integrationState, detail: allDone ? "all merged" : `${total - done} to go` },
+    { id: "verify", label: "Feature Verify", state: verifyStepState(verify.phase), detail: gateDetail(verify.phase, verify.reason) },
+    { id: "polish", label: "Polish", state: polishStepState(polish.phase), detail: gateDetail(polish.phase, polish.reason) },
+    prsStep(run, verifyCleared && polishCleared, runPullRequests(gates)),
   ];
 }
 
