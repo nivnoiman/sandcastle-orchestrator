@@ -149,6 +149,15 @@ describe("status across parents", () => {
     expect((report["feed"] as { message: string }[]).map((line) => line.message)).toEqual(["from 200", "queue resumed"]);
   });
 
+  it("surfaces Stall and Quiet items for the Orchestrator Agent", () => {
+    const quiet = { silentSeconds: 700, timeoutSeconds: 1200 };
+    const stalled = { parked: 1, held: 0, blocked: 0 } as unknown as UiRun["stalled"];
+    const run = parentRun(100, { stalled, items: [item({ number: 5, quiet }), item({ number: 6 })] });
+    const report = statusReport(state({ runs: [run] }));
+    expect(report["stalled"]).toEqual(stalled);
+    expect(report["quiet"]).toEqual([expect.objectContaining({ number: 5, quiet })]);
+  });
+
   it("details the run without a parent whenever one run is unambiguous", () => {
     const oneLive = state({ runs: [parentRun(100, { settled: true }), parentRun(200)] });
     expect((statusReport(oneLive)["parent"] as { number: number }).number).toBe(200);
