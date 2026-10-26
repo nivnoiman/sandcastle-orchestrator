@@ -21,13 +21,15 @@ import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
 import type { RunMode } from "../ui/state.js";
 import { messageOf } from "../messageOf.js";
+import { createInstanceRegistry } from "../registry/index.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 
 const TICK_MS = 250;
 
 const USAGE = [
-  "usage: sandcastle ui <fixture.json | parent-issue> [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
+  "usage: sandcastle ui [fixture.json | parent-issue] [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
   "  <fixture.json>     paced dry run — no docker, no gh writes, no tokens",
+  "  (no argument)      idle Project Server — real mode, pick the parent in the browser",
   "  <parent-issue>     real run against the hub (add --dry for a paced simulation of that parent)",
   "  --cap=N            worker cap per run: how many tasks of one parent run at once (default 1)",
   "  --parallel=N       queue runs up to N parents at once (overrides the saved queue mode)",
@@ -61,14 +63,16 @@ function injectedFailures(): Set<string> {
   return keys;
 }
 
-if (!source) {
+const idle = !source;
+if (idle && args.includes("--dry")) {
   console.error(USAGE);
+  console.error("--dry needs a fixture or parent: an idle Project Server is real mode only");
   process.exit(2);
 }
 
 const hubRepo = repoArg ?? project.hubRepo;
-const fixture = /^\d+$/.test(source) ? undefined : source;
-const namedParent = fixture ? undefined : Number(source);
+const fixture = !source || /^\d+$/.test(source) ? undefined : source;
+const namedParent = source && !fixture ? Number(source) : undefined;
 const mode: RunMode = fixture || args.includes("--dry") ? "dry" : "real";
 const cap = flagNumber(args, "cap", 1);
 const parallelLimit = optionalFlagNumber(args, "parallel");
@@ -206,8 +210,25 @@ const controller = new UiController({
   now: () => new Date(),
 });
 
-const server = await startUiServer(controller, port).catch((cause: unknown) => {
+const registry = createInstanceRegistry();
+const instance = { dir: project.projectRoot, name: project.name, mode, idle, pid: process.pid };
+
+const server = await startUiServer(controller, port, undefined, instance).catch((cause: unknown) => {
   return fail(messageOf(cause));
+});
+
+try {
+  registry.register({ dir: project.projectRoot, name: project.name, pid: process.pid, port: server.port, mode });
+} catch (cause) {
+  await server.close().catch(() => undefined);
+  fail(messageOf(cause));
+}
+process.on("exit", () => {
+  try {
+    registry.deregister(project.projectRoot, process.pid);
+  } catch (cause) {
+    console.error(`[registry][warn] deregister failed: ${messageOf(cause)}`);
+  }
 });
 
 const ticker = setInterval(() => controller.tick(), TICK_MS);
@@ -227,7 +248,11 @@ if (mode === "dry") {
     console.log(`  paced dry run started — #${target} ${summary?.title ?? ""}, cap ${cap}`);
   }
 } else {
-  console.log(`  real mode — press start in the browser to spend tokens on #${namedParent ?? ""}`);
+  console.log(
+    idle
+      ? "  idle — pick a parent in the browser, then press start to spend tokens"
+      : `  real mode — press start in the browser to spend tokens on #${namedParent ?? ""}`,
+  );
   const restored = queue.parents();
   if (restored.length > 0) {
     console.log(`  restored queue ${parentList(restored)} — paused until resumed`);
