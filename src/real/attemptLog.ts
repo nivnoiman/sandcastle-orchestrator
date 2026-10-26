@@ -59,11 +59,21 @@ export interface AttemptLogDeps {
 export class AttemptLogStore {
   private readonly records = new Map<string, AttemptRecord>();
   private readonly counts = new Map<string, number>();
+  private readonly lastOutput = new Map<number, number>();
 
   constructor(private readonly deps: AttemptLogDeps) {}
 
+  private clock(): Date {
+    return (this.deps.now ?? ((): Date => new Date()))();
+  }
+
   private timestamp(): string {
-    return (this.deps.now ?? ((): Date => new Date()))().toISOString();
+    return this.clock().toISOString();
+  }
+
+  /** Epoch ms of the newest output written for the item's attempts. */
+  lastOutputAt(itemNumber: number): number | undefined {
+    return this.lastOutput.get(itemNumber);
   }
 
   private firstAttemptWithoutLeftoverTranscript(directory: string, stage: string, firstCandidate: number): number {
@@ -98,6 +108,7 @@ export class AttemptLogStore {
       write: (chunk) => {
         if (chunk.length === 0) return;
         this.deps.fs.appendText(file, chunk);
+        this.lastOutput.set(itemNumber, this.clock().getTime());
         record.bytes += Buffer.byteLength(chunk, "utf8");
       },
       finish: (outcome) => {

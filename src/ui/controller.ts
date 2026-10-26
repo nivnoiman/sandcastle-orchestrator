@@ -7,7 +7,9 @@ import type { RunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
 import { parseAttemptId, type AttemptChunk, type AttemptRecord } from "../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../real/reset.js";
-import { ParentRunSlot, ParentRunSlots, type Session, type SlotNote } from "./parentRunSlot.js";
+import { IDLE_TIMEOUT_DEFAULT } from "../real/env.js";
+import { ParentRunSlot, ParentRunSlots, type QuietFor, type Session, type SlotNote } from "./parentRunSlot.js";
+import { quietInfo } from "./quiet.js";
 import { RunQueue, type QueueMode } from "./runQueue.js";
 import {
   idleFeatureVerify,
@@ -58,6 +60,8 @@ export interface ControllerDeps {
   globalCap?: GlobalCapControl | undefined;
   reset?: ResetOps | undefined;
   now: () => Date;
+  /** Per-agent idle timeout in seconds; Quiet starts at half of it. */
+  idleTimeoutSeconds?: number;
 }
 
 export type UiEvent = { kind: "state"; state: UiState } | { kind: "feed"; line: UiFeedLine };
@@ -235,7 +239,8 @@ export class UiController {
   }
 
   state(): UiState {
-    const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo));
+    const quietFor = this.quietResolver();
+    const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo, quietFor));
     const primary = this.slots.primary();
     const engine = primary?.engine;
     const views = engine ? engine.view() : [];
@@ -265,9 +270,16 @@ export class UiController {
       queueSettings: this.queueSettings(),
       runs,
       globalRunning: runs.reduce((sum, run) => sum + run.running, 0),
-      items: uiItems(this.deps.hubRepo, views),
+      items: uiItems(this.deps.hubRepo, views, (view) => quietFor(view, primary?.session.attempts)),
       feed: [...this.feed],
     };
+  }
+
+  private quietResolver(): QuietFor {
+    const nowMs = this.deps.now().getTime();
+    const timeoutSeconds = this.deps.idleTimeoutSeconds ?? IDLE_TIMEOUT_DEFAULT;
+    return (view, attempts) =>
+      quietInfo({ view, lastOutputAt: attempts?.lastOutputAt?.(view.number), nowMs, timeoutSeconds });
   }
 
   private queueSettings(): UiQueueSettings {

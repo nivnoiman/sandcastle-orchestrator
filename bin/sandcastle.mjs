@@ -48,7 +48,7 @@ project
   validate <parent>                    parse + print the run model, or every violation
   dry-run <parent | fixture.json>      simulate scheduling with fake adapters (no tokens)
   preflight <parent>                   every start-time check, no lock, no tokens
-  ui <parent | fixture.json>           control plane in the browser
+  ui [parent | fixture.json]           control plane in the browser (no argument = idle, pick the parent in the UI)
   start <parent>                       headless real run (spends tokens)
   reset <parent> [--apply]             clear a killed run's containers, worktrees and labels
   skills install [--check] [--force]   copy the shipped skills + commands into ~/.claude (skips locally modified)
