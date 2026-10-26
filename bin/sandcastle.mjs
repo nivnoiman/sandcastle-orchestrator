@@ -16,6 +16,7 @@ const SCRIPTS = {
   preflight: "src/cli/preflight.ts",
   skills: "src/cli/skills.ts",
   ui: "src/cli/ui.ts",
+  dashboard: "src/cli/dashboard.ts",
   start: "src/cli/run.ts",
   reset: "src/cli/reset.ts",
   smoke: "scripts/smoke.ts",
@@ -49,6 +50,7 @@ project
   dry-run <parent | fixture.json>      simulate scheduling with fake adapters (no tokens)
   preflight <parent>                   every start-time check, no lock, no tokens
   ui [parent | fixture.json]           control plane in the browser (no argument = idle, pick the parent in the UI)
+  dashboard [--detach] [--open] [--port=N]  all projects in one browser tab (127.0.0.1:7700)
   start <parent>                       headless real run (spends tokens)
   reset <parent> [--apply]             clear a killed run's containers, worktrees and labels
   skills install [--check] [--force]   copy the shipped skills + commands into ~/.claude (skips locally modified)

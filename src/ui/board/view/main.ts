@@ -38,6 +38,7 @@ function topbar(ui: BoardUi, project: BoardProject): string {
         state
           ? `<label class="field">Project Cap <input${attrs({ type: "number", min: 1, value: cap, "aria-label": "Project Cap", "data-act": "project-cap", "data-focus": "project-cap", ...data })} /></label>
       ${button({ label: allPaused ? "Resume project" : "Pause project", icon: allPaused ? "play" : "pause", title: live.length === 0 ? "Nothing is running to pause" : "Stop starting new stages across every run; agents already working finish their stage", disabled: live.length === 0, data: { "data-act": allPaused ? "resume-project" : "pause-project", ...data } })}
+      ${ui.scope === "dashboard" ? button({ label: "Pause all", icon: "pause", cls: "ghost", title: "Pause every running Project Server: no new stages start; agents already working finish their stage", data: { "data-act": "pause-all" } }) : ""}
       ${button({ label: "Reset…", icon: "reset", cls: "ghost", title: resetTitle(state), disabled: !state.canReset, data: { "data-act": "open-reset", ...data } })}`
           : ""
       }

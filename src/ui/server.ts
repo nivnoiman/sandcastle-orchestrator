@@ -98,7 +98,7 @@ export function hostIsLocal(hostHeader: string | undefined): boolean {
   return LOCAL_HOSTS.has(withoutPort.toLowerCase());
 }
 
-function guardOrigin(request: Request, response: Response, next: NextFunction): void {
+export function guardOrigin(request: Request, response: Response, next: NextFunction): void {
   if (!hostIsLocal(request.headers.host)) {
     response.status(403).json({ ok: false, error: "sandcastle only answers requests addressed to 127.0.0.1" });
     return;
