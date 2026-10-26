@@ -14,6 +14,7 @@ const SCRIPTS = {
   validate: "src/cli/validate.ts",
   "dry-run": "src/cli/dryRun.ts",
   preflight: "src/cli/preflight.ts",
+  skills: "src/cli/skills.ts",
   ui: "src/cli/ui.ts",
   start: "src/cli/run.ts",
   reset: "src/cli/reset.ts",
@@ -50,6 +51,8 @@ project
   ui <parent | fixture.json>           control plane in the browser
   start <parent>                       headless real run (spends tokens)
   reset <parent> [--apply]             clear a killed run's containers, worktrees and labels
+  skills install [--check] [--force]   copy the shipped skills + commands into ~/.claude (skips locally modified)
+  skills update-vendor [--ref=<ref>]   re-fetch the vendored mattpocock/skills, rewrite SOURCE
   smoke [repo]                         non-billed container + git plumbing check
   sync-claude <source ~/.claude>       copy skills, memories and credentials into the agent home
 

@@ -10,7 +10,7 @@ import type { FileSystemPort } from "./fileSystem.js";
 import { integrationBase } from "../project/projectConfig.js";
 import { missingMemoryFiles } from "./memories.js";
 import { repoRoot, type SandcastleLayout } from "./paths.js";
-import { missingSkillFiles } from "./skills.js";
+import { missingSkillFiles, SKILLS_FIX, type SkillsCheckResult } from "./skills.js";
 import { messageOf } from "../messageOf.js";
 
 /** api.github.com plus every host the providers in use call. */
@@ -44,6 +44,8 @@ export interface PreflightDeps {
   model: RunModel;
   skipVerify: boolean;
   claudeHomeInUse?: boolean;
+  /** `sandcastle skills install --check` against the agent home; without it the required skill files are looked up through `fs`. */
+  skillsCheck?: () => SkillsCheckResult;
   probe?: () => Promise<AuthProbeResult>;
   log?: (message: string) => void;
 }
@@ -161,10 +163,13 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightReport
   });
 
   await record("agent skills", () => {
-    const missing = missingSkillFiles(fs, layout);
-    if (missing.length > 0) {
-      throw new Error(`missing ${missing.join(", ")} — install them into your ~/.claude (README → Agent skills)`);
+    if (deps.skillsCheck) {
+      const { stale } = deps.skillsCheck();
+      if (stale.length > 0) throw new Error(`${stale.join(", ")} ${SKILLS_FIX}`);
+      return `shipped skills and commands current under ${layout.claudeDir}`;
     }
+    const missing = missingSkillFiles(fs, layout);
+    if (missing.length > 0) throw new Error(`missing ${missing.join(", ")} ${SKILLS_FIX}`);
     return `simplify, mat-review and tdd present under ${layout.claudeDir}`;
   });
 

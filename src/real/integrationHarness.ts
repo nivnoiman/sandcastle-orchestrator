@@ -154,7 +154,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
     if (files.length === 0) return;
     await this.exec(container, commandsCheck(files), log).catch((cause: unknown) => {
       throw new Error(
-        `~/.claude/commands/{${files.join(",")}} check failed (${messageOf(cause)}) — if they are missing from the agent home, install them into your ~/.claude (README → Agent skills)`,
+        `~/.claude/commands/{${files.join(",")}} check failed (${messageOf(cause)}) — if they are missing from the agent home, run: sandcastle skills install`,
         { cause },
       );
     });
