@@ -102,23 +102,22 @@ function allItemsMerged(run: Pick<UiRun, "items">): boolean {
   return run.items.length > 0 && run.items.every((item) => item.phase === "done");
 }
 
-function idleVerifyReason(run: UiRun, mode: RunMode): string {
+function idleGateReason(run: UiRun, mode: RunMode, gate: "verify" | "polish"): string {
   if (!allItemsMerged(run)) return "run ended before every item merged";
-  return mode === "dry" ? "dry run — nothing to verify" : "did not run";
+  return mode === "dry" ? `dry run — nothing to ${gate}` : "did not run";
 }
 
 function idlePolishReason(run: UiRun, mode: RunMode, verify: UiRun["featureVerify"]): string {
   if (verify.phase === "red") return "feature verify is red";
   if (verify.phase === "skipped") return verify.reason ?? "feature verify was skipped";
-  if (!allItemsMerged(run)) return "run ended before every item merged";
-  return mode === "dry" ? "dry run — nothing to polish" : "did not run";
+  return idleGateReason(run, mode, "polish");
 }
 
 /** Feature Verify and Polish as a settled run reads them: a gate still idle then never ran, so it is skipped. */
 export function runGates(run: UiRun, mode: RunMode = "real"): Pick<UiRun, "featureVerify" | "polish"> {
   if (!run.settled) return { featureVerify: run.featureVerify, polish: run.polish };
   const featureVerify =
-    run.featureVerify.phase === "idle" ? { ...run.featureVerify, phase: "skipped" as const, reason: idleVerifyReason(run, mode) } : run.featureVerify;
+    run.featureVerify.phase === "idle" ? { ...run.featureVerify, phase: "skipped" as const, reason: idleGateReason(run, mode, "verify") } : run.featureVerify;
   const polish = run.polish.phase === "idle" ? { ...run.polish, phase: "skipped" as const, reason: idlePolishReason(run, mode, run.featureVerify) } : run.polish;
   return { featureVerify, polish };
 }
