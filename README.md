@@ -23,7 +23,7 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
 | Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
 | Polish | A final simplify, review and comment-strip pass on each integration pull request. |
-| Control plane | Local dashboard (Express + SSE): stage chains, cap, pause, cancel, retry, reset, a run queue, parallel parents. |
+| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
 | Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |
 
 The hub repo (where issues live) and the code repos can be one repository or several.
