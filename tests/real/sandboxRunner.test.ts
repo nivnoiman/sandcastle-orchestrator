@@ -194,7 +194,7 @@ describe("container composition", () => {
     const command = hydrateHomeCommand();
     expect(command).toContain("rm -rf /home/agent/.claude /home/agent/.claude.json");
     expect(command).toContain("tar -C /home/agent/.claude-host");
-    expect(command).toContain("| tar -C /home/agent/.claude -xf -");
+    expect(command).toContain("| tar -C /home/agent/.claude -xf -; tar_rc=");
     expect(command).toContain("/home/agent/.claude-host.json /home/agent/.claude.json");
     expect(command).toContain("--no-preserve=ownership");
   });
