@@ -1,0 +1,5 @@
+repo: https://github.com/mattpocock/skills
+commit: 5beb35b040e3de97e54fa9e386d7e42d15c295c2
+path: skills/engineering/{tdd,to-spec,to-tickets}
+license: MIT (see LICENSE)
+refresh: sandcastle skills update-vendor

@@ -21,6 +21,8 @@ import { resolveAgent } from "./agents/index.js";
 import { loadMemories } from "./memories.js";
 import { DockerIntegrationHarness } from "./integrationHarness.js";
 import { idlePolish, POLISH_COMMAND_FILES, runPolish, type PolishStatus } from "./polish/runPolish.js";
+import { staleSkills } from "../skills/install.js";
+import { TOOL_DIR } from "./paths.js";
 import { assertPreflight } from "./preflight.js";
 import { collectResumeEvidence } from "./resumeEvidence.js";
 import { RunContext } from "./runContext.js";
@@ -77,6 +79,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       model,
       skipVerify: options.skipVerify === true,
       claudeHomeInUse: lease.shared,
+      skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
       log,
     });
 

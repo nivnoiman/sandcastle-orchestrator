@@ -4,7 +4,9 @@ import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { loadOrchestratorConfig, resolveLayout } from "../real/env.js";
 import { nodeFileSystem } from "../real/fileSystem.js";
+import { TOOL_DIR } from "../real/paths.js";
 import { runPreflight } from "../real/preflight.js";
+import { staleSkills } from "../skills/install.js";
 import { messageOf } from "../messageOf.js";
 
 const USAGE = [
@@ -49,6 +51,7 @@ const report = await runPreflight({
   config,
   model: result.model,
   skipVerify: args.includes("--skip-verify"),
+  skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
   log: (message: string) => console.log(message),
 });
 

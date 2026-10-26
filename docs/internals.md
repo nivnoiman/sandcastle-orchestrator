@@ -292,7 +292,7 @@ Startup refuses to continue unless all of these hold (fail fast, never half-conf
    `~/.claude/skills/mat-review` and `~/.claude/skills/tdd` (each with its `SKILL.md`),
    which the develop, simplify and review agents read from the mounted home, plus
    `~/.claude/commands/polish.md` and `~/.claude/commands/review.md` for the polish stage.
-   Skills are global and do not travel with a clone; see README, Agent skills. The check
+   Skills ship in this repo and `sandcastle skills install --check` (run by preflight) reports any missing or outdated file with the fix; see README, Agent skills. The check
    resolves `~` through node's `os.homedir()` (i.e. `USERPROFILE` on Windows);
 2. `.sandcastle/.env.orchestrator` (or the shared `.env.orchestrator` in the clone) exists and has `GH_TOKEN`
    (`sandcastle init` creates it from `.env.orchestrator.example`);
