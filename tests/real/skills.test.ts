@@ -40,7 +40,7 @@ describe("launch preflight", () => {
     const fs = fsWith(Object.fromEntries(installed("mat-review", "tdd").map((path) => [path, "---"])));
     expect(missingSkillFiles(fs, LAYOUT)).toEqual(installed("simplify"));
     expect(() => assertSkillsInstalled(fs, LAYOUT)).toThrow(/simplify[\\/]SKILL\.md/);
-    expect(() => assertSkillsInstalled(fs, LAYOUT)).toThrow(/README → Agent skills/);
+    expect(() => assertSkillsInstalled(fs, LAYOUT)).toThrow(/sandcastle skills install/);
   });
 
   it("refuses to start when no skill is installed", () => {

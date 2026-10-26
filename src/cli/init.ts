@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { invocationDir } from "../project/boot.js";
 import { CONFIG_FILE, CONFIG_HINT, isRepoSlug, PROJECT_FOLDER, tcpPort } from "../project/projectConfig.js";
@@ -15,6 +16,7 @@ import {
 import { ORCHESTRATOR_ENV_FILE } from "../real/env.js";
 import { TOOL_DIR } from "../real/paths.js";
 import { messageOf } from "../messageOf.js";
+import { installSkills } from "../skills/install.js";
 import { fail } from "./args.js";
 
 const USAGE = [
@@ -105,6 +107,17 @@ function writeOwnerOnlySecretIfStillAbsent(path: string, content: string): void 
   }
 }
 
+function installAgentSkills(): void {
+  const claudeDir = join(homedir(), ".claude");
+  try {
+    const result = installSkills({ sourceRoot: TOOL_DIR, claudeDir });
+    const skippedNote = result.skipped.length === 0 ? "" : `, ${result.skipped.length} skipped (modified locally — sandcastle skills install --force)`;
+    console.log(`agent skills: ${result.installed.length} installed${skippedNote} in ${claudeDir}`);
+  } catch (cause) {
+    console.error(`[init][warn] could not install agent skills — ${messageOf(cause)}; run: sandcastle skills install`);
+  }
+}
+
 const root = invocationDir();
 const folder = join(root, PROJECT_FOLDER);
 const configPath = join(folder, CONFIG_FILE);
@@ -138,3 +151,5 @@ console.log(`  2. put SAFE dev values in ${join(folder, ".env.sandbox")} (an emp
 console.log(`  3. review bootstrap + checks in ${CONFIG_HINT}${manager === undefined ? " — no lockfile found, checks is a placeholder that fails" : ""}`);
 console.log(`  4. commit ${CONFIG_HINT} and ${PROJECT_FOLDER}/.gitignore`);
 console.log("  5. sandcastle validate <parent-issue>");
+
+installAgentSkills();

@@ -3,6 +3,13 @@ import type { FileSystemPort } from "./fileSystem.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "./paths.js";
 
 export const REQUIRED_SKILLS = ["simplify", "mat-review", "tdd"] as const;
+export const SKILLS_FIX = "— run: sandcastle skills install";
+
+export interface SkillsCheckResult {
+  /** "<kind> <name> (<state>)" for each shipped file that is missing or outdated. */
+  stale: string[];
+}
+
 export type RequiredSkill = (typeof REQUIRED_SKILLS)[number];
 
 export function containerSkillPath(skill: RequiredSkill): string {
@@ -23,6 +30,6 @@ export function assertSkillsInstalled(fs: FileSystemPort, layout: SandcastleLayo
   throw new Error(
     `missing agent skill file(s) — the develop, simplify and review stages read them from the mounted home, so sandcastle refuses to start:\n  - ${missing.join(
       "\n  - ",
-    )}\nInstall them into your ~/.claude (see README → Agent skills), then start sandcastle again.`,
+    )}\nRun: sandcastle skills install — then start sandcastle again.`,
   );
 }

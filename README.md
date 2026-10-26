@@ -23,7 +23,7 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
 | Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
 | Polish | A final simplify, review and comment-strip pass on each integration pull request. |
-| Control plane | Local dashboard (Express + SSE): stage chains, cap, pause, cancel, retry, reset, a run queue, parallel parents. |
+| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
 | Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |
 
 The hub repo (where issues live) and the code repos can be one repository or several.
@@ -36,14 +36,21 @@ The hub repo (where issues live) and the code repos can be one repository or sev
 | Docker | Docker Desktop on Windows and macOS |
 | [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
 | An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
-| Agent skills | Installed in `~/.claude`, see [Agent skills](#agent-skills) |
+| Agent skills | Shipped in this repo, installed into `~/.claude` by `sandcastle init`, see [Agent skills](#agent-skills) |
 
-## Install
+## Quick start
 
-Once per machine:
+Zero to a run. Needs the [requirements](#requirements) above.
 
 ```bash
-git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcastle-orchestrator && npm ci && npm link && npm run build-image
+# 1. once per machine
+git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcastle-orchestrator
+npm ci && npm link                    # npm link gives you the global `sandcastle` command
+npm run build-image                  # Docker image sandcastle:latest
+
+# 2. once per project, from its root
+cd ~/src/my-app
+sandcastle init                       # or: sandcastle init --hub=owner/name --port=7781
 ```
 
 | Step | Result |
@@ -51,27 +58,16 @@ git clone https://github.com/nivnoiman/sandcastle-orchestrator.git && cd sandcas
 | `npm ci` | Dependencies |
 | `npm link` | A global `sandcastle` command |
 | `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, pnpm, yarn, Playwright) |
+| `init` | `.sandcastle/` in the project, and the shipped [agent skills](#agent-skills) installed into `~/.claude` |
 
-`npm test` runs the suite. It needs no Docker, `gh` or tokens.
+`init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
 
-Without `npm link`, run commands from the project root as `npm --prefix <sandcastle clone> run <script> -- <args>` (run-operating commands: `npm --prefix <sandcastle clone> run ops -- <command>`). `init` always targets the directory it is run from, so it ignores `--config`.
+3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator`, and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
+4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`.
+5. Start the dashboard: `sandcastle dashboard --detach`
+6. Publish an Orchestration Issue (see [Publish contract](#publish-contract)), then ask your agent: **"run sandcastle on #N"**. The `sandcastle-run` skill (the Orchestrator Agent) starts the dashboard, validates, preflights, launches, opens the Board View, watches and reports.
 
-## Quick start
-
-Run everything from the root of the project that holds your issues.
-
-```bash
-cd ~/src/my-app
-sandcastle init                       # or: sandcastle init --hub=owner/name --port=7781
-```
-
-`init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777 and creates `.sandcastle/`. Then:
-
-1. Put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator`.
-2. Put safe dev values in `.sandcastle/.env.sandbox`. An empty file is fine.
-3. Review `bootstrap` and `checks` in `.sandcastle/config.json`.
-4. Commit `.sandcastle/config.json` and `.sandcastle/.gitignore`.
-5. Publish an Orchestration Issue (see [Publish contract](#publish-contract)) and run it:
+Or drive it by hand:
 
 ```bash
 sandcastle validate 12                # parse the issue tree, print the run model or every violation
@@ -81,14 +77,14 @@ sandcastle status                     # watch it
 sandcastle finish                     # assert done, print the integration pull requests
 ```
 
-The dashboard is at `http://127.0.0.1:<ui.port>`.
-
-To try the scheduler with no setup, from the clone:
+`npm test` runs the suite. It needs no Docker, `gh` or tokens. To try the scheduler with no setup, from the clone:
 
 ```bash
 sandcastle dry-run examples/demo/demo-run.json --cap=2 --config=examples/demo
 sandcastle ui examples/demo/demo-run.json --config=examples/demo
 ```
+
+Without `npm link`, run commands as `npm --prefix <sandcastle clone> run <script> -- <args>` (run-operating commands: `npm --prefix <sandcastle clone> run ops -- <command>`). `init` always targets the directory it is run from, so it ignores `--config`.
 
 ## Configuration
 
@@ -265,10 +261,13 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `sandcastle validate <parent> [owner/repo]` | Parse and print the run model, or every violation |
 | `sandcastle dry-run <parent \| fixture.json> [--cap=N]` | Simulate scheduling with fake adapters (no tokens) |
 | `sandcastle preflight <parent> [--skip-verify]` | Every start-time check, no lock, no tokens |
-| `sandcastle ui <parent \| fixture.json> [--cap=N] [--port=N] [--dry] [--fail=<item>:<stage>]` | Control plane in the browser. `--dry` simulates that parent. |
+| `sandcastle ui <parent \| fixture.json> [--cap=N] [--port=N] [--dry] [--fail=<item>:<stage>]` | Control plane in the browser. `--dry` simulates that parent. No argument starts an Idle Project Server (real mode; pick the parent in the UI). Running servers register in `~/.sandcastle/instances.json`. |
+| `sandcastle dashboard [--detach] [--open] [--port=N]` | Multi-project dashboard on `127.0.0.1:7700`. Lists Known Projects from the registry, proxies each running Project Server (state, live events, actions), starts a stopped one (idle, real mode), and pauses every project at once. `--detach` backgrounds it and a repeated call reuses it; `--open` opens the browser on the project you are in. |
 | `sandcastle start <parent> [--cap=N] [--skip-verify]` | Headless real run (spends tokens) |
 | `sandcastle reset <parent> [--apply]` | Clear a killed run's containers, worktrees and labels. Prints the plan without `--apply`. |
 | `sandcastle smoke [repo] [--agent=claude\|codex]` | Container, git plumbing and agent-home check. Non-billed, except a codex smoke with a login makes one tiny call. |
+| `sandcastle skills install [--check] [--force]` | Install the shipped skills and commands into `~/.claude` |
+| `sandcastle skills update-vendor` | Re-fetch the vendored mattpocock/skills |
 | `sandcastle sync-claude <source ~/.claude>` | Copy skills, memories and credentials into the agent home |
 
 **Operating a run** (JSON out; also available as `sandcastle ops <command>`)
@@ -357,28 +356,24 @@ Agents run their CLI with every approval and CLI sandbox switched off inside the
 
 ## Agent skills
 
-The stage prompts invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. Preflight checks them. Codex containers get a copy of `skills/` and `commands/` only.
+The stage prompts and the Orchestrator Agent invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. They ship in this repo and `sandcastle init` installs them; preflight checks them with `sandcastle skills install --check` and names the fix.
 
-| File | Used by |
-|---|---|
-| `~/.claude/skills/tdd/SKILL.md` | develop and rework (see [mattpocock/skills](https://github.com/mattpocock/skills)) |
-| `~/.claude/skills/simplify/SKILL.md` | simplify stage |
-| `~/.claude/skills/mat-review/SKILL.md` | review stage (standards and spec) |
-| `~/.claude/commands/polish.md`, `~/.claude/commands/review.md` | polish stage |
-
-Any skill with that name and the same contract works: apply fixes since a fixed point; review a diff against standards and the issue.
-
-This repo also ships a skill and a slash command that let Claude Code operate a run end to end:
-
-| File | Install to | Use |
+| Source in this repo | Installed to | Used by |
 |---|---|---|
-| [`skills/sandcastle-run/`](skills/sandcastle-run/SKILL.md) | `~/.claude/skills/sandcastle-run/` | Triggers on requests like "run sandcastle on #12" |
-| [`commands/sandcastle-run.md`](commands/sandcastle-run.md) | `~/.claude/commands/sandcastle-run.md` | `/sandcastle-run 12` |
+| `skills/vendor/mattpocock/{tdd,to-spec,to-tickets}` | `~/.claude/skills/` | develop and rework (`tdd`); planning |
+| `skills/simplify` | `~/.claude/skills/simplify` | simplify stage |
+| `skills/mat-review` | `~/.claude/skills/mat-review` | review stage (standards and spec) |
+| `commands/polish.md`, `commands/review.md` | `~/.claude/commands/` | polish stage |
+| `skills/sandcastle-run`, `commands/sandcastle-run.md` | `~/.claude/` | "run sandcastle on #12" or `/sandcastle-run 12` |
 
 ```bash
-cp -r skills/sandcastle-run ~/.claude/skills/
-cp commands/sandcastle-run.md ~/.claude/commands/
+sandcastle skills install             # copy them; locally modified copies are skipped
+sandcastle skills install --force     # overwrite those too
+sandcastle skills install --check     # change nothing; exit 1 if any is missing or outdated
+sandcastle skills update-vendor       # re-fetch mattpocock/skills (MIT) at upstream HEAD
 ```
+
+A copy counts as modified when it differs from both the repo and what the last install wrote (recorded in `~/.claude/.sandcastle-installed.json`). Re-run `install` after `git pull` to pick up updates. The vendored skills are pinned to the commit in [`skills/vendor/mattpocock/SOURCE`](skills/vendor/mattpocock/SOURCE) and change only through `update-vendor`. Any skill with the same name and contract works: apply fixes since a fixed point; review a diff against standards and the issue.
 
 ## Documentation
 

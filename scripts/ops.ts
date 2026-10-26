@@ -7,6 +7,7 @@ import { NodeCommandRunner } from "../src/real/commandRunner.js";
 import { bootProject } from "../src/project/boot.js";
 import { loadOrchestratorConfig, resolveLayout } from "../src/real/env.js";
 import { TOOL_DIR } from "../src/real/paths.js";
+import { staleSkills } from "../src/skills/install.js";
 import { nodeFileSystem } from "../src/real/fileSystem.js";
 import { findItem, finishReport, launchPlan, parkedToRetry, queueReport, statusReport, waitingItems } from "../src/real/ops.js";
 import { runPreflight, type PreflightReport } from "../src/real/preflight.js";
@@ -178,6 +179,7 @@ async function preflight(): Promise<void> {
     config: loadOrchestratorConfig(fs, layout, { hubRepo }),
     model: await runModelOf(parentNumber),
     skipVerify: args.includes("--skip-verify"),
+    skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
   });
   print({ ok: report.failures.length === 0, parent: parentNumber, checks: report.checks });
   if (report.failures.length > 0) process.exit(1);

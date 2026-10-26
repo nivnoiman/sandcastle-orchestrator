@@ -9,6 +9,7 @@ export interface OpsItem {
   waitReason?: string;
   resumeAt?: string;
   pullRequest?: string;
+  quiet?: NonNullable<UiItem["quiet"]>;
 }
 
 export function opsItem(item: UiItem): OpsItem {
@@ -21,6 +22,7 @@ export function opsItem(item: UiItem): OpsItem {
     ...(item.waitReason ? { waitReason: item.waitReason } : {}),
     ...(item.resumeAt ? { resumeAt: item.resumeAt } : {}),
     ...(item.pullRequestUrl ? { pullRequest: item.pullRequestUrl } : {}),
+    ...(item.quiet ? { quiet: item.quiet } : {}),
   };
 }
 
@@ -167,11 +169,13 @@ export function statusReport(state: UiState, options: StatusOptions = {}): Recor
     cap: run.cap,
     paused: run.paused,
     hold: run.hold,
+    stalled: run.stalled,
     phases: run.phaseCounts,
     featureVerify: run.featureVerify,
     polish: run.polish,
     waiting: itemsInPhase(run, "waiting"),
     parked: itemsInPhase(run, "parked"),
+    quiet: run.items.filter((item) => item.quiet).map(opsItem),
     ...(includeItems ? { items: run.items.map(opsItem) } : {}),
     feed: feedOf(state, run.parent.number).slice(-FEED_TAIL),
   };

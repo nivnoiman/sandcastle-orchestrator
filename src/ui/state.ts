@@ -5,6 +5,7 @@ import type { RunModel } from "../model/runModel.js";
 import { hubIssueUrl } from "../real/ghClient.js";
 import { idleFeatureVerify, type FeatureVerifyStatus } from "../real/featureVerify/runFeatureVerify.js";
 import { idlePolish, type PolishStatus } from "../real/polish/runPolish.js";
+import type { QuietInfo } from "./quiet.js";
 import type { QueueSettings } from "./runQueue.js";
 
 export type RunMode = "dry" | "real";
@@ -18,6 +19,8 @@ export function uiStageChain(chain: readonly StageSpec[]): string[] {
 
 export interface UiItem extends ItemView {
   issueUrl: string;
+  /** Set while the item's agent is Quiet; Stall stays run-only. */
+  quiet: QuietInfo | undefined;
 }
 
 export interface UiParent {
@@ -131,8 +134,12 @@ export function uiParent(hubRepo: string, model: RunModel): UiParent {
   };
 }
 
-export function uiItems(hubRepo: string, views: readonly ItemView[]): UiItem[] {
-  return views.map((view) => ({ ...view, issueUrl: issueUrl(hubRepo, view.number) }));
+export function uiItems(
+  hubRepo: string,
+  views: readonly ItemView[],
+  quietFor: (view: ItemView) => QuietInfo | undefined = () => undefined,
+): UiItem[] {
+  return views.map((view) => ({ ...view, issueUrl: issueUrl(hubRepo, view.number), quiet: quietFor(view) }));
 }
 
 function zeroPhaseCounts(): Record<ItemPhase, number> {

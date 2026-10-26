@@ -7,6 +7,7 @@ import type { UiController } from "./controller.js";
 import { isQueueMode, QUEUE_MODES, type QueueMode } from "./runQueue.js";
 import { messageOf } from "../messageOf.js";
 import { DEFAULT_UI_PORT, isTcpPort, tcpPort } from "../project/projectConfig.js";
+import { boardPage, mountBoardAssets, warmBoardAssets } from "./board/assets.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
 
@@ -97,7 +98,7 @@ export function hostIsLocal(hostHeader: string | undefined): boolean {
   return LOCAL_HOSTS.has(withoutPort.toLowerCase());
 }
 
-function guardOrigin(request: Request, response: Response, next: NextFunction): void {
+export function guardOrigin(request: Request, response: Response, next: NextFunction): void {
   if (!hostIsLocal(request.headers.host)) {
     response.status(403).json({ ok: false, error: "sandcastle only answers requests addressed to 127.0.0.1" });
     return;
@@ -109,13 +110,33 @@ function guardOrigin(request: Request, response: Response, next: NextFunction): 
   next();
 }
 
-export function createUiApp(controller: UiController): Express {
+/** Identity of this Project Server, served at `/api/instance` (for the Dashboard and the idle-mode picker). */
+export interface InstanceInfo {
+  dir: string;
+  name: string;
+  mode: "dry" | "real";
+  /** True while started without a parent: the operator picks one in the UI. */
+  idle: boolean;
+  pid: number;
+}
+
+export function createUiApp(controller: UiController, instance?: InstanceInfo): Express {
   const app = express();
   app.use(guardOrigin);
   app.use(express.json());
 
   app.get("/", (_request, response) => {
+    response.type("html").set("cache-control", "no-cache").send(boardPage());
+  });
+
+  app.get("/legacy", (_request, response) => {
     response.sendFile(PAGE_FILE);
+  });
+
+  mountBoardAssets(app);
+
+  app.get("/api/instance", (_request, response) => {
+    response.json({ ok: true, result: instance ?? null });
   });
 
   app.get("/api/state", (_request, response) => {
@@ -298,8 +319,14 @@ export interface UiServer {
   close(): Promise<void>;
 }
 
-export function startUiServer(controller: UiController, port = DEFAULT_UI_PORT, host = UI_HOST): Promise<UiServer> {
-  const server: Server = createServer(createUiApp(controller));
+export function startUiServer(
+  controller: UiController,
+  port = DEFAULT_UI_PORT,
+  host = UI_HOST,
+  instance?: InstanceInfo,
+): Promise<UiServer> {
+  warmBoardAssets();
+  const server: Server = createServer(createUiApp(controller, instance));
   const sockets = new Set<import("node:net").Socket>();
   server.on("connection", (socket) => {
     sockets.add(socket);
