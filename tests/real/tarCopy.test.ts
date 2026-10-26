@@ -32,6 +32,10 @@ describe("tarCopyCommand", () => {
     expect(run(copy, 1, 2)).not.toBe(0);
   });
 
+  it("fails on a fatal sender even when the receiver only warned", () => {
+    expect(run(copy, 2, 1)).not.toBe(0);
+  });
+
   it("still fails the hydrate step when required SKILL.md files are missing", () => {
     const check = hydrateHomeCommand().split(" && ").filter((part) => part.startsWith("test -f"));
     expect(check).toHaveLength(3);
