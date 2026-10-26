@@ -1,6 +1,7 @@
 import { stallParts } from "../cli/report.js";
-import type { Engine } from "../engine/engine.js";
+import type { Engine, ItemView } from "../engine/engine.js";
 import { OperatorError } from "../engine/operatorError.js";
+import type { QuietInfo } from "./quiet.js";
 import type { RunModel } from "../model/runModel.js";
 import type { AttemptChunk, AttemptRecord } from "../real/attemptLog.js";
 import {
@@ -18,9 +19,12 @@ import {
   type UiRun,
 } from "./state.js";
 
+export type QuietFor = (view: ItemView, attempts: AttemptReader | undefined) => QuietInfo | undefined;
+
 export interface AttemptReader {
   list(itemNumber?: number): AttemptRecord[];
   read(id: string, from?: number): AttemptChunk;
+  lastOutputAt?(itemNumber: number): number | undefined;
 }
 
 export interface Session {
@@ -95,7 +99,7 @@ export class ParentRunSlot {
     this.notePolish(note);
   }
 
-  view(hubRepo: string): UiRun {
+  view(hubRepo: string, quietFor?: QuietFor): UiRun {
     const views = this.engine.view();
     return {
       parent: uiParent(hubRepo, this.model),
@@ -110,7 +114,7 @@ export class ParentRunSlot {
       featureVerify: this.featureVerify(),
       polish: this.polish(),
       phaseCounts: phaseCounts(views),
-      items: uiItems(hubRepo, views),
+      items: uiItems(hubRepo, views, (item) => quietFor?.(item, this.session.attempts)),
     };
   }
 

@@ -189,6 +189,8 @@ export function pageItem(number: number, repo: string, phase: string): UiItem {
     pullRequestUrl: undefined,
     reworkRound: 0,
     reworkLimit: 3,
+    phaseSince: "2026-10-21T09:00:00.000Z",
+    quiet: undefined,
     issueUrl: `https://github.com/example-org/hub/issues/${number}`,
   };
 }
