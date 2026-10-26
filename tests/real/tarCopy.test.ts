@@ -35,6 +35,6 @@ describe("tarCopyCommand", () => {
   it("still fails the hydrate step when required SKILL.md files are missing", () => {
     const check = hydrateHomeCommand().split(" && ").filter((part) => part.startsWith("test -f"));
     expect(check).toHaveLength(3);
-    expect(run(`${check.join(" && ")}`, 0)).not.toBe(0);
+    expect(run(check.join(" && "), 0)).not.toBe(0);
   });
 });
