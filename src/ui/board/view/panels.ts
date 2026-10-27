@@ -12,6 +12,7 @@ export function feedLines(ui: BoardUi, project: BoardProject, selectedRun: numbe
 }
 
 export function renderFeed(ui: BoardUi, project: BoardProject, selectedRun: number | undefined, uid: string): string {
+  if (!ui.feedOpen) return "";
   const lines = feedLines(ui, project, selectedRun);
   const rows = lines
     .map((line) => {
@@ -26,7 +27,8 @@ export function renderFeed(ui: BoardUi, project: BoardProject, selectedRun: numb
     `<button${attrs({ type: "button", "data-act": "feed-scope", "data-scope": value, "aria-pressed": (value === "all") === ui.feedAll })}>${label}</button>`;
   return `<section class="panel feed-panel" aria-labelledby="feed-h-${uid}">
     <header><h2 id="feed-h-${uid}">Event feed<span class="count">${lines.length}</span></h2>
-      <div class="right"><div class="seg" role="group" aria-label="Feed scope">${scope("run", "This run")}${scope("all", "All runs")}</div></div></header>
+      <div class="right"><div class="seg" role="group" aria-label="Feed scope">${scope("run", "This run")}${scope("all", "All runs")}</div>
+        ${button({ label: "", cls: "ghost", icon: "x", ariaLabel: "Hide event feed", title: "Hide event feed", data: { "data-act": "toggle-feed" } })}</div></header>
     <ul class="feed" data-scroll="feed-${uid}">${rows || `<li><span></span><span></span><span class="msg">No events yet.</span></li>`}</ul>
   </section>`;
 }

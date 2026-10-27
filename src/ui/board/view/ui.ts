@@ -45,6 +45,8 @@ export interface BoardUi {
   /** Remembered run tab per project id. */
   selectedRuns: Record<string, number | undefined>;
   feedAll: boolean;
+  /** The Event feed panel; closed by default, remembered per browser. */
+  feedOpen: boolean;
   /** `${projectId}:${runNumber}` of runs whose merged column is expanded. */
   doneOpen: ReadonlySet<string>;
   parentQuery: string;

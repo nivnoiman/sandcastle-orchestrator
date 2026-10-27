@@ -18,9 +18,11 @@ import { currentProject, type BoardScope, type BoardUi, type DrawerState, type T
 
 const FEED_LIMIT = 200;
 const PARENT_REFRESH_MS = 60_000;
+const SSE_FALLBACK_STATE_POLL_MS = 5000;
 const DRAWER_POLL_MS = 1500;
 const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
+const FEED_KEY = "sandcastle.feed";
 const THEMES: readonly Theme[] = ["auto", "light", "dark"];
 const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:7700/";
 
@@ -58,6 +60,7 @@ interface Connection {
   api: ProjectApi;
   source: EventSource | undefined;
   parentsTimer: ReturnType<typeof setInterval> | undefined;
+  stateTimer: ReturnType<typeof setInterval> | undefined;
 }
 
 interface InstanceInfo {
@@ -102,6 +105,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     currentId: search.get("project") ?? readStorage("sandcastle.project") ?? "",
     selectedRuns: {},
     feedAll: false,
+    feedOpen: readStorage(FEED_KEY) === "1",
     doneOpen,
     parentQuery: "",
     selectedParent: "",
@@ -243,6 +247,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   }
 
   function adoptState(project: BoardProject, state: UiState): void {
+    const unchanged = project.connected && project.state !== undefined && JSON.stringify(project.state) === JSON.stringify(state);
+    if (unchanged) return;
     project.state = state;
     project.hub = state.hubRepo;
     project.mode = state.mode;
@@ -267,10 +273,32 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
   }
 
+  const polling = new Set<string>();
+
+  async function pollState(project: BoardProject): Promise<void> {
+    if (polling.has(project.id)) return;
+    polling.add(project.id);
+    try {
+      await refreshState(project);
+    } catch (cause) {
+      console.warn(`[board] state poll failed for ${project.id}`, cause);
+      if (!project.connected) return;
+      project.connected = false;
+      render();
+    } finally {
+      polling.delete(project.id);
+    }
+  }
+
+  function pollVisible(): void {
+    if (document.hidden) return;
+    for (const project of ui.projects) if (connections.has(project.id)) void pollState(project);
+  }
+
   function connect(project: BoardProject): void {
     if (connections.has(project.id) || project.status !== "running") return;
     const api = projectApi(project.apiBase);
-    const connection: Connection = { api, source: undefined, parentsTimer: undefined };
+    const connection: Connection = { api, source: undefined, parentsTimer: undefined, stateTimer: undefined };
     connections.set(project.id, connection);
     const source = new EventSource(api.eventsUrl());
     connection.source = source;
@@ -290,6 +318,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     };
     void refreshState(project).catch((cause: unknown) => fail(project, cause));
     void loadParents(project);
+    connection.stateTimer = setInterval(() => {
+      if (!document.hidden) void pollState(project);
+    }, SSE_FALLBACK_STATE_POLL_MS);
     connection.parentsTimer = setInterval(() => {
       if (!document.hidden) void loadParents(project);
     }, PARENT_REFRESH_MS);
@@ -300,6 +331,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (!connection) return;
     connection.source?.close();
     if (connection.parentsTimer) clearInterval(connection.parentsTimer);
+    if (connection.stateTimer) clearInterval(connection.stateTimer);
     connections.delete(id);
   }
 
@@ -611,6 +643,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     else render();
   }
 
+  function setFeedOpen(open: boolean): void {
+    ui.feedOpen = open;
+    writeStorage(FEED_KEY, open ? "1" : undefined);
+  }
+
   // ---- events ----
 
   function runAction(action: BoardAction, projectId: string): void {
@@ -637,6 +674,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       openRun(project.id, runNumber);
     } else if (act_ === "att-feed") {
       setCurrent(project.id);
+      if (!ui.feedOpen) {
+        setFeedOpen(true);
+        renderNow();
+      }
       const feed = Array.from(root.querySelectorAll<HTMLElement>(".feed-panel")).find((panel) => panel.offsetParent !== null);
       feed?.scrollIntoView({ block: "center" });
     } else if (act_ === "att-restart") {
@@ -673,6 +714,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (action === "theme") return cycleTheme();
     if (action === "pause-all") return runAction("pause-all", "");
     if (action === "switch") return openSwitcher();
+    if (action === "toggle-feed") {
+      setFeedOpen(!ui.feedOpen);
+      return render();
+    }
     if (action === "feed-scope") {
       ui.feedAll = element.dataset["scope"] === "all";
       return render();
@@ -837,6 +882,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   root.addEventListener("input", onInput);
   root.addEventListener("submit", onSubmit);
   document.addEventListener("keydown", onKeydown);
+  document.addEventListener("visibilitychange", pollVisible);
 
   // ---- clocks and probes ----
 
@@ -886,6 +932,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       stopDrawerPolling();
       for (const timer of timers) clearInterval(timer);
       document.removeEventListener("keydown", onKeydown);
+      document.removeEventListener("visibilitychange", pollVisible);
       root.removeEventListener("click", onClick);
       root.removeEventListener("change", onChange);
       root.removeEventListener("input", onInput);
