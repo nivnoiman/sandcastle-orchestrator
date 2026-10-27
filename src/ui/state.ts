@@ -68,6 +68,10 @@ export interface UiQueueSettings extends QueueSettings {
 
 export interface UiState {
   version: 2;
+  /** Bumps whenever the state changes; orders states within one `boot`. */
+  rev: number;
+  /** Per-process id; a new boot restarts `rev`, so rev is never compared across boots. */
+  boot: string;
   /** `queued`, the configured stage chain, `merged`. */
   stages: string[];
   mode: RunMode;

@@ -53,6 +53,8 @@ export function uiRun(parent: number, items: UiItem[], extra: Partial<UiRun> = {
 export function uiState(runs: UiRun[], extra: Partial<UiState> = {}): UiState {
   return {
     version: 2,
+    rev: 1,
+    boot: "test-boot",
     stages: ["queued", "develop", "review", "verify", "merged"],
     mode: "real",
     hubRepo: "acme/hub",

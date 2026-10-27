@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { feedTime, formatClock, formatCountdown, formatDuration, formatQuiet } from "../../../src/ui/board/format.js";
-import { bucketCounts, chooseRun, columnOf, groupByColumn, lifecycleSteps, parentGroup } from "../../../src/ui/board/model.js";
+import { bucketCounts, chooseRun, columnOf, groupByColumn, lifecycleSteps, parentGroup, shouldAdopt } from "../../../src/ui/board/model.js";
 import { idlePolish } from "../../../src/ui/state.js";
 import { minutesAgo, NOW, uiItem, uiRun, uiState } from "./fixtures.js";
 
@@ -123,5 +123,23 @@ describe("clock formatting", () => {
 
   it("trims feed timestamps to the clock time", () => {
     expect(feedTime("2026-08-15T09:12:34.000Z")).toBe("09:12:34");
+  });
+});
+
+describe("shouldAdopt", () => {
+  const at = (rev: number, boot = "a") => uiState([], { rev, boot });
+
+  it("adopts the first state and newer revs", () => {
+    expect(shouldAdopt(undefined, at(1))).toBe(true);
+    expect(shouldAdopt(at(3), at(4))).toBe(true);
+  });
+
+  it("ignores older and equal revs of the same boot", () => {
+    expect(shouldAdopt(at(5), at(4))).toBe(false);
+    expect(shouldAdopt(at(5), at(5))).toBe(false);
+  });
+
+  it("adopts a different boot even with a lower rev", () => {
+    expect(shouldAdopt(at(50, "a"), at(1, "b"))).toBe(true);
   });
 });

@@ -117,6 +117,8 @@ export function pageState(overrides: Partial<UiState> = {}): UiState {
   const inFlight = (overrides.started ?? false) && !(overrides.complete ?? false);
   return {
     version: 2,
+    rev: 1,
+    boot: "test-boot",
     stages: ["queued", "develop", "simplify", "review", "verify", "merged"],
     mode: "dry",
     hubRepo: "example-org/hub",
