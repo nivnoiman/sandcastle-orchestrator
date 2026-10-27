@@ -18,8 +18,7 @@ import { currentProject, type BoardScope, type BoardUi, type DrawerState, type T
 
 const FEED_LIMIT = 200;
 const PARENT_REFRESH_MS = 60_000;
-/** Safety net under the SSE stream: a stalled or half-open connection must not freeze the board. */
-const STATE_REFRESH_MS = 5000;
+const SSE_FALLBACK_STATE_POLL_MS = 5000;
 const DRAWER_POLL_MS = 1500;
 const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
@@ -321,7 +320,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     void loadParents(project);
     connection.stateTimer = setInterval(() => {
       if (!document.hidden) void pollState(project);
-    }, STATE_REFRESH_MS);
+    }, SSE_FALLBACK_STATE_POLL_MS);
     connection.parentsTimer = setInterval(() => {
       if (!document.hidden) void loadParents(project);
     }, PARENT_REFRESH_MS);
