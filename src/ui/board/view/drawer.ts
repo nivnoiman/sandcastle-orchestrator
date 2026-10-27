@@ -41,9 +41,9 @@ function blockedBy(project: BoardProject, blockers: number[]): string {
   const rows = blockers
     .map((number) => {
       const found = findItem(project, number);
-      if (!found) return `<li class="d-blocker"><span class="mono">#${number}</span></li>`;
+      if (!found) return `<li class="d-blocker"><span class="mono">#${number}</span><span class="t">not on this board</span></li>`;
       const { item } = found;
-      return `<li><button${attrs({ type: "button", class: "d-blocker", "data-act": "open-item", "data-proj": project.id, "data-n": number, title: `Open #${number}` })}><span class="mono">#${number}</span><span class="t">${esc(item.title)}</span>${tag(item.phase, PHASE_TONE[item.phase])}</button></li>`;
+      return `<li><button${attrs({ type: "button", class: "d-blocker", "data-act": "open-item", "data-proj": project.id, "data-n": number, title: `Open #${number} — ${item.title}` })}><span class="mono">#${number}</span><span class="t">${esc(item.title)}</span>${tag(item.phase, PHASE_TONE[item.phase])}</button></li>`;
     })
     .join("");
   return `<div class="d-blocked"><b>Blocked by</b><ul>${rows}</ul></div>`;

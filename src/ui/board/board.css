@@ -424,6 +424,7 @@ select { padding-right: 4px; }
 .d-blocker { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: inherit; font: inherit; text-align: left; }
 button.d-blocker { cursor: pointer; }
 button.d-blocker:hover { border-color: var(--ink-3); background: var(--surface-2); }
+.d-blocker .tag { flex: none; }
 .d-blocker .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-acts { display: flex; gap: 8px; }
 .attempts { padding: 12px 18px 10px; border-bottom: 1px solid var(--line); }
