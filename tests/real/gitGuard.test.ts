@@ -1,6 +1,13 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { assertGitControlUnchanged, GitControlTampered, hostGitEnv, snapshotGitControl } from "../../src/real/gitGuard.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  assertGitControlUnchanged,
+  GitControlTampered,
+  hostGitEnv,
+  releaseGitControl,
+  resetGitControlRegistry,
+  snapshotGitControl,
+} from "../../src/real/gitGuard.js";
 import { fsWith } from "./support.js";
 
 const GIT_DIR = join("W:", "repo", ".git");
@@ -8,6 +15,8 @@ const CONFIG = join(GIT_DIR, "config");
 const ATTRIBUTES = join(GIT_DIR, "info", "attributes");
 
 describe("git control guard", () => {
+  beforeEach(resetGitControlRegistry);
+
   it("passes when a container left config and attributes alone", () => {
     const fs = fsWith({ [CONFIG]: "[core]\n" });
     const snapshot = snapshotGitControl(fs, GIT_DIR);
@@ -38,6 +47,95 @@ describe("git control guard", () => {
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
     expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("passes a concurrent stage's branch tracking written while this stage runs", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    const second = snapshotGitControl(fs, GIT_DIR, "feat/b");
+    const after = `${BASE_CONFIG}[branch "feat/b"]
+	remote = origin
+	merge = refs/heads/integration/x
+`;
+    fs.writeText(CONFIG, after);
+
+    expect(() => assertGitControlUnchanged(fs, first)).not.toThrow();
+    expect(() => assertGitControlUnchanged(fs, second)).not.toThrow();
+    expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("still refuses a sibling branch pointing its remote at a URL", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    snapshotGitControl(fs, GIT_DIR, "feat/b");
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "feat/b"]
+	remote = https://evil.test/x.git
+`);
+
+    expect(() => assertGitControlUnchanged(fs, first)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+  });
+
+  it("does not let a concurrent stage's planted config become a later stage's baseline", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    fs.writeText(CONFIG, `${BASE_CONFIG}[core]
+	sshCommand = sh evil.sh
+`);
+
+    expect(() => snapshotGitControl(fs, GIT_DIR, "feat/b")).toThrow(GitControlTampered);
+    expect(() => assertGitControlUnchanged(fs, first)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+  });
+
+  it("reads a fresh baseline once every stage on the git dir has finished", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    assertGitControlUnchanged(fs, first);
+    const grown = `${BASE_CONFIG}[remote "fork"]
+	url = https://github.com/acme/fork.git
+`;
+    fs.writeText(CONFIG, grown);
+
+    const second = snapshotGitControl(fs, GIT_DIR, "feat/b");
+    expect(() => assertGitControlUnchanged(fs, second)).not.toThrow();
+    expect(fs.readText(CONFIG)).toBe(grown);
+  });
+
+  it("stops tolerating a finished stage's branch tracking", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    const second = snapshotGitControl(fs, GIT_DIR, "feat/b");
+    releaseGitControl(second);
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "feat/b"]
+	remote = origin
+`);
+
+    expect(() => assertGitControlUnchanged(fs, first)).toThrow(GitControlTampered);
+  });
+
+  it("treats two spellings of one git dir as the same", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    snapshotGitControl(fs, join(GIT_DIR, "..", ".git"), "feat/b");
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "feat/b"]
+	remote = origin
+`);
+
+    expect(() => assertGitControlUnchanged(fs, first)).not.toThrow();
+  });
+
+  it.each([
+    ["legacy sibling branch syntax", ["[branch.feat/b]", "\tremote = origin", ""].join("\n")],
+    ["sibling branch pushurl", ['[branch "feat/b"]', "\tpushurl = https://evil.test/x.git", ""].join("\n")],
+    ["unregistered branch next to a registered one", ['[branch "feat/c"]', "\tremote = origin", ""].join("\n")],
+  ])("refuses a %s", (_name, extra) => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    snapshotGitControl(fs, GIT_DIR, "feat/b");
+    fs.writeText(CONFIG, `${BASE_CONFIG}${extra}`);
+
+    expect(() => assertGitControlUnchanged(fs, first)).toThrow(GitControlTampered);
   });
 
   it.each([
@@ -129,13 +227,15 @@ describe("git control guard", () => {
     expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
   });
 
-  it("refuses any branch tracking when the stage has no branch of its own", () => {
-    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
-    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
+  it("refuses any branch tracking when no stage on the git dir has a branch", () => {
+    const quietGitDir = join("W:", "quiet", ".git");
+    const quietConfig = join(quietGitDir, "config");
+    const fs = fsWith({ [quietConfig]: BASE_CONFIG });
+    const snapshot = snapshotGitControl(fs, quietGitDir);
+    fs.writeText(quietConfig, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
-    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+    expect(fs.readText(quietConfig)).toBe(BASE_CONFIG);
   });
 
   it("refuses and restores a deleted config", () => {
