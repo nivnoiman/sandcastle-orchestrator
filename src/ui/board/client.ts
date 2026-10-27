@@ -18,6 +18,8 @@ import { currentProject, type BoardScope, type BoardUi, type DrawerState, type T
 
 const FEED_LIMIT = 200;
 const PARENT_REFRESH_MS = 60_000;
+/** Safety net under the SSE stream: a stalled or half-open connection must not freeze the board. */
+const STATE_REFRESH_MS = 5000;
 const DRAWER_POLL_MS = 1500;
 const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
@@ -58,6 +60,7 @@ interface Connection {
   api: ProjectApi;
   source: EventSource | undefined;
   parentsTimer: ReturnType<typeof setInterval> | undefined;
+  stateTimer: ReturnType<typeof setInterval> | undefined;
 }
 
 interface InstanceInfo {
@@ -243,6 +246,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   }
 
   function adoptState(project: BoardProject, state: UiState): void {
+    const unchanged = project.connected && project.state !== undefined && JSON.stringify(project.state) === JSON.stringify(state);
+    if (unchanged) return;
     project.state = state;
     project.hub = state.hubRepo;
     project.mode = state.mode;
@@ -267,10 +272,25 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
   }
 
+  async function pollState(project: BoardProject): Promise<void> {
+    try {
+      await refreshState(project);
+    } catch {
+      if (!project.connected) return;
+      project.connected = false;
+      render();
+    }
+  }
+
+  function pollVisible(): void {
+    if (document.hidden) return;
+    for (const project of ui.projects) if (connections.has(project.id)) void pollState(project);
+  }
+
   function connect(project: BoardProject): void {
     if (connections.has(project.id) || project.status !== "running") return;
     const api = projectApi(project.apiBase);
-    const connection: Connection = { api, source: undefined, parentsTimer: undefined };
+    const connection: Connection = { api, source: undefined, parentsTimer: undefined, stateTimer: undefined };
     connections.set(project.id, connection);
     const source = new EventSource(api.eventsUrl());
     connection.source = source;
@@ -290,6 +310,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     };
     void refreshState(project).catch((cause: unknown) => fail(project, cause));
     void loadParents(project);
+    connection.stateTimer = setInterval(() => {
+      if (!document.hidden) void pollState(project);
+    }, STATE_REFRESH_MS);
     connection.parentsTimer = setInterval(() => {
       if (!document.hidden) void loadParents(project);
     }, PARENT_REFRESH_MS);
@@ -300,6 +323,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (!connection) return;
     connection.source?.close();
     if (connection.parentsTimer) clearInterval(connection.parentsTimer);
+    if (connection.stateTimer) clearInterval(connection.stateTimer);
     connections.delete(id);
   }
 
@@ -837,6 +861,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   root.addEventListener("input", onInput);
   root.addEventListener("submit", onSubmit);
   document.addEventListener("keydown", onKeydown);
+  document.addEventListener("visibilitychange", pollVisible);
 
   // ---- clocks and probes ----
 
@@ -886,6 +911,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       stopDrawerPolling();
       for (const timer of timers) clearInterval(timer);
       document.removeEventListener("keydown", onKeydown);
+      document.removeEventListener("visibilitychange", pollVisible);
       root.removeEventListener("click", onClick);
       root.removeEventListener("change", onChange);
       root.removeEventListener("input", onInput);
