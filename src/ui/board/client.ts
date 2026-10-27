@@ -640,7 +640,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   function setFeedOpen(open: boolean): void {
     ui.feedOpen = open;
     writeStorage(FEED_KEY, open ? "1" : undefined);
-    render();
   }
 
   // ---- events ----
@@ -670,8 +669,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     } else if (act_ === "att-feed") {
       setCurrent(project.id);
       if (!ui.feedOpen) {
-        ui.feedOpen = true;
-        writeStorage(FEED_KEY, "1");
+        setFeedOpen(true);
         renderNow();
       }
       const feed = Array.from(root.querySelectorAll<HTMLElement>(".feed-panel")).find((panel) => panel.offsetParent !== null);
@@ -710,7 +708,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (action === "theme") return cycleTheme();
     if (action === "pause-all") return runAction("pause-all", "");
     if (action === "switch") return openSwitcher();
-    if (action === "toggle-feed") return setFeedOpen(!ui.feedOpen);
+    if (action === "toggle-feed") {
+      setFeedOpen(!ui.feedOpen);
+      return render();
+    }
     if (action === "feed-scope") {
       ui.feedAll = element.dataset["scope"] === "all";
       return render();
