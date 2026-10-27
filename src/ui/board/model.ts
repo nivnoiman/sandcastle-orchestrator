@@ -194,3 +194,9 @@ export function projectCap(project: BoardProject): number {
 export function hubIssueUrl(hubRepo: string, number: number): string {
   return `https://github.com/${hubRepo}/issues/${number}`;
 }
+
+/** Adopt a state only if newer than the current one; a new boot always wins since its rev restarts. */
+export function shouldAdopt(current: UiState | undefined, incoming: UiState): boolean {
+  if (current === undefined || current.boot !== incoming.boot) return true;
+  return incoming.rev > current.rev;
+}

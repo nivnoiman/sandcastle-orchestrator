@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildAttention } from "../../../src/ui/board/attention.js";
 import { transcriptTurns } from "../../../src/ui/board/transcript.js";
 import { switchTargets } from "../../../src/ui/board/view/chrome.js";
+import { renderDrawer } from "../../../src/ui/board/view/drawer.js";
 import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
@@ -134,5 +135,33 @@ describe("switcher and transcript", () => {
     const turns = transcriptTurns(text);
     expect(turns.map((turn) => turn.kind)).toEqual(["meta", "", "meta", "meta"]);
     expect(turns[1]?.text).toContain("→ Bash");
+  });
+});
+
+describe("drawer blocked-by", () => {
+  const drawerFor = (project: BoardProject, itemNumber: number) =>
+    renderDrawer(ui([project]), project, { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+
+  it("lists blockers with title, phase and open-item attrs", () => {
+    const run = uiRun(1, [uiItem(2, "running", { title: "base <b>" }), uiItem(3, "blocked", { blockers: [2] })]);
+    const html = drawerFor(boardProject("p", uiState([run])), 3);
+    expect(html).toContain("Blocked by");
+    expect(html).toContain('data-act="open-item"');
+    expect(html).toContain('data-proj="p"');
+    expect(html).toContain('data-n="2"');
+    expect(html).toContain("base &lt;b&gt;");
+    expect(html).toContain("running");
+  });
+
+  it("renders nothing without blockers", () => {
+    const run = uiRun(1, [uiItem(3, "queued")]);
+    expect(drawerFor(boardProject("p", uiState([run])), 3)).not.toContain("Blocked by");
+  });
+
+  it("degrades unknown blockers to plain #N", () => {
+    const run = uiRun(1, [uiItem(3, "blocked", { blockers: [99] })]);
+    const html = drawerFor(boardProject("p", uiState([run])), 3);
+    expect(html).toContain("#99");
+    expect(html).not.toContain('data-n="99"');
   });
 });
