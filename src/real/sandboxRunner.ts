@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { assertGitControlUnchanged, snapshotGitControl, type GitControlSnapshot } from "./gitGuard.js";
+import { assertGitControlUnchanged, releaseGitControl, snapshotGitControl, type GitControlSnapshot } from "./gitGuard.js";
 import type {
   CommandStageRequest,
   SandboxRunner,
@@ -269,21 +269,26 @@ export function startWorktreeContainer(
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
   const gitControl = snapshotGitControl(deps.fs, repoGitDir, container.branch);
   const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
-  withContainerEnvFile(deps.fs, env, (envFile) => {
-    startContainer(
-      deps.runner,
-      containerSpec({
-        name: container.name,
-        image: deps.config.imageTag,
-        worktree: container.worktree,
-        repoGitDir,
-        layout: deps.layout,
-        envFile,
-        workspace: container.workspace,
-        provider: container.provider,
-      }),
-    );
-  });
+  try {
+    withContainerEnvFile(deps.fs, env, (envFile) => {
+      startContainer(
+        deps.runner,
+        containerSpec({
+          name: container.name,
+          image: deps.config.imageTag,
+          worktree: container.worktree,
+          repoGitDir,
+          layout: deps.layout,
+          envFile,
+          workspace: container.workspace,
+          provider: container.provider,
+        }),
+      );
+    });
+  } catch (cause) {
+    releaseGitControl(gitControl);
+    throw cause;
+  }
   return gitControl;
 }
 
@@ -852,6 +857,7 @@ export class DockerSandboxRunner implements SandboxRunner {
 
     if (this.cancelledAttempts.has(attempt)) {
       remove();
+      releaseGitControl(gitControl);
       throw new StageCancelledError(attempt);
     }
 
