@@ -42,6 +42,19 @@ describe("state revision", () => {
     expect(revs.length).toBeGreaterThan(0);
   });
 
+  it("still emits a change that a plain state() read already bumped", () => {
+    const ui = controller();
+    ui.tick();
+    const revs: number[] = [];
+    ui.subscribe((event: UiEvent) => {
+      if (event.kind === "state") revs.push(event.state.rev);
+    });
+    ui.noteError("changed outside publish");
+    const read = ui.state();
+    ui.tick();
+    expect(revs).toEqual([read.rev]);
+  });
+
   it("gives each controller its own boot id", () => {
     expect(controller().state().boot).not.toBe(controller().state().boot);
   });

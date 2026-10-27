@@ -99,6 +99,8 @@ export class UiController {
   private readonly listeners = new Set<(event: UiEvent) => void>();
   private lastStateJson = "";
   private revision = 0;
+  /** Last rev pushed over SSE; lags `revision` when a plain `state()` read (GET /api/state) bumped it first. */
+  private emittedRevision = 0;
   private readonly boot = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   private readonly added = new Map<number, ParentSummary>();
   private readonly startingFromQueue = new Set<number>();
@@ -594,9 +596,9 @@ export class UiController {
 
   private publish(): void {
     for (const slot of this.slots.all()) slot.noteChanges(this.noteFor(slot.parentNumber));
-    const before = this.revision;
     const state = this.state();
-    if (this.revision === before) return;
+    if (state.rev === this.emittedRevision) return;
+    this.emittedRevision = state.rev;
     this.emit({ kind: "state", state });
   }
 
