@@ -40,6 +40,33 @@ describe("git control guard", () => {
     expect(fs.readText(CONFIG)).toBe(after);
   });
 
+  it("passes a concurrent stage's branch tracking written while this stage runs", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    const second = snapshotGitControl(fs, GIT_DIR, "feat/b");
+    const after = `${BASE_CONFIG}[branch "feat/b"]
+	remote = origin
+	merge = refs/heads/integration/x
+`;
+    fs.writeText(CONFIG, after);
+
+    expect(() => assertGitControlUnchanged(fs, first)).not.toThrow();
+    expect(() => assertGitControlUnchanged(fs, second)).not.toThrow();
+    expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("still refuses a sibling branch pointing its remote at a URL", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const first = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    snapshotGitControl(fs, GIT_DIR, "feat/b");
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "feat/b"]
+	remote = https://evil.test/x.git
+`);
+
+    expect(() => assertGitControlUnchanged(fs, first)).toThrow(GitControlTampered);
+    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+  });
+
   it.each([
     ["core.hooksPath", `${BASE_CONFIG}[core]\n\thooksPath = /tmp/hooks\n`],
     ["alias", `${BASE_CONFIG}[alias]\n\tst = !sh evil.sh\n`],
@@ -129,13 +156,15 @@ describe("git control guard", () => {
     expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
   });
 
-  it("refuses any branch tracking when the stage has no branch of its own", () => {
-    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
-    const snapshot = snapshotGitControl(fs, GIT_DIR);
-    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
+  it("refuses any branch tracking when no stage on the git dir has a branch", () => {
+    const quietGitDir = join("W:", "quiet", ".git");
+    const quietConfig = join(quietGitDir, "config");
+    const fs = fsWith({ [quietConfig]: BASE_CONFIG });
+    const snapshot = snapshotGitControl(fs, quietGitDir);
+    fs.writeText(quietConfig, `${BASE_CONFIG}[branch "x"]\n\tremote = origin\n`);
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).toThrow(GitControlTampered);
-    expect(fs.readText(CONFIG)).toBe(BASE_CONFIG);
+    expect(fs.readText(quietConfig)).toBe(BASE_CONFIG);
   });
 
   it("refuses and restores a deleted config", () => {

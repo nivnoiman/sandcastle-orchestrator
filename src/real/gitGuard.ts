@@ -35,10 +35,17 @@ export interface GitControlSnapshot {
   files: ReadonlyMap<string, string | undefined>;
   /** The one branch whose tracking config the stage may write; undefined allows none. */
   ownBranch: string | undefined;
+  /** Branches of every stage started on this git dir; concurrent stages write each other's tracking config. */
+  stageBranches: ReadonlySet<string>;
 }
 
+const stageBranchesByGitDir = new Map<string, Set<string>>();
+
 export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch?: string): GitControlSnapshot {
-  return { gitDir, ownBranch, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
+  const stageBranches = stageBranchesByGitDir.get(gitDir) ?? new Set<string>();
+  stageBranchesByGitDir.set(gitDir, stageBranches);
+  if (ownBranch !== undefined) stageBranches.add(ownBranch);
+  return { gitDir, ownBranch, stageBranches, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
 }
 
 const BARE_KEY_IMPLICIT_TRUE = null;
@@ -142,24 +149,24 @@ function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): Readonly
   );
 }
 
-function isOwnBranchBookkeeping(
+function isStageBranchBookkeeping(
   entry: ConfigEntry,
-  ownBranch: string | undefined,
+  stageBranches: ReadonlySet<string>,
   remotesSafeToName: ReadonlySet<string>,
 ): boolean {
   if (entry.subsection === undefined) return false;
   if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotesSafeToName.has(entry.subsection);
-  if (ownBranch === undefined || entry.section !== "branch" || entry.subsection !== ownBranch) return false;
+  if (entry.section !== "branch" || !stageBranches.has(entry.subsection)) return false;
   if (!OWN_BRANCH_KEYS_WRITTEN_BY_PUSH_U_GH_PR_AND_BRANCH_TRACK.has(entry.key)) return false;
   return (
     !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || (entry.value !== BARE_KEY_IMPLICIT_TRUE && remotesSafeToName.has(entry.value))
   );
 }
 
-function configChangeIsOnlyOwnBranchBookkeeping(
+function configChangeIsOnlyStageBranchBookkeeping(
   before: string | undefined,
   after: string | undefined,
-  ownBranch: string | undefined,
+  stageBranches: ReadonlySet<string>,
 ): boolean {
   if (after === undefined) return false;
   const beforeEntries = parsePlainGitConfigOrUndefined(before ?? "");
@@ -167,7 +174,7 @@ function configChangeIsOnlyOwnBranchBookkeeping(
   if (!beforeEntries || !afterEntries) return false;
   const remotesSafeToName = remoteNamesWithUrlSafeToName(beforeEntries);
   const guardedFingerprint = (entries: readonly ConfigEntry[]): string =>
-    JSON.stringify(entries.filter((entry) => !isOwnBranchBookkeeping(entry, ownBranch, remotesSafeToName)));
+    JSON.stringify(entries.filter((entry) => !isStageBranchBookkeeping(entry, stageBranches, remotesSafeToName)));
   return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
@@ -178,7 +185,7 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
     const path = join(snapshot.gitDir, file);
     const after = fs.readText(path);
     if (after === before) continue;
-    if (file === "config" && configChangeIsOnlyOwnBranchBookkeeping(before, after, snapshot.ownBranch)) continue;
+    if (file === "config" && configChangeIsOnlyStageBranchBookkeeping(before, after, snapshot.stageBranches)) continue;
     changed.push(file);
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
