@@ -33,8 +33,6 @@ export class GitControlTampered extends Error {
 export interface GitControlSnapshot {
   gitDir: string;
   files: ReadonlyMap<string, string | undefined>;
-  /** The one branch whose tracking config the stage may write; undefined allows none. */
-  ownBranch: string | undefined;
   /** Branches of every stage started on this git dir; concurrent stages write each other's tracking config. */
   stageBranches: ReadonlySet<string>;
 }
@@ -42,10 +40,10 @@ export interface GitControlSnapshot {
 const stageBranchesByGitDir = new Map<string, Set<string>>();
 
 export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch?: string): GitControlSnapshot {
-  const stageBranches = stageBranchesByGitDir.get(gitDir) ?? new Set<string>();
-  stageBranchesByGitDir.set(gitDir, stageBranches);
+  let stageBranches = stageBranchesByGitDir.get(gitDir);
+  if (!stageBranches) stageBranchesByGitDir.set(gitDir, (stageBranches = new Set()));
   if (ownBranch !== undefined) stageBranches.add(ownBranch);
-  return { gitDir, ownBranch, stageBranches, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
+  return { gitDir, stageBranches, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
 }
 
 const BARE_KEY_IMPLICIT_TRUE = null;
