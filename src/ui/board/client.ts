@@ -23,6 +23,7 @@ const STATE_REFRESH_MS = 5000;
 const DRAWER_POLL_MS = 1500;
 const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
+const FEED_KEY = "sandcastle.feed";
 const THEMES: readonly Theme[] = ["auto", "light", "dark"];
 const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:7700/";
 
@@ -105,6 +106,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     currentId: search.get("project") ?? readStorage("sandcastle.project") ?? "",
     selectedRuns: {},
     feedAll: false,
+    feedOpen: readStorage(FEED_KEY) === "1",
     doneOpen,
     parentQuery: "",
     selectedParent: "",
@@ -635,6 +637,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     else render();
   }
 
+  function setFeedOpen(open: boolean): void {
+    ui.feedOpen = open;
+    writeStorage(FEED_KEY, open ? "1" : undefined);
+    render();
+  }
+
   // ---- events ----
 
   function runAction(action: BoardAction, projectId: string): void {
@@ -661,6 +669,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       openRun(project.id, runNumber);
     } else if (act_ === "att-feed") {
       setCurrent(project.id);
+      if (!ui.feedOpen) {
+        ui.feedOpen = true;
+        writeStorage(FEED_KEY, "1");
+        renderNow();
+      }
       const feed = Array.from(root.querySelectorAll<HTMLElement>(".feed-panel")).find((panel) => panel.offsetParent !== null);
       feed?.scrollIntoView({ block: "center" });
     } else if (act_ === "att-restart") {
@@ -697,6 +710,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (action === "theme") return cycleTheme();
     if (action === "pause-all") return runAction("pause-all", "");
     if (action === "switch") return openSwitcher();
+    if (action === "toggle-feed") return setFeedOpen(!ui.feedOpen);
     if (action === "feed-scope") {
       ui.feedAll = element.dataset["scope"] === "all";
       return render();

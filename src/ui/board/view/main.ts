@@ -39,6 +39,7 @@ function topbar(ui: BoardUi, project: BoardProject): string {
           ? `<label class="field">Project Cap <input${attrs({ type: "number", min: 1, value: cap, "aria-label": "Project Cap", "data-act": "project-cap", "data-focus": "project-cap", ...data })} /></label>
       ${button({ label: allPaused ? "Resume project" : "Pause project", icon: allPaused ? "play" : "pause", title: live.length === 0 ? "Nothing is running to pause" : "Stop starting new stages across every run; agents already working finish their stage", disabled: live.length === 0, data: { "data-act": allPaused ? "resume-project" : "pause-project", ...data } })}
       ${ui.scope === "dashboard" ? button({ label: "Pause all", icon: "pause", cls: "ghost", title: "Pause every running Project Server: no new stages start; agents already working finish their stage", data: { "data-act": "pause-all" } }) : ""}
+      ${button({ label: "Feed", icon: "log", cls: "ghost", title: ui.feedOpen ? "Hide the event feed" : "Show the event feed", data: { "data-act": "toggle-feed", "aria-pressed": ui.feedOpen } })}
       ${button({ label: "Reset…", icon: "reset", cls: "ghost", title: resetTitle(state), disabled: !state.canReset, data: { "data-act": "open-reset", ...data } })}`
           : ""
       }
@@ -93,7 +94,7 @@ export function renderMain(ui: BoardUi, attention: readonly AttentionEntry[]): s
     ${modeBanner(project)}
     ${renderAttention(ui, attention)}
     ${body}
-    <div class="lower">${state ? `${renderFeed(ui, project, selected, "a")}${renderQueue(ui, project, "a")}` : ""}</div>`;
+    <div class="lower${ui.feedOpen ? "" : " no-feed"}">${state ? `${renderFeed(ui, project, selected, "a")}${renderQueue(ui, project, "a")}` : ""}</div>`;
 }
 
 export function renderSide(ui: BoardUi): string {
