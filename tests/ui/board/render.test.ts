@@ -15,6 +15,7 @@ function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
     currentId: projects[0]?.id ?? "",
     selectedRuns: {},
     feedAll: false,
+    feedOpen: false,
     doneOpen: new Set(),
     parentQuery: "",
     selectedParent: "",
@@ -59,6 +60,17 @@ describe("board render", () => {
     expect(html).not.toContain('class="gate idle"');
     expect(html).toContain('class="gate skipped"');
     expect(html).toContain("dry run — nothing to polish");
+  });
+
+  it("keeps the Event feed closed by default and renders it, with a hide control, when opened", () => {
+    const project = boardProject("alpha", uiState([run]));
+    const closed = main(ui([project]));
+    expect(closed).not.toContain("feed-panel");
+    expect(closed).toContain('data-act="toggle-feed"');
+    expect(closed).toContain('class="lower no-feed"');
+    const open = main(ui([project], { feedOpen: true }));
+    expect(open).toContain("feed-panel");
+    expect(open).toContain('aria-label="Hide event feed"');
   });
 
   it("escapes item titles", () => {
