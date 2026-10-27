@@ -274,13 +274,20 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
   }
 
+  const polling = new Set<string>();
+
   async function pollState(project: BoardProject): Promise<void> {
+    if (polling.has(project.id)) return;
+    polling.add(project.id);
     try {
       await refreshState(project);
-    } catch {
+    } catch (cause) {
+      console.warn(`[board] state poll failed for ${project.id}`, cause);
       if (!project.connected) return;
       project.connected = false;
       render();
+    } finally {
+      polling.delete(project.id);
     }
   }
 
