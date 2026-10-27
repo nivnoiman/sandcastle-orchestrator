@@ -6,7 +6,7 @@ import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
 import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
-import { chooseRun } from "./model.js";
+import { chooseRun, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
@@ -247,8 +247,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   }
 
   function adoptState(project: BoardProject, state: UiState): void {
-    const unchanged = project.connected && project.state !== undefined && JSON.stringify(project.state) === JSON.stringify(state);
-    if (unchanged) return;
+    if (!shouldAdopt(project.state, state)) {
+      if (project.connected) return;
+      project.connected = true;
+      render();
+      return;
+    }
     project.state = state;
     project.hub = state.hubRepo;
     project.mode = state.mode;
@@ -279,12 +283,21 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (polling.has(project.id)) return;
     polling.add(project.id);
     try {
-      await refreshState(project);
-    } catch (cause) {
-      console.warn(`[board] state poll failed for ${project.id}`, cause);
-      if (!project.connected) return;
-      project.connected = false;
-      render();
+      let payload: Record<string, unknown>;
+      try {
+        payload = await apiOf(project).get("/api/state");
+      } catch (cause) {
+        console.warn(`[board] state poll failed for ${project.id}`, cause);
+        if (!project.connected) return;
+        project.connected = false;
+        render();
+        return;
+      }
+      try {
+        adoptState(project, payload as unknown as UiState);
+      } catch (cause) {
+        console.warn(`[board] adopting polled state failed for ${project.id}`, cause);
+      }
     } finally {
       polling.delete(project.id);
     }

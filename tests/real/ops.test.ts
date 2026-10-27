@@ -29,6 +29,8 @@ function state(overrides: Partial<UiState> = {}): UiState {
   const items = overrides.items ?? [];
   return {
     version: 2,
+    rev: 1,
+    boot: "test-boot",
     stages: ["queued", "develop", "simplify", "review", "verify", "merged"],
     mode: "real",
     hubRepo: "example-org/hub",

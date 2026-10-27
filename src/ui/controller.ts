@@ -98,6 +98,8 @@ export class UiController {
   private readonly feed: UiFeedLine[] = [];
   private readonly listeners = new Set<(event: UiEvent) => void>();
   private lastStateJson = "";
+  private revision = 0;
+  private readonly boot = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   private readonly added = new Map<number, ParentSummary>();
   private readonly startingFromQueue = new Set<number>();
   private readonly removedWhileStarting = new Set<number>();
@@ -238,7 +240,18 @@ export class UiController {
     this.publish();
   }
 
+  /** Current state; bumps `rev` when it differs from the last one handed out, so `rev` is never stale. */
   state(): UiState {
+    const body = this.stateBody();
+    const json = JSON.stringify(body);
+    if (json !== this.lastStateJson) {
+      this.lastStateJson = json;
+      this.revision += 1;
+    }
+    return { ...body, rev: this.revision, boot: this.boot };
+  }
+
+  private stateBody(): Omit<UiState, "rev" | "boot"> {
     const quietFor = this.quietResolver();
     const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo, quietFor));
     const primary = this.slots.primary();
@@ -581,10 +594,9 @@ export class UiController {
 
   private publish(): void {
     for (const slot of this.slots.all()) slot.noteChanges(this.noteFor(slot.parentNumber));
+    const before = this.revision;
     const state = this.state();
-    const json = JSON.stringify(state);
-    if (json === this.lastStateJson) return;
-    this.lastStateJson = json;
+    if (this.revision === before) return;
     this.emit({ kind: "state", state });
   }
 
