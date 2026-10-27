@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { FileSystemPort } from "./fileSystem.js";
 
 /** Files inside a mounted .git that make the HOST run code: an agent must never change them. */
@@ -32,18 +32,66 @@ export class GitControlTampered extends Error {
 
 export interface GitControlSnapshot {
   gitDir: string;
+  /** The trusted baseline shared by every stage active on this git dir. */
   files: ReadonlyMap<string, string | undefined>;
-  /** Branches of every stage started on this git dir; concurrent stages write each other's tracking config. */
-  stageBranches: ReadonlySet<string>;
+  ownBranch: string | undefined;
 }
 
-const stageBranchesByGitDir = new Map<string, Set<string>>();
+interface ActiveGitDir {
+  baseline: ReadonlyMap<string, string | undefined>;
+  active: number;
+  /** Branch -> live stages on it. Concurrent stages write each other's tracking config. */
+  branches: Map<string, number>;
+}
 
+const activeByGitDir = new Map<string, ActiveGitDir>();
+const releasedSnapshots = new WeakSet<GitControlSnapshot>();
+
+function registryKey(gitDir: string): string {
+  const absolute = resolve(gitDir);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
+
+function readGuardedFiles(fs: FileSystemPort, gitDir: string): Map<string, string | undefined> {
+  return new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))]));
+}
+
+/**
+ * The first stage on a git dir reads the baseline from disk; stages that start while others run reuse it, so a
+ * config a running container already tampered with can never become a later stage's trusted baseline.
+ */
 export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch?: string): GitControlSnapshot {
-  let stageBranches = stageBranchesByGitDir.get(gitDir);
-  if (!stageBranches) stageBranchesByGitDir.set(gitDir, (stageBranches = new Set()));
-  if (ownBranch !== undefined) stageBranches.add(ownBranch);
-  return { gitDir, stageBranches, files: new Map(GUARDED_GIT_FILES.map((file) => [file, fs.readText(join(gitDir, file))])) };
+  const key = registryKey(gitDir);
+  const current = activeByGitDir.get(key);
+  if (current) {
+    const drifted = [...current.baseline].filter(([file, trusted]) => !guardedFileUnchanged(fs, gitDir, file, trusted, current.branches.keys()));
+    if (drifted.length > 0) throw new GitControlTampered(gitDir, drifted.map(([file]) => file));
+  }
+  const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0, branches: new Map<string, number>() };
+  entry.active++;
+  if (ownBranch !== undefined) entry.branches.set(ownBranch, (entry.branches.get(ownBranch) ?? 0) + 1);
+  activeByGitDir.set(key, entry);
+  return { gitDir, ownBranch, files: entry.baseline };
+}
+
+/** Ends a stage's hold on its git dir; idempotent. The last stage out clears the baseline. */
+export function releaseGitControl(snapshot: GitControlSnapshot): void {
+  if (releasedSnapshots.has(snapshot)) return;
+  releasedSnapshots.add(snapshot);
+  const key = registryKey(snapshot.gitDir);
+  const entry = activeByGitDir.get(key);
+  if (!entry) return;
+  entry.active--;
+  if (snapshot.ownBranch !== undefined) {
+    const remaining = (entry.branches.get(snapshot.ownBranch) ?? 1) - 1;
+    if (remaining > 0) entry.branches.set(snapshot.ownBranch, remaining);
+    else entry.branches.delete(snapshot.ownBranch);
+  }
+  if (entry.active <= 0) activeByGitDir.delete(key);
+}
+
+export function resetGitControlRegistry(): void {
+  activeByGitDir.clear();
 }
 
 const BARE_KEY_IMPLICIT_TRUE = null;
@@ -176,17 +224,29 @@ function configChangeIsOnlyStageBranchBookkeeping(
   return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
-/** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. */
+function guardedFileUnchanged(
+  fs: FileSystemPort,
+  gitDir: string,
+  file: string,
+  before: string | undefined,
+  stageBranches: Iterable<string>,
+): boolean {
+  const after = fs.readText(join(gitDir, file));
+  if (after === before) return true;
+  return file === "config" && configChangeIsOnlyStageBranchBookkeeping(before, after, new Set(stageBranches));
+}
+
+/** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. Always releases the stage. */
 export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitControlSnapshot): void {
+  const stageBranches = [...(activeByGitDir.get(registryKey(snapshot.gitDir))?.branches.keys() ?? [])];
   const changed: string[] = [];
   for (const [file, before] of snapshot.files) {
-    const path = join(snapshot.gitDir, file);
-    const after = fs.readText(path);
-    if (after === before) continue;
-    if (file === "config" && configChangeIsOnlyStageBranchBookkeeping(before, after, snapshot.stageBranches)) continue;
+    if (guardedFileUnchanged(fs, snapshot.gitDir, file, before, stageBranches)) continue;
     changed.push(file);
+    const path = join(snapshot.gitDir, file);
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
   }
+  releaseGitControl(snapshot);
   if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed);
 }
