@@ -298,6 +298,14 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
     send(response, () => controller.retryItem(requiredInteger(request.params.itemNumber, "item number")));
   });
 
+  app.post("/api/items/:itemNumber/comment", (request, response) => {
+    send(response, () => {
+      const body = bodyField(request, "body");
+      if (typeof body !== "string") throw new BadRequest("body must be a string");
+      controller.commentItem(requiredInteger(request.params.itemNumber, "item number"), body);
+    });
+  });
+
   app.post("/api/pause", (_request, response) => {
     send(response, () => controller.pause());
   });

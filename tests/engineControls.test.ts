@@ -230,3 +230,29 @@ describe("view", () => {
     });
   });
 });
+
+describe("commentItem", () => {
+  it("posts the trimmed text on the issue without touching labels or phase", () => {
+    const { adapters, engine } = harness(testModel([testItem(17, "api")]));
+    engine.start();
+    engine.cancelItem(17);
+    const labelsBefore = adapters.log.length;
+
+    engine.commentItem(17, "  config change is fine, retry  ");
+
+    expect(adapters.comments.at(-1)).toEqual({ itemNumber: 17, body: "config change is fine, retry" });
+    expect(adapters.log.slice(labelsBefore).filter((line) => line.includes("label"))).toEqual([]);
+    expect(engine.phases().get(17)).toBe("parked");
+  });
+
+  it("refuses an empty, oversized or unknown-item comment", () => {
+    const { adapters, engine } = harness(testModel([testItem(17, "api")]));
+    engine.start();
+    const posted = adapters.comments.length;
+
+    expect(() => engine.commentItem(17, "   ")).toThrow("comment is empty");
+    expect(() => engine.commentItem(17, "x".repeat(4001))).toThrow("the limit is 4000");
+    expect(() => engine.commentItem(99, "hi")).toThrow();
+    expect(adapters.comments).toHaveLength(posted);
+  });
+});
