@@ -6,6 +6,12 @@ You publish one **Orchestration Issue** whose native sub-issues are the work. Ea
 
 ![Board View: a run with items moving through develop, simplify, review and verify](docs/images/board-view.png)
 
+A parked item shows a **needs-human banner**: why it stopped, the stage, links to the issue and PR, and buttons to open the transcript, add a GitHub comment, hold, or re-queue (each confirms first). New parks also raise a toast, an optional desktop notification and a `(n)` count in the tab title.
+
+![Needs-human banner on a parked item](docs/images/needs-human.jpg)
+
+Try it with no tokens: `sandcastle ui examples/demo/demo-run.json --config=examples/demo --fail=21:develop`, then open the printed URL.
+
 ## How it works
 
 ```
@@ -25,7 +31,7 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
 | Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
 | Polish | A final simplify, review and comment-strip pass on each integration pull request. |
-| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
+| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, comment, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
 | Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |
 
 The hub repo (where issues live) and the code repos can be one repository or several.
