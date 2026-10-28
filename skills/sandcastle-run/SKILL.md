@@ -88,6 +88,9 @@ A `waiting` Item is not a parked Item. Retrying one throws the wait away.
 - **Do not edit Item code** beyond the conflict and red-check exceptions. The agents own the implementation; you own the pipeline.
 - **Never merge the integration pull requests.** A human does.
 - Never relabel held Items on your own.
+- **Keep the shared `.git` quiet.** Never run `git worktree add -b`, `git branch`, `git push -u` or `git config` in the Operator checkout while stages run: the git guard parks the running item for a changed config. Use a separate clone.
+- **A login fix lifts the auth Hold at the next probe,** up to 10 minutes later. `preflight` shows the real state at once. Do not relaunch or retry waiting items for it.
+- **Check CI is installed before launch.** The token needs the `workflow` scope, and the first pull request into the integration branch should land `.github/workflows` so the full suite runs on every merge.
 
 ## Reporting
 
