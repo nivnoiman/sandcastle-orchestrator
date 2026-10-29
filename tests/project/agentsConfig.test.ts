@@ -16,12 +16,16 @@ describe("parseAgents", () => {
     });
   });
 
+  it("accepts cursor with a model", () => {
+    expect(parseAgents({ review: { provider: "cursor", model: "gpt-5" } }).roles.review).toEqual({ provider: "cursor", model: "gpt-5" });
+  });
+
   it("lets default switch provider", () => {
     expect(parseAgents({ default: "codex" }).default).toEqual({ provider: "codex", model: undefined });
   });
 
   it.each([
-    [{ default: "gemini" }, /agents.default must be one of "claude", "codex"/],
+    [{ default: "gemini" }, /agents.default must be one of "claude", "codex", "cursor"/],
     [{ reviewer: "codex" }, /agents.reviewer is not an agent role/],
     [{ review: { provider: "codex", model: "gpt; rm -rf /" } }, /agents.review.model must be a plain model name/],
     [{ review: { provider: "codex", effort: "high" } }, /agents.review.effort is not a setting/],
