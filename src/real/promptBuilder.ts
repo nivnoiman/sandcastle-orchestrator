@@ -1,5 +1,6 @@
 import type { AgentStage, ReworkContext, StageName } from "../engine/adapters.js";
-import { integrationBase } from "../project/projectConfig.js";
+import { integrationBase, type TrackerKind } from "../project/projectConfig.js";
+import { LOCAL_PR_NOTES_FILE } from "../tracker/local/pullRequests.js";
 import { reworkRoundOf, reworkTitle } from "../engine/rework.js";
 import type { TargetRepo, WorkItem } from "../model/runModel.js";
 import { assertStagePromptPlaceholders, STAGE_PROMPT_PLACEHOLDER, type StagePromptPlaceholder } from "../project/stagesConfig.js";
@@ -27,6 +28,8 @@ export interface StagePromptContext {
   hubRepo: string;
   parentNumber: number;
   feature: string;
+  /** The Project's Tracker; the local variant of every prompt carries no `gh` and no pull-request host. */
+  tracker?: TrackerKind;
   rebaseConflicts?: readonly string[];
   rework?: ReworkContext;
 }
@@ -150,7 +153,21 @@ function issueRef(context: StagePromptContext): string {
   return `${context.hubRepo}#${context.item.number}`;
 }
 
-function rebaseCommands(context: { branch: string; integrationBranch: string }): string[] {
+function isLocal(context: { tracker?: TrackerKind }): boolean {
+  return context.tracker === "local";
+}
+
+function rebaseCommands(context: { branch: string; integrationBranch: string; tracker?: TrackerKind }): string[] {
+  if (isLocal(context)) {
+    return [
+      "```",
+      `git rebase origin/${context.integrationBranch}`,
+      "# resolve each conflicting file, then:",
+      "git add <the files you resolved> && git rebase --continue",
+      "```",
+      `\`origin\` is not reachable from this container and \`origin/${context.integrationBranch}\` is already current — do not fetch or push; sandcastle pushes \`${context.branch}\` when you stop.`,
+    ];
+  }
   return [
     "```",
     "git fetch origin --prune",
@@ -160,6 +177,29 @@ function rebaseCommands(context: { branch: string; integrationBranch: string }):
     `git push --force-with-lease origin ${context.branch}`,
     "```",
   ];
+}
+
+function environmentToolLine(context: StagePromptContext): string {
+  if (!isLocal(context)) {
+    return "- `gh` is authenticated via `GH_TOKEN`. `~/.claude` is a container-local copy of the host's, so skills under `~/.claude/skills/` are readable and nothing you write there reaches the host.";
+  }
+  return `- There is no \`gh\`, no GitHub and no pull-request host: record your stage notes in \`${LOCAL_PR_NOTES_FILE}\` (below) and commit your work to the branch. \`origin\` is not reachable from this container — never fetch or push; sandcastle pushes the branch after you stop. \`~/.claude\` is a container-local copy of the host's, so skills under \`~/.claude/skills/\` are readable and nothing you write there reaches the host.`;
+}
+
+function notesTarget(context: StagePromptContext): string {
+  return isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body";
+}
+
+function stopSummary(context: StagePromptContext): string {
+  return isLocal(context)
+    ? "Print a one-line summary of what you did as the last line of your final message and stop."
+    : "Print the pull request URL as the last line of your final message and stop.";
+}
+
+function pushStep(context: StagePromptContext): string {
+  return isLocal(context)
+    ? `Sandcastle pushes \`${context.branch}\` after you stop. Leave \`${LOCAL_PR_NOTES_FILE}\` untracked: never \`git add\` or commit it.`
+    : `\`git push origin ${context.branch}\`. Leave the pull request a DRAFT — the orchestrator marks it ready and merges it.`;
 }
 
 function conflictPreamble(context: StagePromptContext): string[] {
@@ -205,11 +245,24 @@ function sharedHeader(context: StagePromptContext): string[] {
     `- You are in a disposable container. \`/home/agent/workspace\` is a git worktree of the \`${context.item.repo}\` repo.`,
     `- Branch \`${context.branch}\` is already created and checked out off \`${context.integrationBranch}\`. Never create, rename, or switch branches.`,
     `- \`.env\` in the worktree is a sanitized sandbox env — never edit it, never commit it, never print its contents.`,
-    "- `gh` is authenticated via `GH_TOKEN`. `~/.claude` is a container-local copy of the host's, so skills under `~/.claude/skills/` are readable and nothing you write there reaches the host.",
+    environmentToolLine(context),
   ];
 }
 
 function prBlock(context: StagePromptContext): string[] {
+  if (isLocal(context)) {
+    return [
+      "```",
+      `cat > ${LOCAL_PR_NOTES_FILE} <<'EOF'`,
+      "## What changed",
+      "<2-4 bullets>",
+      "",
+      "## How tested",
+      "<the failing tests you wrote first, then the typecheck / tests you ran, with their result>",
+      "EOF",
+      "```",
+    ];
+  }
   return [
     "```",
     `git push origin ${context.branch}`,
@@ -251,6 +304,19 @@ function appendSectionBlock(
   stage: StageName,
   template: readonly string[] = FINDINGS_TEMPLATE,
 ): string[] {
+  if (isLocal(context)) {
+    return [
+      "```",
+      `cat >> ${LOCAL_PR_NOTES_FILE} <<'EOF'`,
+      "",
+      prSectionMarker(stage, reworkRoundOf(context)),
+      "",
+      ...template,
+      "EOF",
+      "```",
+      `Append with \`>>\`, never overwrite: \`${LOCAL_PR_NOTES_FILE}\` sits at the worktree root and already holds the earlier stages' notes. It is deliberately untracked — never \`git add\` or commit it.`,
+    ];
+  }
   const slug = serviceRepoSlug(context.item.repo);
   return [
     "```",
@@ -293,11 +359,21 @@ function buildDevelopPrompt(context: StagePromptContext): string {
     "",
     "**Commit early and often — the run can be cut off at any moment.** Your container dies when the usage window closes or the idle watchdog fires, and anything uncommitted dies with it; a stage that pushed nothing is restarted from scratch. Commit whatever compiles before every long test run and at least every 15 minutes, `wip: <what>` while it is half-done. The pipeline squashes the branch on merge, so extra commits cost nothing.",
     "",
-    `**6. Open a DRAFT pull request** against the integration branch (NOT \`${integrationBase()}\`, NOT the default branch):`,
-    ...prBlock(context),
-    `The PR must be a draft — later simplify and review stages commit onto \`${context.branch}\` and the orchestrator marks it ready and merges it. Do not merge it yourself, do not mark it ready, do not close the issue.`,
-    "",
-    "**7. Stop.** Print the PR URL as the last line of your final message and stop. Do not start new work.",
+    ...(isLocal(context)
+      ? [
+          `**6. Write the stage notes** — you have no \`gh\`; sandcastle opens the pull-request record itself from your commits and this file, against the integration branch (NOT \`${integrationBase()}\`):`,
+          ...prBlock(context),
+          `The file sits at the worktree root and is deliberately untracked — never \`git add\` or commit it. Later simplify and review stages commit onto \`${context.branch}\` and append to it. Do not push, do not merge, do not close the issue.`,
+          "",
+          "**7. Stop.** Print a one-line summary as the last line of your final message and stop. Do not start new work.",
+        ]
+      : [
+          `**6. Open a DRAFT pull request** against the integration branch (NOT \`${integrationBase()}\`, NOT the default branch):`,
+          ...prBlock(context),
+          `The PR must be a draft — later simplify and review stages commit onto \`${context.branch}\` and the orchestrator marks it ready and merges it. Do not merge it yourself, do not mark it ready, do not close the issue.`,
+          "",
+          "**7. Stop.** Print the PR URL as the last line of your final message and stop. Do not start new work.",
+        ]),
     "",
     "## Hard rules",
     `- Never push to \`${integrationBase()}\` or the default branch, never force-push, never rewrite existing commits.`,
@@ -360,9 +436,11 @@ function buildFreshEyesPrompt(context: StagePromptContext, stage: FreshEyesStage
     ...spec.instructions,
     ...reworkHistory(context),
     "## What is already on the branch",
-    `- Earlier stages committed to \`${context.branch}\` and opened a DRAFT pull request against \`${context.integrationBranch}\`.`,
+    ...(isLocal(context)
+      ? [`- Earlier stages committed to \`${context.branch}\` and recorded their notes (develop's what changed / how tested, then each stage's section) in \`${LOCAL_PR_NOTES_FILE}\` at the worktree root — read it.`]
+      : [`- Earlier stages committed to \`${context.branch}\` and opened a DRAFT pull request against \`${context.integrationBranch}\`.`]),
     `- The change you are judging: \`git diff origin/${context.integrationBranch}...HEAD\` (three-dot). Its commits: \`git log origin/${context.integrationBranch}..HEAD --oneline\`.`,
-    `- The pull request: \`gh pr view ${context.branch} --repo ${slug} --json number,url,body\`.`,
+    ...(isLocal(context) ? [] : [`- The pull request: \`gh pr view ${context.branch} --repo ${slug} --json number,url,body\`.`]),
     "",
     "## Contract (do these in order — non-negotiable)",
     "",
@@ -376,18 +454,20 @@ function buildFreshEyesPrompt(context: StagePromptContext, stage: FreshEyesStage
     "",
     `**5. Commit.** \`git add <specific files>\` (never \`git add .\`), then commit with \`${tag} <brief description>\` (lowercase, no trailing period). Small commits, one finding or one tight group each.`,
     "",
-    `**6. Append a \`${section}\` section to the pull request body — append, never overwrite:**`,
+    `**6. Append a \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, stage),
     `The \`${sentinel}\` marker line is how the orchestrator knows this stage ran — copy it verbatim, above the \`${section}\` heading, exactly once. If you found nothing, still append the section with one line saying "no findings" — a missing marker fails the stage even when the code was already perfect.`,
     "",
-    `**7. Push.** \`git push origin ${context.branch}\`. Leave the pull request a DRAFT — the orchestrator marks it ready and merges it.`,
+    `**7. ${isLocal(context) ? "Do not push." : "Push."}** ${pushStep(context)}`,
     "",
-    "**8. Stop.** Print the pull request URL as the last line of your final message and stop. Do not start new work.",
+    `**8. Stop.** ${stopSummary(context)} Do not start new work.`,
     "",
     "## Hard rules",
     "- Write COMMENT-FREE code: zero explanatory comments. If a block needs a comment to be understood, extract it into a well-named function instead. Strict types, early returns over nested ifs, guards over `as`, fail fast with specific errors, descriptive names.",
     `- Never create, rename, or switch branches; never push to \`${integrationBase()}\` or the default branch; never force-push; never amend or rebase the commits already on this branch.`,
-    "- Never touch another repo or files outside this worktree; never merge the pull request, mark it ready, or close the issue.",
+    isLocal(context)
+      ? "- Never touch another repo or files outside this worktree; never merge, and never close the issue."
+      : "- Never touch another repo or files outside this worktree; never merge the pull request, mark it ready, or close the issue.",
     `- If the work is unfixable in place — it needs a redesign, a schema change, or work outside this diff — do not commit a half-fix. Append your section as in step 6 with the \`${sentinel}\` marker plus a line \`UNFIXABLE: <one-line reason>\`, then stop. Sandcastle reads that line and parks the item for a human with your reason attached.`,
     ...needsReworkRule(stage, sentinel),
   ].join("\n");
@@ -404,7 +484,9 @@ function buildReworkDevelopPrompt(context: StagePromptContext, rework: ReworkCon
     "",
     ...reworkHistory(context),
     "## What is already on the branch",
-    `- \`${context.branch}\` carries every earlier round's commits, and its DRAFT pull request against \`${context.integrationBranch}\` is open: \`gh pr view ${context.branch} --repo ${slug} --json number,url,body\`.`,
+    isLocal(context)
+      ? `- \`${context.branch}\` carries every earlier round's commits; every stage's notes so far are in \`${LOCAL_PR_NOTES_FILE}\` at the worktree root.`
+      : `- \`${context.branch}\` carries every earlier round's commits, and its DRAFT pull request against \`${context.integrationBranch}\` is open: \`gh pr view ${context.branch} --repo ${slug} --json number,url,body\`.`,
     `- The change so far: \`git diff origin/${context.integrationBranch}...HEAD\`. Its commits, newest first: \`git log origin/${context.integrationBranch}..HEAD --oneline\`.`,
     "",
     "## Contract (do these in order — non-negotiable)",
@@ -421,13 +503,15 @@ function buildReworkDevelopPrompt(context: StagePromptContext, rework: ReworkCon
     "",
     `**6. Commit.** \`git add <specific files>\` (never \`git add .\`), then \`${REWORK_COMMIT_TAG} <what>\` (lowercase, no trailing period). Put the why in the commit body — the next stages read it.`,
     "",
-    `**7. Append a \`${section}\` section to the pull request body — append, never overwrite:**`,
+    `**7. Append a \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, "develop", REWORK_FIX_TEMPLATE),
     `The \`${sentinel}\` marker is how the orchestrator knows this round's develop finished — copy it verbatim, exactly once. This section is the story the simplify, review and verify passes read next, so write what was wrong, what you changed, and how it is proven.`,
     "",
-    `**8. Push.** \`git push origin ${context.branch}\`. Do NOT open a new pull request; leave the existing one a DRAFT.`,
+    isLocal(context)
+      ? `**8. Do not push.** ${pushStep(context)}`
+      : `**8. Push.** \`git push origin ${context.branch}\`. Do NOT open a new pull request; leave the existing one a DRAFT.`,
     "",
-    "**9. Stop.** Print the pull request URL as the last line of your final message and stop.",
+    `**9. Stop.** ${stopSummary(context)}`,
     "",
     "## Hard rules",
     `- Never push to \`${integrationBase()}\` or the default branch, never force-push, never rewrite existing commits.`,
@@ -449,17 +533,19 @@ function buildReworkSalvagePrompt(context: StagePromptContext, rework: ReworkCon
     "",
     `**1. Land what is half-applied.** If the working tree has uncommitted edits, run the typecheck and the tests covering them until green, then commit as \`${REWORK_COMMIT_TAG} <what>\`.`,
     "",
-    `**2. Append the \`${section}\` section to the pull request body — append, never overwrite:**`,
+    `**2. Append the \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, "develop", REWORK_FIX_TEMPLATE),
     "Describe only what actually landed.",
     "",
-    `**3. Push and stop.** \`git push origin ${context.branch}\`, print the pull request URL, and stop.`,
+    isLocal(context)
+      ? "**3. Stop.** Do not push (sandcastle does); print a one-line summary and stop."
+      : `**3. Push and stop.** \`git push origin ${context.branch}\`, print the pull request URL, and stop.`,
   ].join("\n");
 }
 
 function buildDevelopSalvagePrompt(context: StagePromptContext): string {
   return [
-    `Salvage pass for sub-issue ${issueRef(context)} — a previous agent implemented this and died before opening the pull request.`,
+    `Salvage pass for sub-issue ${issueRef(context)} — a previous agent implemented this and died before ${isLocal(context) ? "writing its stage notes" : "opening the pull request"}.`,
     "",
     ...sharedHeader(context),
     "",
@@ -469,10 +555,10 @@ function buildDevelopSalvagePrompt(context: StagePromptContext): string {
     "",
     "**1. Make it green.** Run the repo's typecheck and the tests covering the changed files. Commit any fix as `fix: <what>` — fixes only, nothing new.",
     "",
-    "**2. Open the DRAFT pull request:**",
+    isLocal(context) ? "**2. Write the stage notes** (no `gh` here — sandcastle opens the pull-request record):" : "**2. Open the DRAFT pull request:**",
     ...prBlock(context),
     "",
-    "**3. Stop.** Print the PR URL as the last line of your final message and stop.",
+    `**3. Stop.** ${stopSummary(context)}`,
   ].join("\n");
 }
 
@@ -491,11 +577,13 @@ function buildFreshEyesSalvagePrompt(context: StagePromptContext, stage: FreshEy
     "",
     `**1. Land what is half-applied.** If the working tree has uncommitted ${stage} edits, run the repo's typecheck and the tests covering them until green, then commit as \`${tag} <what>\`. If the tree is clean, go straight to step 2.`,
     "",
-    `**2. Append the \`${section}\` section to the pull request body — append, never overwrite:**`,
+    `**2. Append the \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, stage),
     `Describe only what actually landed — \`git log origin/${context.integrationBranch}..HEAD --oneline\` is your source of truth. If the stage landed nothing, write "no findings"; the \`${sentinel}\` marker must be there either way, because it is what marks the stage complete. If what is on the branch cannot be finished in place, append the section with the marker plus a line \`UNFIXABLE: <one-line reason>\` and stop.`,
     "",
-    `**3. Push and stop.** \`git push origin ${context.branch}\`, print the pull request URL as the last line of your final message, and stop.`,
+    isLocal(context)
+      ? "**3. Stop.** Do not push (sandcastle does); print a one-line summary as the last line of your final message and stop."
+      : `**3. Push and stop.** \`git push origin ${context.branch}\`, print the pull request URL as the last line of your final message, and stop.`,
   ].join("\n");
 }
 
@@ -521,7 +609,9 @@ export function buildResolvePrompt(context: ResolvePromptContext, files: readonl
     "**2. Make it green.** Run the repo's typecheck and the tests covering the conflicting files. Fix what the",
     "resolution broke — nothing else.",
     "",
-    `**3. Push.** \`git push --force-with-lease origin ${context.branch}\`. Leave the pull request as it is.`,
+    isLocal(context)
+      ? "**3. Do not push.** Sandcastle pushes the rebased branch when you stop."
+      : `**3. Push.** \`git push --force-with-lease origin ${context.branch}\`. Leave the pull request as it is.`,
     "",
     "**4. Stop.** Say in one line what you kept from each side, and stop.",
     "",
@@ -529,7 +619,7 @@ export function buildResolvePrompt(context: ResolvePromptContext, files: readonl
     "- No new features, no refactors, no scope beyond making this branch sit cleanly on the integration branch.",
     "- Never `git rebase --abort` and leave it: sandcastle checks that the branch is on top of",
     `  \`origin/${context.integrationBranch}\` when you exit, and parks the item for a human if it is not.`,
-    `- Never push to \`${integrationBase()}\` or the default branch, never merge the pull request, never close the issue.`,
+    `- Never push to \`${integrationBase()}\` or the default branch, never merge${isLocal(context) ? "" : " the pull request"}, never close the issue.`,
     "- Write COMMENT-FREE code: this repo's standard is zero explanatory comments.",
   ].join("\n");
 }
@@ -755,6 +845,7 @@ export interface PolishPromptContext {
   integrationBranch: string;
   fixedPoint: string;
   pullRequestUrl: string;
+  tracker?: TrackerKind;
   checks: string;
   notesFile: string;
   /** The agent has Claude's `Skill` tool and subagents; otherwise it reads the command file and runs its passes itself. */
@@ -770,7 +861,7 @@ function polishCommandStep(context: PolishPromptContext): string {
 
 export function buildPolishPrompt(context: PolishPromptContext): string {
   return [
-    `Polish for the "${context.feature}" run (parent ${context.hubRepo}#${context.parentNumber}). Feature Verify is green and \`${context.integrationBranch}\` → \`${integrationBase()}\` is open as ${context.pullRequestUrl} in \`${context.repo}\`. You are a fresh agent on a worktree of \`${context.integrationBranch}\`; you wrote none of this code.`,
+    `Polish for the "${context.feature}" run (parent ${context.hubRepo}#${context.parentNumber}). Feature Verify is green and \`${context.integrationBranch}\` is ${isLocal(context) ? `ready for the Operator to merge into \`${integrationBase()}\` (recorded as ${context.pullRequestUrl})` : `open against \`${integrationBase()}\` as ${context.pullRequestUrl}`} in \`${context.repo}\`. You are a fresh agent on a worktree of \`${context.integrationBranch}\`; you wrote none of this code.`,
     "",
     "## Contract (do these in order — non-negotiable)",
     "",
@@ -784,7 +875,9 @@ export function buildPolishPrompt(context: PolishPromptContext): string {
     "",
     "## Hard rules",
     "- Quality only: no behaviour change, no new feature, no deleted or weakened test, lint rule or type.",
-    "- Do not push, do not open, edit or comment on pull requests — the orchestrator pushes only after its own checks pass.",
+    isLocal(context)
+      ? "- Do not push and do not touch the integration branch's records — the orchestrator pushes only after its own checks pass."
+      : "- Do not push, do not open, edit or comment on pull requests — the orchestrator pushes only after its own checks pass.",
     "- Do not rebase, merge or reset the branch, and leave `.env` alone.",
     "- Nothing to improve is a fine outcome: commit nothing and say so.",
   ].join("\n");

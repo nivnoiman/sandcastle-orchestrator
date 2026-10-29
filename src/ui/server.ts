@@ -115,6 +115,7 @@ export interface InstanceInfo {
   dir: string;
   name: string;
   mode: "dry" | "real";
+  tracker?: "github" | "local";
   /** True while started without a parent: the operator picks one in the UI. */
   idle: boolean;
   pid: number;
@@ -201,6 +202,16 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
     );
   });
 
+  app.post("/api/parents/local", (request, response) => {
+    send(response, () => {
+      const title = bodyField(request, "title");
+      const body = bodyField(request, "body");
+      if (typeof title !== "string" || title.trim().length === 0) throw new BadRequest("title must be a non-empty string");
+      if (body !== undefined && typeof body !== "string") throw new BadRequest("body must be a string");
+      return controller.createLocalParent({ title, ...(body === undefined ? {} : { body }) });
+    });
+  });
+
   app.post("/api/queue", (request, response) => {
     let parents: number[];
     let cap: number;
@@ -256,6 +267,20 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
 
   app.post("/api/runs/:parent/cap", (request, response) => {
     send(response, () => controller.setRunCap(routeParent(request), requiredInteger(bodyField(request, "cap"), "cap")));
+  });
+
+  app.post("/api/runs/:parent/auth/recheck", (request, response) => {
+    let parent: number;
+    try {
+      parent = routeParent(request);
+    } catch (cause) {
+      fail(response, cause);
+      return;
+    }
+    controller.recheckAuth(parent).then(
+      (result) => response.json({ ok: true, result }),
+      (cause: unknown) => fail(response, cause),
+    );
   });
 
   app.post("/api/reset", (request, response) => {

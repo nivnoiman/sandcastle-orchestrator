@@ -1,4 +1,5 @@
 import { isFixedStageLabel, isStageLabel, type GhClient, type MergedPullRequest, type StageLabel } from "../engine/adapters.js";
+import type { CreateDraftPrInput, PullRequestRef, PullRequestSeam, TrackerItemReader } from "../tracker/types.js";
 import type { TargetRepo } from "../model/runModel.js";
 import { integrationBase, repoSlug } from "../project/projectConfig.js";
 import type { CommandRunner } from "./commandRunner.js";
@@ -23,33 +24,12 @@ export function hubIssueUrl(hubRepo: string, itemNumber: number): string {
 
 export const PR_JSON_FIELDS = "number,url,state,isDraft,body,title";
 
-export interface PullRequestRef {
-  number: number;
-  url: string;
-  state: string;
-  isDraft: boolean;
-  body: string;
-  title: string;
-}
-
-export interface CreateDraftPrInput {
-  repo: TargetRepo;
-  branch: string;
-  baseBranch: string;
-  title: string;
-  body: string;
-}
-
-export interface PullRequestOps {
-  findPullRequest(repo: TargetRepo, branch: string, baseBranch?: string): PullRequestRef | undefined;
-  createDraftPullRequest(input: CreateDraftPrInput): PullRequestRef;
-  appendToPullRequestBody(repo: TargetRepo, pullRequest: PullRequestRef, addition: string): void;
-}
-
-export interface FeatureVerifyPullRequests {
-  findPullRequest(repo: TargetRepo, branch: string, baseBranch?: string): PullRequestRef | undefined;
-  createPullRequest(input: CreateDraftPrInput): PullRequestRef;
-}
+export type {
+  CreateDraftPrInput,
+  FeatureVerifyPullRequests,
+  PullRequestOps,
+  PullRequestRef,
+} from "../tracker/types.js";
 
 export interface GhClientDeps {
   runner: CommandRunner;
@@ -112,7 +92,7 @@ interface PendingLabelWrite {
   write: () => void;
 }
 
-export class RealGhClient implements GhClient, PullRequestOps {
+export class RealGhClient implements GhClient, TrackerItemReader, PullRequestSeam {
   private readonly pendingLabels = new Map<number, PendingLabelWrite[]>();
   private readonly createdLabels = new Set<string>();
 

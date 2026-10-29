@@ -121,6 +121,7 @@ export function pageState(overrides: Partial<UiState> = {}): UiState {
     boot: "test-boot",
     stages: ["queued", "develop", "simplify", "review", "verify", "merged"],
     mode: "dry",
+    tracker: "github",
     hubRepo: "example-org/hub",
     startCap: 1,
     preselectedParent: undefined,

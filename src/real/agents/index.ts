@@ -6,13 +6,14 @@ import type { FileSystemPort } from "../fileSystem.js";
 import type { SandcastleLayout } from "../paths.js";
 import { claudeProvider } from "./claude.js";
 import { codexProvider } from "./codex.js";
+import { cursorProvider } from "./cursor.js";
 import type { AgentProvider, ResolvedAgent } from "./provider.js";
 import { messageOf } from "../../messageOf.js";
 
 export type { AgentProvider, AgentRole, ProviderName, ResolvedAgent };
-export { claudeProvider, codexProvider };
+export { claudeProvider, codexProvider, cursorProvider };
 
-const PROVIDERS: Record<ProviderName, AgentProvider> = { claude: claudeProvider, codex: codexProvider };
+const PROVIDERS: Record<ProviderName, AgentProvider> = { claude: claudeProvider, codex: codexProvider, cursor: cursorProvider };
 const MAIN_MODEL_ROLES: ReadonlySet<AgentRole> = new Set(["develop", "resolve", "feature-fix"]);
 
 export function providerNamed(name: ProviderName): AgentProvider {

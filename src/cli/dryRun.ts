@@ -2,8 +2,9 @@ import { bootProject } from "../project/boot.js";
 import { readFile } from "node:fs/promises";
 import { dryRun } from "../engine/dryRunner.js";
 import { stageNames } from "../engine/stageChain.js";
-import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { createRunReader, isRunSnapshot, type RunSnapshot } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
+import { isParentHandle, resolveParentHandle } from "./parentArg.js";
 
 const project = bootProject();
 const args = process.argv.slice(2);
@@ -12,7 +13,7 @@ const positional = args.filter((arg) => !arg.startsWith("--"));
 const [source, repoArg] = positional;
 
 if (!source) {
-  console.error("usage: sandcastle dry-run <fixture.json | parent-issue-number> [owner/repo] [--cap=N]");
+  console.error("usage: sandcastle dry-run <fixture.json | parent-issue-number | slug | path> [owner/repo] [--cap=N]");
   process.exit(2);
 }
 
@@ -23,8 +24,8 @@ if (!Number.isInteger(workerCap) || workerCap < 1) {
 }
 
 async function loadSnapshot(fixtureOrIssue: string): Promise<RunSnapshot> {
-  if (/^\d+$/.test(fixtureOrIssue)) {
-    return fetchRunSnapshot(repoArg ?? project.hubRepo, Number(fixtureOrIssue));
+  if (isParentHandle(project, fixtureOrIssue)) {
+    return createRunReader(project, repoArg).fetchRunSnapshot(resolveParentHandle(project, fixtureOrIssue));
   }
   const raw = await readFile(fixtureOrIssue, "utf8");
   const parsed: unknown = JSON.parse(raw);

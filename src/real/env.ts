@@ -5,6 +5,7 @@ import {
   activeProject,
   DEFAULT_MONGO_IMAGE,
   knownRepos,
+  type TrackerKind,
   type VerifyService,
   type VerifyStrategy,
 } from "../project/projectConfig.js";
@@ -24,10 +25,13 @@ const JEST_WORKERS = /^[1-9]\d?%?$/;
 const REWORK_LIMIT = /^\d+$/;
 
 export interface OrchestratorConfig {
+  tracker: TrackerKind;
+  /** Empty with the local Tracker: nothing talks to GitHub. */
   ghToken: string;
   anthropicApiKey: string | undefined;
   claudeOauthToken: string | undefined;
   codexApiKey: string | undefined;
+  cursorApiKey: string | undefined;
   agents: AgentsConfig;
   stages: readonly StageSpec[];
   model: string;
@@ -170,6 +174,7 @@ export function jestWorkers(values: Record<string, string>): string {
 export interface LoadConfigOptions {
   idleTimeoutSeconds?: number;
   hubRepo?: string;
+  tracker?: TrackerKind;
 }
 
 /** The tool-wide .env.orchestrator (shared secrets) overlaid by the project's own one in its state dir. */
@@ -196,22 +201,25 @@ export function loadOrchestratorConfig(
   options: LoadConfigOptions = {},
 ): OrchestratorConfig {
   const path = orchestratorEnvPath(layout);
+  const project = activeProject();
+  const tracker = options.tracker ?? project.tracker;
   const { values, found } = readOrchestratorEnv(fs, layout);
-  if (found.length === 0) {
+  if (tracker !== "local" && found.length === 0) {
     throw new Error(
       `missing ${path} — sandcastle refuses to start without it. Copy .env.orchestrator.example there (or to ${join(TOOL_DIR, ORCHESTRATOR_ENV_FILE)} to share it across projects) and fill in GH_TOKEN.`,
     );
   }
-  const ghToken = values["GH_TOKEN"];
-  if (!ghToken) throw new Error(`${found.join(" + ")} has no GH_TOKEN — agents cannot push branches or open PRs without it`);
+  const ghToken = values["GH_TOKEN"] ?? "";
+  if (tracker !== "local" && !ghToken) throw new Error(`${found.join(" + ")} has no GH_TOKEN — agents cannot push branches or open PRs without it`);
 
-  const project = activeProject();
   const idleFromFile = numericSetting(values, "SANDCASTLE_IDLE_TIMEOUT");
   return {
+    tracker,
     ghToken,
     anthropicApiKey: values["ANTHROPIC_API_KEY"] || undefined,
     claudeOauthToken: values["CLAUDE_CODE_OAUTH_TOKEN"] || undefined,
     codexApiKey: values["CODEX_API_KEY"] || values["OPENAI_API_KEY"] || undefined,
+    cursorApiKey: values["CURSOR_API_KEY"] || undefined,
     agents: project.agents,
     stages: project.stages,
     model: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL,
@@ -262,5 +270,6 @@ export function checkCommand(config: OrchestratorConfig, repo: TargetRepo): stri
 
 export function bootstrapScript(config: OrchestratorConfig, repo: TargetRepo): string {
   const bootstrap = perRepoValue(config.bootstrapCommands, repo, "bootstrap command").trim();
+  if (config.tracker === "local") return bootstrap.length > 0 ? bootstrap : "true";
   return bootstrap.length > 0 ? `gh auth setup-git && ${bootstrap}` : "gh auth setup-git";
 }

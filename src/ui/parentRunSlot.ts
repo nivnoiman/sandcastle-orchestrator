@@ -1,9 +1,11 @@
 import { stallParts } from "../cli/report.js";
+import type { ProviderName } from "../project/agentsConfig.js";
 import type { Engine, ItemView } from "../engine/engine.js";
 import { OperatorError } from "../engine/operatorError.js";
 import type { QuietInfo } from "./quiet.js";
 import type { RunModel } from "../model/runModel.js";
 import type { AttemptChunk, AttemptRecord } from "../real/attemptLog.js";
+import type { AuthRecheck } from "../real/authHold.js";
 import {
   featureVerifyLabel,
   idleFeatureVerify,
@@ -13,6 +15,7 @@ import {
   uiHold,
   uiItems,
   uiParent,
+  type IssueUrlOf,
   type FeatureVerifyStatus,
   type FeedKind,
   type PolishStatus,
@@ -33,6 +36,8 @@ export interface Session {
   polish?: () => PolishStatus;
   finished?: Promise<void>;
   attempts?: AttemptReader;
+  recheckAuth?: () => Promise<AuthRecheck>;
+  authProviders?: () => ProviderName[];
   tick(): void;
   stop(): void;
 }
@@ -99,10 +104,10 @@ export class ParentRunSlot {
     this.notePolish(note);
   }
 
-  view(hubRepo: string, quietFor?: QuietFor): UiRun {
+  view(urlOf: IssueUrlOf, quietFor?: QuietFor): UiRun {
     const views = this.engine.view();
     return {
-      parent: uiParent(hubRepo, this.model),
+      parent: uiParent(urlOf, this.model),
       cap: this.engine.cap(),
       paused: this.engine.newStartsArePaused(),
       started: true,
@@ -114,7 +119,7 @@ export class ParentRunSlot {
       featureVerify: this.featureVerify(),
       polish: this.polish(),
       phaseCounts: phaseCounts(views),
-      items: uiItems(hubRepo, views, (item) => quietFor?.(item, this.session.attempts)),
+      items: uiItems(urlOf, views, (item) => quietFor?.(item, this.session.attempts)),
     };
   }
 

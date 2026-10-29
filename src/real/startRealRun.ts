@@ -1,11 +1,12 @@
 import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader, ensureLocalRemote, localIssueStore } from "../tracker/index.js";
 import type { RunModel } from "../model/runModel.js";
-import { integrationBase } from "../project/projectConfig.js";
+import { activeProject, integrationBase } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
 import { createRealAdapters } from "./adapters.js";
 import { AttemptLogStore } from "./attemptLog.js";
+import type { AuthRecheck } from "./authHold.js";
 import { controlPlaneHost, type ControlPlaneHost, type ControlPlaneOptions } from "./controlPlane.js";
 import { createVerifyHarness } from "./featureVerify/verifyStrategy.js";
 import type { FeatureFixBrief, FeatureRound } from "./featureVerify/featureBrief.js";
@@ -47,6 +48,7 @@ export interface RealRun {
   featureVerify(): FeatureVerifyStatus;
   polish(): PolishStatus;
   logs: AttemptLogStore;
+  recheckAuth(): Promise<AuthRecheck>;
   tick(): void;
   stop(): void;
 }
@@ -71,6 +73,10 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
   const slots = plane.broker.slotsFor({ refill: () => engineRef?.refill() });
 
   try {
+    if (activeProject().tracker === "local") {
+      const remote = { runner, fs, layout, integrationBase: integrationBase(), log };
+      for (const repo of new Set(model.items.map((item) => item.repo))) ensureLocalRemote(remote, repo);
+    }
     await assertPreflight({
       runner,
       fs,
@@ -78,6 +84,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       config,
       model,
       skipVerify: options.skipVerify === true,
+      ...(config.tracker === "local" ? { localStore: localIssueStore(activeProject()) } : {}),
       claudeHomeInUse: lease.shared,
       skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
       log,
@@ -86,6 +93,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     const context = new RunContext(model, {
       loadMemories: (slugs) => loadMemories(fs, layout, slugs),
       hubRepo: config.hubRepo,
+      tracker: config.tracker,
     });
     for (const item of model.items) context.memories(item.number);
 
@@ -124,8 +132,9 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       engine.tick(Date.now());
     };
 
+    const runReader = createRunReader(activeProject(), config.hubRepo);
     const watch = new WatchLoop({
-      fetchSnapshot: () => fetchRunSnapshot(config.hubRepo, model.parentNumber),
+      fetchSnapshot: () => runReader.fetchRunSnapshot(model.parentNumber),
       engine: {
         applySnapshot: (next) => {
           context.update(next);
@@ -177,6 +186,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           gh: bundle.gh,
           model: verifyModel,
           hubRepo: config.hubRepo,
+          tracker: config.tracker,
           rework: round,
           log,
           warn,
@@ -255,7 +265,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
         logs,
       });
       try {
-        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, log, warn });
+        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, tracker: config.tracker, log, warn });
       } catch (cause) {
         const reason = messageOf(cause);
         polishStatus = idlePolish("reverted", reason);
@@ -275,7 +285,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       slots.detach();
     };
 
-    return { engine, config, finished, featureVerify: () => verifyStatus, polish: () => polishStatus, logs, tick, stop };
+    return { engine, config, finished, featureVerify: () => verifyStatus, polish: () => polishStatus, logs, recheckAuth: () => plane.recheckAuth(), tick, stop };
   } catch (cause) {
     slots.detach();
     lease.release();

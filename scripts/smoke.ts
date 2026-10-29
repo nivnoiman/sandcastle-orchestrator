@@ -32,6 +32,7 @@ import { DEFAULT_STAGES } from "../src/project/stagesConfig.js";
 import { providerNamed, snapshotCredential, syncBackCredential } from "../src/real/agents/index.js";
 import { agentWaitFrom } from "../src/real/agentFailure.js";
 import { codexLogin, CODEX_FLAGS } from "../src/real/agents/codex.js";
+import { CURSOR_FLAGS } from "../src/real/agents/cursor.js";
 import { PROBE_PROMPT } from "../src/real/authProbe.js";
 import { messageOf } from "../src/messageOf.js";
 
@@ -101,6 +102,12 @@ const AGENT_HOME_CHECKS: Record<ProviderName, string[]> = {
     "codex exec --help > /tmp/codex-exec-help.txt",
     ...CODEX_FLAGS.map((flag) => `grep -q -- '${flag}' /tmp/codex-exec-help.txt`),
   ],
+  cursor: [
+    "test -w /home/agent/.claude && test ! -w /home/agent/.claude-host",
+    "cursor-agent --version",
+    "cursor-agent --help > /tmp/cursor-help.txt",
+    ...CURSOR_FLAGS.filter((flag) => flag.startsWith("--")).map((flag) => `grep -q -- '${flag}' /tmp/cursor-help.txt`),
+  ],
 };
 
 const codexApiKey = process.env["CODEX_API_KEY"] || process.env["OPENAI_API_KEY"] || undefined;
@@ -137,10 +144,12 @@ try {
 
   const env = containerEnv(
     {
+      tracker: "github",
       ghToken: "smoke-not-a-real-token",
       anthropicApiKey: undefined,
       claudeOauthToken: undefined,
       codexApiKey,
+      cursorApiKey: undefined,
       agents: { default: { provider: provider.name, model: undefined }, roles: {} },
       stages: DEFAULT_STAGES,
       model: "opus",

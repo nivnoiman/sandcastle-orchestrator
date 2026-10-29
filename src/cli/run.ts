@@ -1,14 +1,15 @@
 import { bootProject } from "../project/boot.js";
 import { dryRun } from "../engine/dryRunner.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
 import { startRealRun } from "../real/startRealRun.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
+import { parentFromArgs } from "./parentArg.js";
 import { epilogueLines, featureVerifyLines, polishLines, stallLine } from "./report.js";
 import { messageOf } from "../messageOf.js";
 
 const USAGE = [
-  "usage: sandcastle start <parent-issue> [owner/repo] [--cap=N] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--dry-run]",
+  "usage: sandcastle start <parent-issue | slug | path> [owner/repo] [--cap=N] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--dry-run]",
   "  --cap=N            concurrent workers (default 1)",
   "  --interval=N       parent-issue poll interval in seconds (default 45)",
   "  --idle-timeout=N   per-agent idle timeout in seconds (default SANDCASTLE_IDLE_TIMEOUT or 1200, clamped to [60, 7200])",
@@ -22,12 +23,7 @@ const args = process.argv.slice(2);
 const positional = args.filter((arg) => !arg.startsWith("--"));
 const [parentArg, repoArg] = positional;
 
-if (!parentArg || !/^\d+$/.test(parentArg)) {
-  console.error(USAGE);
-  process.exit(2);
-}
-
-const parentNumber = Number(parentArg);
+const parentNumber = parentFromArgs(project, parentArg, USAGE);
 const workerCap = flagNumber(args, "cap", 1);
 const intervalSeconds = flagNumber(args, "interval", 45);
 const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
@@ -37,7 +33,7 @@ const isDryRun = args.includes("--dry-run");
 const hubRepo = repoArg ?? project.hubRepo;
 
 function loadModel(snapshotRepo: string, issue: number): Promise<RunModel> {
-  return fetchRunSnapshot(snapshotRepo, issue).then((snapshot) => {
+  return createRunReader(project, snapshotRepo).fetchRunSnapshot(issue).then((snapshot) => {
     const result = loadRunModel(snapshot);
     if (result.ok) return result.model;
     throw new Error(`INVALID run model:\n  - ${result.errors.join("\n  - ")}`);

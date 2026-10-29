@@ -21,6 +21,9 @@ import {
   codexResetAt,
   isStaleCodexLogin,
 } from "../../src/real/agents/codex.js";
+import { classifyCursorOutput, cursorAuthEnv, cursorCommand, cursorHomeMounts, cursorHydrateCommand } from "../../src/real/agents/cursor.js";
+import { cursorProvider } from "../../src/real/agents/index.js";
+import { transcriptTurns } from "../../src/ui/board/transcript.js";
 import { ensureFreshLogin, REFRESH_GATE_RETRY_MS } from "../../src/real/authProbe.js";
 import { CommandFailure } from "../../src/real/commandRunner.js";
 import { buildPolishPrompt } from "../../src/real/promptBuilder.js";
@@ -126,6 +129,44 @@ describe("codex command and home", () => {
     expect(command).toContain("test -f /home/agent/.claude/skills/tdd/SKILL.md");
     expect(command).not.toContain(".credentials.json");
     expect(command).not.toContain("config.toml /home");
+  });
+});
+
+describe("cursor provider", () => {
+  it("runs cursor-agent headless with stream-json, prompt substituted from stdin, model only when configured", () => {
+    expect(cursorCommand(undefined)).toBe('cursor-agent -p --force --trust --output-format stream-json "$(cat)"');
+    expect(cursorCommand("gpt-5")).toContain('--model gpt-5 "$(cat)"');
+    expect(() => cursorCommand("x; rm -rf /")).toThrow(/unquotable model name/);
+  });
+
+  it("forwards only CURSOR_API_KEY, mounts only skills and commands, never another login", () => {
+    const layout = testLayout();
+    expect(cursorAuthEnv({ cursorApiKey: "key" })).toEqual({ CURSOR_API_KEY: "key" });
+    expect(cursorAuthEnv({ cursorApiKey: undefined })).toEqual({});
+    expect(cursorHomeMounts(layout).map((mount) => mount.hostPath)).toEqual([join(layout.claudeDir, "skills"), join(layout.claudeDir, "commands")]);
+    const env = containerEnv(testConfig({ cursorApiKey: "key", anthropicApiKey: "sk-ant" }), "/gitdir", cursorProvider);
+    expect(env["CURSOR_API_KEY"]).toBe("key");
+    expect(env["ANTHROPIC_API_KEY"]).toBeUndefined();
+    expect(cursorHydrateCommand()).toContain("test -f /home/agent/.claude/skills/tdd/SKILL.md");
+  });
+
+  it("classifies auth and rate-limit failures from the result event or stderr, ignoring tool output", () => {
+    const result = (text: string) => JSON.stringify({ type: "result", subtype: "error", is_error: true, result: text });
+    expect(classifyCursorOutput(result("Unauthorized: invalid API key"), "")?.reason).toBe("auth");
+    expect(classifyCursorOutput("", "ConnectError: [resource_exhausted] Error")?.reason).toBe("rate-limit");
+    expect(classifyCursorOutput(result("429 Too Many Requests"), "")?.reason).toBe("rate-limit");
+    const toolOutput = JSON.stringify({ type: "tool_call", subtype: "completed", tool_call: { readToolCall: { result: { success: { content: "rate limit 429 docs" } } } } });
+    expect(classifyCursorOutput(toolOutput, "")).toBeUndefined();
+  });
+
+  it("describes cursor tool_call events in the board transcript", () => {
+    const started = JSON.stringify({ type: "tool_call", subtype: "started", call_id: "c", tool_call: { readToolCall: { args: { path: "a.md" } } } });
+    const done = JSON.stringify({ type: "tool_call", subtype: "completed", call_id: "c", tool_call: { readToolCall: { args: { path: "a.md" }, result: { success: {} } } } });
+    expect(transcriptTurns(`${started}
+${done}`)).toEqual([
+      { kind: "tool", text: "→ read: a.md" },
+      { kind: "tool", text: "← read: a.md" },
+    ]);
   });
 });
 

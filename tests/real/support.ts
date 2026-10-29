@@ -24,10 +24,12 @@ export function testLayout(): SandcastleLayout {
 
 export function testConfig(overrides: Partial<OrchestratorConfig> = {}): OrchestratorConfig {
   return {
+    tracker: "github",
     ghToken: "gh-token",
     anthropicApiKey: undefined,
     claudeOauthToken: undefined,
     codexApiKey: undefined,
+    cursorApiKey: undefined,
     agents: DEFAULT_AGENTS,
     stages: DEFAULT_STAGES,
     model: "opus",

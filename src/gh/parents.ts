@@ -1,14 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import type { ParentSummary } from "../tracker/types.js";
+
 const exec = promisify(execFile);
 
-export interface ParentSummary {
-  number: number;
-  title: string;
-  subIssues: number;
-  completedSubIssues: number;
-}
+export type { ParentSummary } from "../tracker/types.js";
 
 const PARENTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {

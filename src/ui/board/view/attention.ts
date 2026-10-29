@@ -39,6 +39,10 @@ function safeHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : "#";
 }
 
+function mergeHint(merge: NonNullable<AttentionEntry["merge"]>): string {
+  return `<div class="merge-hint"><span class="chip">branch <b class="mono">${esc(merge.branch)}</b></span><code class="mono">${esc(merge.command)}</code><button${attrs({ type: "button", class: "btn sm", "data-act": "att-copy", "data-copy": merge.command, title: "Copy the merge command" })}>${icon("copy")}Copy</button></div>`;
+}
+
 function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const park = entry.park;
   if (!park) return "";
@@ -48,18 +52,59 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const since = park.since ? `<span class="chip">parked ${esc(formatClock(park.since, nowMs))} ago</span>` : "";
   const run = entry.runNumber === undefined ? "" : `<span class="chip">run #${entry.runNumber}</span>`;
   const pr = park.pullRequestUrl ? `<a class="chip link" href="${esc(safeHref(park.pullRequestUrl))}" target="_blank" rel="noreferrer">PR</a>` : "";
+  const issue = park.issueUrl ? `<a class="chip link" href="${esc(safeHref(park.issueUrl))}" target="_blank" rel="noreferrer">Issue</a>` : "";
+  const branch = entry.local && park.branch ? `<span class="chip">branch <b class="mono">${esc(park.branch)}</b></span>` : "";
+  const help = entry.local
+    ? "Re-queue clears the item's park state and restarts it. Until then its dependents stay blocked. Hold only hides this banner; the issue files are untouched."
+    : "Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.";
   return `<li class="alert red k-parked needs-human" data-key="${esc(entry.key)}">
       <div class="nh-head">${icon("alert")}<div class="nh-title">${esc(entry.title)}</div></div>
-      <div class="nh-meta">${stage}${run}${since}${pr}<a class="chip link" href="${esc(safeHref(park.issueUrl))}" target="_blank" rel="noreferrer">Issue</a></div>
+      <div class="nh-meta">${stage}${run}${since}${branch}${pr}${issue}</div>
       <div class="nh-label">Why it stopped</div>
       <pre class="nh-reason">${esc(park.reason)}</pre>
-      <p class="nh-help">Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.</p>
+      <p class="nh-help">${help}</p>
       <div class="acts">${actions}</div>
     </li>`;
 }
 
-function row(entry: AttentionEntry, currentId: string, nowMs: number): string {
+const AUTH_FIX: Record<string, string> = {
+  claude: "run <code>claude /login</code> in a terminal on this machine, or run <code>claude setup-token</code> and set <code>CLAUDE_CODE_OAUTH_TOKEN</code> in <code>.sandcastle/.env.orchestrator</code>",
+  codex: "run <code>codex login</code> in a terminal on this machine, or set <code>CODEX_API_KEY</code> in <code>.sandcastle/.env.orchestrator</code>",
+};
+
+function authFixSteps(providers: readonly string[]): string {
+  const fixes = providers.map((name) => `<li><b>${esc(name)}</b>: ${AUTH_FIX[name] ?? "log in again on this machine"}</li>`).join("");
+  return `<p class="nh-help">Fix, for each agent in use:</p><ul class="nh-help">${fixes}</ul><p class="nh-help">Then press the button; waiting items resume, parked ones are left alone.</p>`;
+}
+
+function authCard(ui: BoardUi, entry: AttentionEntry): string {
+  const auth = entry.auth;
+  const other = entry.projectId !== ui.currentId;
+  const checking = (auth?.running ?? false) || ui.busy.has(`recheck:${entry.projectId}`);
+  const recheck = entry.actions.find((action) => action.id === "recheck-auth");
+  const feed = entry.actions.find((action) => action.id === "feed");
+  const project = other ? `<span class="chip">${esc(entry.projectName)}</span>` : "";
+  const error = auth?.error
+    ? `<div class="nh-label">Last check failed</div><pre class="nh-reason" role="alert">${esc(auth.error)}</pre>`
+    : "";
+  const check = recheck
+    ? `<button${attrs({ type: "button", class: "btn sm primary", "data-act": "att-recheck-auth", "data-proj": entry.projectId, "data-run": recheck.runNumber, disabled: checking })}>${icon("retry")}${checking ? "Checking…" : esc(recheck.label)}</button>`
+    : "";
+  const goProject = other ? `<button type="button" class="btn sm ghost" data-act="select-project" data-proj="${esc(entry.projectId)}">Open project</button>` : "";
+  const feedButton = feed && !other ? actionButton(entry, feed, false) : "";
+  return `<li class="alert red k-auth-hold needs-human" data-key="${esc(entry.key)}">
+      <div class="nh-head">${icon("alert")}<div class="nh-title">Agent login expired - the Run is held</div>${project}</div>
+      <p class="nh-help">The agent credentials were rejected, so no new stages start. Sandcastle re-probes only about every 10 minutes.</p>
+      ${authFixSteps(auth?.providers ?? ["claude"])}
+      ${error}
+      <div class="acts">${feedButton}${goProject}${check}</div>
+    </li>`;
+}
+
+function row(ui: BoardUi, entry: AttentionEntry): string {
+  const { currentId, nowMs } = ui;
   const other = entry.projectId !== currentId;
+  if (entry.kind === "auth-hold") return authCard(ui, entry);
   if (entry.kind === "parked" && !other) return parkedCard(entry, nowMs);
   const lastIndex = entry.actions.length - 1;
   const detail =
@@ -75,6 +120,7 @@ function row(entry: AttentionEntry, currentId: string, nowMs: number): string {
       <div class="alert-text">
         <div class="what"${other ? ` data-project="${esc(entry.projectName)}"` : ""}>${esc(entry.title)}${entry.runNumber !== undefined && entry.kind === "parked" ? `<span class="where">run #${entry.runNumber}</span>` : ""}</div>
         <div class="why">${detail}</div>
+        ${entry.merge && !other ? mergeHint(entry.merge) : ""}
       </div>
       <div class="acts">${other ? goProject : actions}</div>
     </li>`;
@@ -97,7 +143,7 @@ export function renderAttention(ui: BoardUi, entries: readonly AttentionEntry[])
   const count = ui.scope === "dashboard" || others > 0 ? `${own} here${others > 0 ? ` · ${others} in other projects` : ""}` : `${own}`;
   return `<section class="attention" aria-labelledby="att-h">
     <header><h2 id="att-h">${icon("alert")}Needs attention <span class="count">${count}</span></h2>${notifyButton}</header>
-    <ul class="alerts">${entries.map((entry) => row(entry, ui.currentId, ui.nowMs)).join("")}</ul>
+    <ul class="alerts">${entries.map((entry) => row(ui, entry)).join("")}</ul>
     ${heldLine}
   </section>`;
 }

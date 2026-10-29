@@ -4,8 +4,7 @@ import type { StageName } from "../engine/adapters.js";
 import { stageNames } from "../engine/stageChain.js";
 import type { PendingStage } from "../engine/fakes.js";
 import { OperatorError } from "../engine/operatorError.js";
-import { fetchSandcastleParents, type ParentSummary } from "../gh/parents.js";
-import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { createRunReader, isRunSnapshot, localIssueStore, toParentSummary, type ParentSummary, type RunSnapshot } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { controlPlaneHost } from "../real/controlPlane.js";
@@ -14,7 +13,7 @@ import { nodeFileSystem } from "../real/fileSystem.js";
 import { processIsAlive } from "../real/lock.js";
 import { defaultLayout } from "../real/paths.js";
 import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
-import { parentList, UiController, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
+import { parentList, UiController, type NewLocalParent, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
 import { resolveUiPort, startUiServer } from "../ui/server.js";
 import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js";
 import { RunQueue } from "../ui/runQueue.js";
@@ -23,11 +22,12 @@ import type { RunMode } from "../ui/state.js";
 import { messageOf } from "../messageOf.js";
 import { createInstanceRegistry } from "../registry/index.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
+import { isParentHandle, parentFromArgs } from "./parentArg.js";
 
 const TICK_MS = 250;
 
 const USAGE = [
-  "usage: sandcastle ui [fixture.json | parent-issue] [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
+  "usage: sandcastle ui [fixture.json | parent-issue] [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>] [--auth-hold=<item>:<stage>]",
   "  <fixture.json>     paced dry run — no docker, no gh writes, no tokens",
   "  (no argument)      idle Project Server — real mode, pick the parent in the browser",
   "  <parent-issue>     real run against the hub (add --dry for a paced simulation of that parent)",
@@ -37,6 +37,7 @@ const USAGE = [
   "  --global-cap=N     workers across every parent (default --cap, or the saved global cap)",
   "  --port=N           ui port (default SANDCASTLE_UI_PORT, then ui.port in the project config, then 7777)",
   "  --fail=17:review   dry mode only — fail that item's stage once, so park/retry is demoable",
+  "  --auth-hold=17:develop  dry mode only — that stage hits a simulated auth Hold; the first re-check fails, the second passes",
 ].join("\n");
 
 const project = bootProject();
@@ -50,13 +51,14 @@ function isStageName(value: string): value is StageName {
   return chainNames.includes(value);
 }
 
-function injectedFailures(): Set<string> {
+function injectedStages(flag: "fail" | "auth-hold"): Set<string> {
   const keys = new Set<string>();
   for (const arg of args) {
-    if (!arg.startsWith("--fail=")) continue;
-    const [itemPart, stagePart] = arg.slice("--fail=".length).split(":");
+    const prefix = `--${flag}=`;
+    if (!arg.startsWith(prefix)) continue;
+    const [itemPart, stagePart] = arg.slice(prefix.length).split(":");
     if (!itemPart || !stagePart || !/^\d+$/.test(itemPart) || !isStageName(stagePart)) {
-      fail(`--fail must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
+      fail(`--${flag} must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
     }
     keys.add(`${itemPart}:${stagePart}`);
   }
@@ -71,8 +73,8 @@ if (idle && args.includes("--dry")) {
 }
 
 const hubRepo = repoArg ?? project.hubRepo;
-const fixture = !source || /^\d+$/.test(source) ? undefined : source;
-const namedParent = source && !fixture ? Number(source) : undefined;
+const fixture = !source || isParentHandle(project, source) ? undefined : source;
+const namedParent = source && !fixture ? parentFromArgs(project, source, USAGE) : undefined;
 const mode: RunMode = fixture || args.includes("--dry") ? "dry" : "real";
 const cap = flagNumber(args, "cap", 1);
 const parallelLimit = optionalFlagNumber(args, "parallel");
@@ -92,9 +94,11 @@ const pollIntervalSeconds = flagNumber(args, "interval", 45);
 const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
 const skipGc = args.includes("--skip-gc");
 const skipVerify = args.includes("--skip-verify");
-const pendingFailures = injectedFailures();
+const pendingFailures = injectedStages("fail");
+const pendingAuthHolds = injectedStages("auth-hold");
 
 if (pendingFailures.size > 0 && mode !== "dry") fail("--fail only applies to a dry run (add --dry or pass a fixture)");
+if (pendingAuthHolds.size > 0 && mode !== "dry") fail("--auth-hold only applies to a dry run (add --dry or pass a fixture)");
 
 async function readFixture(path: string): Promise<RunSnapshot> {
   const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -103,7 +107,7 @@ async function readFixture(path: string): Promise<RunSnapshot> {
 }
 
 async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
-  if (!fixture) return fetchRunSnapshot(hubRepo, parentNumber);
+  if (!fixture) return createRunReader(project, repoArg).fetchRunSnapshot(parentNumber);
   const snapshot = await readFixture(fixture);
   if (snapshot.parent.number !== parentNumber) {
     throw new Error(`fixture ${fixture} publishes parent #${snapshot.parent.number}, not #${parentNumber}`);
@@ -112,7 +116,7 @@ async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
 }
 
 async function listParents(): Promise<ParentSummary[]> {
-  if (!fixture) return fetchSandcastleParents(hubRepo);
+  if (!fixture) return createRunReader(project, repoArg).listParents();
   const snapshot = await readFixture(fixture);
   return [
     {
@@ -128,6 +132,10 @@ function failStage(pending: PendingStage): string | undefined {
   const key = `${pending.itemNumber}:${pending.stage}`;
   if (!pendingFailures.delete(key)) return undefined;
   return `injected failure — the ui was started with --fail=${key}`;
+}
+
+function authHoldStage(pending: PendingStage): boolean {
+  return pendingAuthHolds.delete(`${pending.itemNumber}:${pending.stage}`);
 }
 
 function envNumber(raw: string | undefined): number | undefined {
@@ -162,7 +170,7 @@ const host =
     : undefined;
 
 function startSession(request: StartSessionRequest) {
-  if (!host) return dryRunSession(request, { now: () => Date.now(), failStage });
+  if (!host) return dryRunSession(request, { now: () => Date.now(), failStage, authHoldStage });
   return realSession(request, {
     host,
     pollIntervalSeconds,
@@ -204,6 +212,10 @@ const reset: ResetOps | undefined =
 
 const controller = new UiController({
   mode,
+  tracker: project.tracker,
+  ...(project.tracker === "local"
+    ? { createParent: (input: NewLocalParent) => toParentSummary(localIssueStore(project).createParent(input)) }
+    : {}),
   hubRepo,
   startCap: cap,
   preselectedParent: namedParent,
@@ -218,7 +230,7 @@ const controller = new UiController({
 });
 
 const registry = createInstanceRegistry();
-const instance = { dir: project.projectRoot, name: project.name, mode, idle, pid: process.pid };
+const instance = { dir: project.projectRoot, name: project.name, mode, tracker: project.tracker, idle, pid: process.pid };
 
 const server = await startUiServer(controller, port, undefined, instance).catch((cause: unknown) => {
   return fail(messageOf(cause));

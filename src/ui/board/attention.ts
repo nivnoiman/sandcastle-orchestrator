@@ -1,6 +1,6 @@
-import { hubIssueUrl, runPullRequests, type BoardProject } from "./model.js";
+import { hubIssueUrl, isLocalProject, mergeCommand, runPullRequests, webUrl, type BoardProject } from "./model.js";
 import { formatQuiet } from "./format.js";
-import type { UiRun } from "../state.js";
+import type { UiAuthProbe, UiRun } from "../state.js";
 
 /** What a human needs to decide on a parked item: why, where, and the links to look at. */
 export interface ParkDetail {
@@ -10,6 +10,7 @@ export interface ParkDetail {
   since: string;
   issueUrl: string;
   pullRequestUrl: string | undefined;
+  branch: string | undefined;
 }
 
 /** Needs Attention kinds, in the fixed order they are listed. */
@@ -27,9 +28,15 @@ export const ATTENTION_KINDS = [
 
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
-export type AttentionTone = "red" | "amber" | "purple";
+export type AttentionTone = "red" | "amber" | "purple" | "info";
 
-export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart";
+export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart" | "recheck-auth";
+
+/** A finished local Run: the branch to take in, and the command that does it. */
+export interface MergeHint {
+  branch: string;
+  command: string;
+}
 
 export interface AttentionAction {
   id: AttentionActionId;
@@ -58,6 +65,11 @@ export interface AttentionEntry {
   until?: string;
   /** Set on parked entries. */
   park?: ParkDetail;
+  /** Set on a ready-for-merge entry of a local Project. */
+  merge?: MergeHint;
+  /** The Project uses the local Tracker. */
+  local?: true;
+  auth?: UiAuthProbe;
   actions: AttentionAction[];
 }
 
@@ -69,7 +81,7 @@ const TONES: Record<AttentionKind, AttentionTone> = {
   quiet: "amber",
   "polish-reverted": "red",
   "integration-ready": "purple",
-  "rate-hold": "amber",
+  "rate-hold": "info",
   "server-died": "red",
 };
 
@@ -89,9 +101,15 @@ function entry(project: BoardProject, input: EntryInput): AttentionEntry {
     rank: rankOf(input.kind),
     tone: TONES[input.kind],
     counted: input.kind !== "integration-ready" && input.kind !== "rate-hold",
+    ...(isLocalProject(project) ? { local: true as const } : {}),
     projectId: project.id,
     projectName: project.name,
   };
+}
+
+function openLink(pullRequestUrl: string | undefined, issueUrl: string | undefined): AttentionAction[] {
+  const href = pullRequestUrl ?? issueUrl;
+  return href ? [{ id: "open-link", label: pullRequestUrl ? "Open PR" : "Open issue", href }] : [];
 }
 
 function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
@@ -115,11 +133,12 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
             reason,
             since: item.phaseSince,
             issueUrl: item.issueUrl,
-            pullRequestUrl: item.pullRequestUrl,
+            pullRequestUrl: webUrl(item.pullRequestUrl),
+            branch: item.branch,
           },
           actions: [
             { id: "log", label: "Transcript", itemNumber: item.number, runNumber: number },
-            { id: "open-link", label: item.pullRequestUrl ? "Open PR" : "Open issue", href: item.pullRequestUrl ?? item.issueUrl },
+            ...openLink(webUrl(item.pullRequestUrl), webUrl(item.issueUrl)),
             { id: "comment", label: "Add comment", itemNumber: item.number, runNumber: number },
             { id: "hold", label: "Hold", itemNumber: item.number, runNumber: number },
             { id: "requeue", label: "Re-queue", itemNumber: item.number, runNumber: number },
@@ -190,7 +209,20 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
   return entries;
 }
 
-/** A parent whose sub-issues are all closed and whose Run (if any) finished verify and polish. */
+function localIntegrationEntry(project: BoardProject, parent: BoardProject["parents"][number], branch: string | undefined): AttentionEntry {
+  return entry(project, {
+    scope: String(parent.number),
+    kind: "integration-ready",
+    title: `#${parent.number} ${parent.title} is ready for your merge`,
+    detail: branch
+      ? `All ${parent.subIssues} items are merged into ${branch}; there is no pull request, merge the branch yourself.`
+      : `All ${parent.subIssues} items are merged into its integration branch; there is no pull request, merge the branch yourself.`,
+    runNumber: parent.number,
+    ...(branch ? { merge: { branch, command: mergeCommand(branch) } } : {}),
+    actions: [],
+  });
+}
+
 function integrationReadyEntries(project: BoardProject): AttentionEntry[] {
   const state = project.state;
   if (!state) return [];
@@ -199,6 +231,10 @@ function integrationReadyEntries(project: BoardProject): AttentionEntry[] {
     if (parent.subIssues === 0 || parent.completedSubIssues !== parent.subIssues) continue;
     const run = state.runs.find((candidate) => candidate.parent.number === parent.number);
     if (run && !runIsReadyForMerge(run)) continue;
+    if (isLocalProject(project)) {
+      entries.push(localIntegrationEntry(project, parent, run?.parent.integrationBranch ?? parent.integrationBranch));
+      continue;
+    }
     const prs = run ? runPullRequests(run) : [];
     entries.push(
       entry(project, {
@@ -225,14 +261,21 @@ function holdEntries(project: BoardProject): AttentionEntry[] {
   if (!state) return [];
   const holds = [state.hold, ...state.runs.map((run) => run.hold)].filter((hold) => hold !== undefined);
   const entries: AttentionEntry[] = [];
-  if (holds.some((hold) => hold.reason === "auth")) {
+  const authHold = holds.find((hold) => hold.reason === "auth");
+  if (authHold) {
+    const runNumber = state.runs.find((run) => run.hold?.reason === "auth")?.parent.number ?? state.parent?.number;
     entries.push(
       entry(project, {
         scope: "auth",
         kind: "auth-hold",
         title: "Held — agent credentials rejected",
-        detail: "No new stages start. Sandcastle re-probes the credentials every poll and resumes once they pass.",
-        actions: [{ id: "feed", label: "Feed" }],
+        detail: "No new stages start. Sandcastle re-probes the credentials every ~10 minutes and resumes once they pass.",
+        ...(runNumber === undefined ? {} : { runNumber }),
+        auth: { running: authHold.probe?.running ?? false, providers: authHold.probe?.providers ?? ["claude"], error: authHold.probe?.error },
+        actions: [
+          ...(runNumber === undefined ? [] : [{ id: "recheck-auth" as const, label: "I re-logged in, check now", runNumber }]),
+          { id: "feed", label: "Feed" },
+        ],
       }),
     );
   }

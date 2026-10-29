@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { RunSnapshot, WorkItemSnapshot } from "../gh/snapshot.js";
+import type { RunSnapshot, WorkItemSnapshot } from "../tracker/types.js";
 
 import { isKnownRepo, knownRepos } from "../project/projectConfig.js";
 import { messageOf } from "../messageOf.js";

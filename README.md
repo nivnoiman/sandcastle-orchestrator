@@ -6,6 +6,8 @@ You publish one **Orchestration Issue** whose native sub-issues are the work. Ea
 
 ![Board View: a run with items moving through develop, simplify, review and verify](docs/images/board-view.png)
 
+A Run held on rejected agent credentials shows an **auth Hold banner** at the top of the Board View and the Dashboard (and on the Project card): what happened, the fix per agent provider in use (claude: `claude /login`, or `claude setup-token` plus `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`; codex: `codex login`, or `CODEX_API_KEY`), and an **I re-logged in, check now** button. It runs the same probe as `sandcastle preflight` right away: on success the Hold lifts and waiting items resume (parked ones are left alone); on failure the Hold stays and the probe error shows under the banner. A rate-limit Hold only shows its `until` in a neutral info row and resumes itself.
+
 A parked item shows a **needs-human banner**: why it stopped, the stage, links to the issue and PR, and buttons to open the transcript, add a GitHub comment, hold, or re-queue (each confirms first). New parks also raise a toast, an optional desktop notification and a `(n)` count in the tab title.
 
 ![Needs-human banner on a parked item](docs/images/needs-human.jpg)
@@ -43,7 +45,7 @@ The hub repo (where issues live) and the code repos can be one repository or sev
 | Node.js 20.11+ and npm | |
 | Docker | Docker Desktop on Windows and macOS |
 | [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
-| An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
+| An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex) and/or [Cursor CLI](https://cursor.com/cli) (API key), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
 | Agent skills | Shipped in this repo, installed into `~/.claude` by `sandcastle init`, see [Agent skills](#agent-skills) |
 
 ## Quick start
@@ -58,19 +60,19 @@ npm run build-image                  # Docker image sandcastle:latest
 
 # 2. once per project, from its root
 cd ~/src/my-app
-sandcastle init                       # or: sandcastle init --hub=owner/name --port=7781
+sandcastle init                       # asks where issues live; or: sandcastle init --tracker=github --hub=owner/name --port=7781
 ```
 
 | Step | Result |
 |---|---|
 | `npm ci` | Dependencies |
 | `npm link` | A global `sandcastle` command |
-| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, pnpm, yarn, Playwright) |
+| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, cursor-agent, pnpm, yarn, Playwright) |
 | `init` | `.sandcastle/` in the project, and the shipped [agent skills](#agent-skills) installed into `~/.claude` |
 
-`init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
+`init` asks which [Tracker](#local-tracker) the project uses (`--tracker=local|github` skips the question; without a terminal it picks `github`) and writes `docs/agents/issue-tracker.md` naming it. For `github` it detects the hub repo (`gh repo view`, then the `origin` remote). With `local` there is no hub repo, no `gh` and no `GH_TOKEN`. It also detects the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
 
-3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator`, and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
+3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator` (not needed with the [local Tracker](#local-tracker)), and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
 4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`.
 5. Start the dashboard: `sandcastle dashboard --detach`
 6. Publish an Orchestration Issue (see [Publish contract](#publish-contract)), then ask your agent: **"run sandcastle on #N"**. The `sandcastle-run` skill (the Orchestrator Agent) starts the dashboard, validates, preflights, launches, opens the Board View, watches and reports.
@@ -153,15 +155,16 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 |---|---|---|---|
 | `claude` (default) | Claude Code | `~/.claude` login or `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` |
 | `codex` | OpenAI Codex CLI | `~/.codex/auth.json` from `codex login` (ChatGPT account) | `CODEX_API_KEY` (or `OPENAI_API_KEY`) |
+| `cursor` | Cursor CLI (`cursor-agent`) | none (API key only) | `CURSOR_API_KEY` |
 
 - Roles: `develop`, `simplify`, `review`, `resolve`, `feature-verify`, `feature-fix`, `polish`. Salvage runs under its stage's role.
 - A value is a provider name or `{ "provider": ..., "model": ... }`.
-- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex without a `model` uses its own default.
+- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex and Cursor without a `model` use their own default.
 - Skills are the same files for every provider (see [Agent skills](#agent-skills)). Claude invokes them as skills. Codex reads them by path and also finds them in `~/.agents/skills`. Codex has no `Skill` tool or subagents, so polish tells it to run the `/polish` passes itself, in order.
 - Auth holds and re-probes cover every provider in use. One rejected login holds new stages for the whole run.
 - `sandcastle smoke --agent=codex` checks the codex install, home and flags in a container. It makes a real call only when a Codex login or `CODEX_API_KEY` is present.
 
-> **Status:** `claude` is the tested path. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
+> **Status:** `claude` is the tested path. `cursor` follows the Cursor CLI docs but is unit-tested only: its flags, prompt-as-argument handling and error strings have not been run against a real account. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
 
 ### Stages
 
@@ -257,6 +260,25 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 
 `sandcastle validate` enforces all of it and names the offending issue for every violation: version `v1`, slug format, `required_reading` keys within the repos used, one known `repo:` label per item, sibling-only edges, no cycles.
 
+## Local tracker
+
+`tracker: "local"` runs the whole pipeline with no GitHub: no hub repo, no `gh`, no `GH_TOKEN`. Pick it with `sandcastle init --tracker=local`, or set `"tracker": "local"` in `config.json` (`hubRepo` and `repos.<name>.github` become optional).
+
+```
+.scratch/billing-export/issues/
+  00-parent.md        # the Orchestration Issue: a `sandcastle: v1` fence with `feature: billing-export`
+  01-csv-writer.md    # an item: frontmatter `repo: app`, optional `blocked-by: [01]`
+  02-endpoint.md
+```
+
+- Numbers: parents are 100, 200, ... and an item is its parent's number plus its file number, so `02-endpoint.md` of the first parent is `#102`. Everywhere a command takes a parent you can pass the number, `#100`, the feature slug (`billing-export`) or the path of a file in the folder.
+- `sandcastle validate billing-export` and `sandcastle preflight billing-export` check that every file parses and every item names a repo from the config.
+- Agents write their stage notes to `.sandcastle-pr.md` in their worktree (never committed) and commit to their branch; sandcastle pushes the branch, records a pull-request record under `.sandcastle/local-prs/`, and squash-merges each item into `integration/<feature>`.
+- A Run ends with that branch, not with pull requests. Needs Attention lists it with its name and a copyable `git merge origin/integration/<feature>`; merge it yourself from the base branch. The Board View's *New orchestration issue* button creates a parent file for you.
+- The engine writes only its own frontmatter keys (`state`, `stage`, `labels`, `merged`, `review`, `number`) and appends comments as sections; edit the files freely while a run is live.
+
+See [ADR 0004](docs/adr/0004-tracker-seam-and-local-tracker.md).
+
 ## Commands
 
 `<parent>` is the Orchestration Issue number. Every command except `init` accepts `--config=<path>`; from inside the project it is not needed. Inside a project, run a command without arguments to print its usage.
@@ -294,6 +316,7 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `sandcastle status [--parent=N] [--items]` | One run: phases, holds, waiting reasons, parks, feed, queue |
 | `sandcastle status --summary` | Queue, global slots, one line per run |
 | `sandcastle logs <item> [stage] [--bytes=N]` | Tail the newest recorded attempt for an item |
+| `sandcastle recheck-auth [--parent=N]` | After a re-login: probe the agent credentials now and lift the auth Hold if they work |
 | `sandcastle resume-parked [--parent=N] [--only=<text>]` | Retry every parked item whose reason contains `<text>` |
 | `sandcastle resolve-conflict <item> [--parent=N]` | Retry one parked item. The gate re-runs and may resolve it with an agent. |
 | `sandcastle finish [--parent=N]` | Assert the run is complete and print its integration pull requests |
@@ -343,6 +366,7 @@ Log in every provider you use in `agents`, one way each:
 | claude | API key | Set `ANTHROPIC_API_KEY` in `.sandcastle/.env.orchestrator`. | Anthropic API usage |
 | codex | Host login | Run `codex login` on the host (set `cli_auth_credentials_store = "file"` in `~/.codex/config.toml` if your OS keyring holds it). `~/.codex/auth.json` is mounted read-only and copied into each container. `SANDCASTLE_CODEX_HOME` points elsewhere. | Your ChatGPT subscription |
 | codex | API key | Set `CODEX_API_KEY` (or `OPENAI_API_KEY`) in `.sandcastle/.env.orchestrator`. | OpenAI API usage |
+| cursor | API key | Set `CURSOR_API_KEY` in `.sandcastle/.env.orchestrator`. | Cursor plan usage |
 
 With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach every provider in use with whichever login is configured.
 
@@ -353,7 +377,7 @@ With a subscription, a spent usage window shows items as **waiting**; they resum
 - **Run CI on the integration branch from the start.** Per-item verify only proves each item on its own. Land the CI workflow first (give `GH_TOKEN` the `workflow` scope, or an agent cannot push `.github/workflows`) and require it on pull requests into `integration/<feature>`. Otherwise settings that only break the assembled feature, like a server default that rejects long signed links, surface at Feature Verify or later.
 - **Pin server limits in tests.** Test the longest legal token or path and an empty body with a JSON content type, so behavior never depends on framework defaults.
 - **Do not write to the shared `.git` while stages run.** `git worktree add -b`, `git branch` and `git push -u` add `branch.*` entries to `.git/config`, and the git guard parks the running item as "changed config under .git". Work in a separate clone, and push without `-u`.
-- **After a login or token fix, wait for the next probe.** The auth Hold re-probes every 10 minutes, so it can outlast a working login by up to that long. `sandcastle preflight` shows the real state right away.
+- **After a login or token fix, press the banner button or run `sandcastle recheck-auth`.** The auth Hold re-probes on its own only every 10 minutes, so it can outlast a working login by up to that long. The button and `recheck-auth` probe at once and lift the Hold on success.
 - **Network blips park items.** A stage that fails on a registry timeout (for example corepack fetching pnpm) is safe to retry with `resume-parked --only="<stage> stage failed"`.
 - **Pin the package manager version in the repo.** The image runs `pnpm@latest` for itself, but the project uses the version in `packageManager`. Bump it on purpose, with a lockfile refresh and any build-script allow list the new major needs, not mid-run.
 
@@ -374,6 +398,8 @@ Agents run their CLI with every approval and CLI sandbox switched off inside the
 ## Agent skills
 
 The stage prompts and the Orchestrator Agent invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. They ship in this repo and `sandcastle init` installs them; preflight checks them with `sandcastle skills install --check` and names the fix.
+
+> **Status:** only Claude Code has been tested in a real setup. The skills install into `~/.claude` only. Running the Orchestrator Agent from Codex or Cursor is untested, and a provider choice at install time is [only planned](docs/plans/skill-provider-install.md).
 
 | Source in this repo | Installed to | Used by |
 |---|---|---|

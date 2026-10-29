@@ -2,7 +2,7 @@ import { fencedBlock } from "../../markdown.js";
 import type { RunModel, TargetRepo } from "../../model/runModel.js";
 import { hubIssueUrl, type FeatureVerifyPullRequests, type PullRequestRef } from "../ghClient.js";
 import { buildFeatureVerifyPrompt } from "../promptBuilder.js";
-import { integrationBase } from "../../project/projectConfig.js";
+import { integrationBase, type TrackerKind } from "../../project/projectConfig.js";
 import type { ComposeFacts, ComposeService, VerifyHarness } from "./composeHarness.js";
 import { FEATURE_PARKED_SENTINEL, featureReworkSection, featureReworkStory, type FeatureRound } from "./featureBrief.js";
 import {
@@ -46,6 +46,7 @@ export interface FeatureVerifyDeps {
   gh: FeatureVerifyGh;
   model: RunModel;
   hubRepo: string;
+  tracker?: TrackerKind | undefined;
   rework?: FeatureRound | undefined;
   log: (message: string) => void;
   warn: (itemNumber: number, message: string) => void;
@@ -76,6 +77,7 @@ export function reportSection(report: string | undefined): string[] {
 export interface FeaturePullRequestBodyInput {
   model: RunModel;
   hubRepo: string;
+  tracker?: TrackerKind | undefined;
   environment?: string | undefined;
   outcome: VerifyOutcome;
   report: string;
@@ -87,7 +89,9 @@ export function featurePullRequestBody(input: FeaturePullRequestBodyInput): stri
   return [
     "## What changed",
     `The "${model.feature}" feature — ${model.items.length} Work Item(s) merged into \`${model.integrationBranch}\` through sandcastle's per-item verify gate.`,
-    `Parent orchestration issue: ${hubIssueUrl(input.hubRepo, model.parentNumber)}`,
+    input.tracker === "local"
+      ? `Orchestration Issue: #${model.parentNumber} (${model.title}) — local, under .scratch/`
+      : `Parent orchestration issue: ${hubIssueUrl(input.hubRepo, model.parentNumber)}`,
     "",
     "## How tested",
     `Feature Verify ran once against ${input.environment ?? "a throwaway environment"}.`,
@@ -107,7 +111,9 @@ export function featurePullRequestBody(input: FeaturePullRequestBodyInput): stri
     requiresStgChecklist(input.report),
     "",
     "---",
-    `A human merges this pull request. sandcastle never merges into \`${integrationBase()}\`.`,
+    input.tracker === "local"
+      ? `The Operator merges this integration branch into \`${integrationBase()}\` (\`git merge origin/${model.integrationBranch}\`). sandcastle never merges into \`${integrationBase()}\`.`
+      : `A human merges this pull request. sandcastle never merges into \`${integrationBase()}\`.`,
   ].join("\n");
 }
 
@@ -121,6 +127,7 @@ export function requiresStgChecklist(report: string): string {
 interface VerifyCommentOptions {
   model: RunModel;
   hubRepo: string;
+  tracker?: TrackerKind | undefined;
   environment?: string | undefined;
   outcome: VerifyOutcome;
   report: string | undefined;
@@ -135,18 +142,22 @@ function verdictTail(options: VerifyCommentOptions): string[] {
   const { model, outcome } = options;
   if (outcome.verdict === "green") {
     return [
-      `### Integration → ${integrationBase()} pull requests`,
+      options.tracker === "local" ? `### Integration branch → ${integrationBase()}` : `### Integration → ${integrationBase()} pull requests`,
       ...(options.pullRequests.length > 0
         ? options.pullRequests.map((url) => `- ${url}`)
-        : ["_none opened — see the warnings below_"]),
+        : [options.tracker === "local" ? "_no integration branch recorded — see the warnings below_" : "_none opened — see the warnings below_"]),
       ...options.prFailures.map((failure) => `- :warning: ${failure}`),
       "",
-      "A human merges those pull requests. sandcastle stops here.",
+      options.tracker === "local"
+        ? `The Operator merges ${model.integrationBranch} into ${integrationBase()}. sandcastle stops here.`
+        : "A human merges those pull requests. sandcastle stops here.",
     ];
   }
   if (options.sendBack) return [featureReworkSection(options.sendBack.round, options.sendBack.story)];
   return [
-    `This run is parked for human triage: the parent carries \`${PARK_LABEL}\` + \`${HUMAN_LABEL}\` and no \`${model.integrationBranch}\` → \`${integrationBase()}\` pull request was opened.`,
+    options.tracker === "local"
+      ? `This run is parked for human triage: the parent carries \`${PARK_LABEL}\` + \`${HUMAN_LABEL}\` and \`${model.integrationBranch}\` was not recorded as ready to merge into \`${integrationBase()}\`.`
+      : `This run is parked for human triage: the parent carries \`${PARK_LABEL}\` + \`${HUMAN_LABEL}\` and no \`${model.integrationBranch}\` → \`${integrationBase()}\` pull request was opened.`,
     parkWhy(outcome, options.roundsUsed ?? 0),
     FEATURE_PARKED_SENTINEL,
   ];
@@ -250,7 +261,7 @@ function openIntegrationPullRequest(
     branch: deps.model.integrationBranch,
     baseBranch: integrationBase(),
     title: featurePullRequestTitle(deps.model),
-    body: featurePullRequestBody({ model: deps.model, hubRepo: deps.hubRepo, environment, outcome, report, services }),
+    body: featurePullRequestBody({ model: deps.model, hubRepo: deps.hubRepo, tracker: deps.tracker, environment, outcome, report, services }),
   });
 }
 
@@ -311,7 +322,7 @@ export async function runFeatureVerify(deps: FeatureVerifyDeps): Promise<Feature
   try {
     deps.gh.comment(
       model.parentNumber,
-      verifyComment({ model, hubRepo: deps.hubRepo, environment, outcome, report, services, pullRequests, prFailures, sendBack, roundsUsed }),
+      verifyComment({ model, hubRepo: deps.hubRepo, tracker: deps.tracker, environment, outcome, report, services, pullRequests, prFailures, sendBack, roundsUsed }),
     );
   } catch (cause) {
     deps.warn(model.parentNumber, `feature verify report could not be posted: ${messageOf(cause)}`);

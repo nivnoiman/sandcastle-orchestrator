@@ -1,12 +1,14 @@
 import type { ResolveRequest, SpawnRequest } from "../engine/adapters.js";
 import { itemBranch } from "../engine/engine.js";
 import type { RunModel, TargetRepo, WorkItem } from "../model/runModel.js";
+import type { TrackerKind } from "../project/projectConfig.js";
 import type { ResolvedMemory } from "./memories.js";
 import type { ResolvePromptContext, StagePromptContext } from "./promptBuilder.js";
 
 export interface RunContextDeps {
   loadMemories: (slugs: readonly string[]) => ResolvedMemory[];
   hubRepo: string;
+  tracker?: TrackerKind;
 }
 
 export interface ItemLocation {
@@ -90,6 +92,7 @@ export class RunContext {
       requiredReading: this.requiredReading(item.repo),
       memories: this.memories(request.itemNumber),
       hubRepo: this.deps.hubRepo,
+      ...(this.deps.tracker ? { tracker: this.deps.tracker } : {}),
       parentNumber: this.model.parentNumber,
       feature: this.model.feature,
     };

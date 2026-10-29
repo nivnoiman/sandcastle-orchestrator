@@ -1,4 +1,4 @@
-import type { RunSnapshot } from "../gh/snapshot.js";
+import type { RunSnapshot } from "../tracker/types.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
 
 export interface SnapshotSink {

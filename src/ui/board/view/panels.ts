@@ -1,7 +1,7 @@
 import type { UiFeedLine, UiState } from "../../state.js";
 import { esc, feedTime } from "../format.js";
-import { PARENT_GROUPS, parentGroup, parentMatches, type BoardProject, type ParentOption } from "../model.js";
-import { attrs, button, tag } from "./html.js";
+import { isLocalProject, PARENT_GROUPS, parentGroup, parentMatches, type BoardProject, type ParentOption } from "../model.js";
+import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import type { BoardUi } from "./ui.js";
 
@@ -52,7 +52,7 @@ export function parentPicker(ui: BoardUi, project: BoardProject, uid: string): {
   }).join("");
   const empty =
     matched.length === 0
-      ? `<option value="" disabled>${project.parents.length === 0 ? "no open sandcastle parents" : `no parent matches "${esc(query.trim())}" — ${project.parents.length - shown.length} hidden`}</option>`
+      ? `<option value="" disabled>${project.parents.length === 0 ? (isLocalProject(project) ? "no open parents under .scratch/" : "no open sandcastle parents") : `no parent matches "${esc(query.trim())}" — ${project.parents.length - shown.length} hidden`}</option>`
       : "";
   const html = `<div class="row picker">
       <label class="visually-hidden" for="parent-filter-${uid}">Filter Orchestration Issues</label>
@@ -77,7 +77,7 @@ export function renderStartForm(ui: BoardUi, project: BoardProject, uid: string)
       <div class="row">
         ${button({ label: starting ? "Starting…" : "Start now", icon: "play", cls: "primary", disabled: !state.canStart || !hasChoice || starting, data: { "data-act": "start-now", "data-proj": project.id, "data-parent": picker.chosen } })}
         ${button({ label: state.canStart ? "Queue after" : "Queue next", icon: "plus", disabled: !hasChoice, data: { "data-act": "queue-next", "data-proj": project.id, "data-parent": picker.chosen } })}
-        ${button({ label: "Add orchestration issue…", cls: "ghost", data: { "data-act": "open-add", "data-proj": project.id } })}
+        ${button({ label: isLocalProject(project) ? "New orchestration issue…" : "Add orchestration issue…", cls: "ghost", data: { "data-act": "open-add", "data-proj": project.id } })}
       </div>
       ${state.canStart ? "" : `<p class="hint">${icon("clock")}Starting is unavailable while another run holds the slot; queue it instead.</p>`}
     </div>`;
@@ -103,7 +103,7 @@ function queueList(project: BoardProject, state: UiState): string {
     .map((number, index) => {
       const { title, sub } = queueTitle(project, number);
       const data = { "data-proj": project.id, "data-n": number, "data-index": index };
-      return `<li><span class="pos">${index + 1}</span><span class="q-t"><a href="https://github.com/${esc(state.hubRepo)}/issues/${number}" target="_blank" rel="noreferrer">#${number}</a>${esc(title)}<span class="q-s">${esc(sub)}</span></span>
+      return `<li><span class="pos">${index + 1}</span><span class="q-t">${issueLink(state.tracker === "local" ? undefined : `https://github.com/${state.hubRepo}/issues/${number}`, `#${number}`)}${esc(title)}<span class="q-s">${esc(sub)}</span></span>
         <span class="q-acts">
           ${button({ label: "", cls: "sm ghost icon", icon: "up", ariaLabel: `Run #${number} earlier`, disabled: index === 0, data: { "data-act": "queue-up", ...data } })}
           ${button({ label: "", cls: "sm ghost icon", icon: "down", ariaLabel: `Run #${number} later`, disabled: index === state.queue.length - 1, data: { "data-act": "queue-down", ...data } })}

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { agentDetail, AgentWaitError, jsonLines } from "../agentFailure.js";
+import { agentDetail, AgentWaitError, jsonLines, plainStderrOf, stringField } from "../agentFailure.js";
 import type { Mount } from "../docker.js";
 import type { OrchestratorConfig } from "../env.js";
 import { codexDirOf, CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
@@ -55,12 +55,6 @@ export function codexAuthEnv(config: Pick<OrchestratorConfig, "codexApiKey">): R
   return config.codexApiKey ? { CODEX_API_KEY: config.codexApiKey } : {};
 }
 
-function stringField(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" ? field : undefined;
-}
-
 /** Codex prints failures as JSON on stdout (`error`, `turn.failed`, an `error` item); tool output is never scanned. */
 export function codexErrorMessages(stdout: string, stderr: string): string[] {
   const messages: string[] = [];
@@ -72,10 +66,7 @@ export function codexErrorMessages(stdout: string, stderr: string): string[] {
       messages.push(stringField(event["item"], "message") ?? "");
     }
   }
-  const plainStderr = stderr
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("{"))
-    .join("\n");
+  const plainStderr = plainStderrOf(stderr);
   if (plainStderr.trim()) messages.push(plainStderr);
   return messages.filter((message) => message.trim().length > 0);
 }

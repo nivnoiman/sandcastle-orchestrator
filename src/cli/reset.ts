@@ -1,28 +1,26 @@
 import { bootProject } from "../project/boot.js";
 import { OperatorError } from "../engine/operatorError.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { nodeFileSystem } from "../real/fileSystem.js";
 import { processIsAlive } from "../real/lock.js";
 import { defaultLayout } from "../real/paths.js";
 import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
+import { parentFromArgs } from "./parentArg.js";
 
 const project = bootProject();
 const args = process.argv.slice(2);
 const apply = args.includes("--apply");
 const [issueArg, repoArg] = args.filter((arg) => !arg.startsWith("--"));
 
-if (!issueArg || !/^\d+$/.test(issueArg)) {
-  console.error("usage: sandcastle reset <parent-issue-number> [owner/repo] [--apply]");
-  process.exit(2);
-}
+const parentNumber = parentFromArgs(project, issueArg, "usage: sandcastle reset <parent-issue-number | slug | path> [owner/repo] [--apply]");
 
 const hubRepo = repoArg ?? project.hubRepo;
-const snapshot = await fetchRunSnapshot(hubRepo, Number(issueArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(parentNumber);
 const result = loadRunModel(snapshot);
 if (!result.ok) {
-  console.error(`INVALID — #${issueArg} does not satisfy the publish contract, so reset cannot tell which items are its own:`);
+  console.error(`INVALID — #${parentNumber} does not satisfy the publish contract, so reset cannot tell which items are its own:`);
   for (const error of result.errors) console.error(`  - ${error}`);
   process.exit(1);
 }

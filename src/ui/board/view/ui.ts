@@ -25,7 +25,7 @@ export type DrawerState =
       loaded: boolean;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
-  | { kind: "add"; projectId: string; text: string; busy: boolean; result: string | undefined };
+  | { kind: "add"; projectId: string; title: string; text: string; busy: boolean; result: string | undefined };
 
 export interface SwitcherState {
   query: string;

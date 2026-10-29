@@ -20,6 +20,7 @@ function subline(project: BoardProject): string {
   if (project.status === "died") return "died unexpectedly";
   if (project.status === "stopped") return "stopped";
   if (!project.state) return project.connected ? "loading…" : "unreachable";
+  if (project.state.hold?.reason === "auth") return "held - agent login expired";
   if (project.idle && project.state.runs.length === 0) return "idle — pick an Orchestration Issue";
   const runs = project.state.runs.length;
   const working = projectWorking(project);

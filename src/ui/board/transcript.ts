@@ -46,8 +46,28 @@ function describeCodexEvent(event: Json): Turn | undefined {
   return undefined;
 }
 
+function cursorToolText(toolCall: unknown): string {
+  if (!isRecord(toolCall)) return "";
+  const [kind, body] = Object.entries(toolCall)[0] ?? [];
+  if (kind === undefined) return "";
+  const args = isRecord(body) && isRecord(body["args"]) ? body["args"] : isRecord(body) ? body : {};
+  const target = args["path"] ?? args["command"] ?? args["pattern"] ?? args["arguments"];
+  const name = isRecord(body) && typeof body["name"] === "string" ? body["name"] : kind.replace(/ToolCall$/, "");
+  return `${name}: ${firstLine(target ?? args)}`;
+}
+
+function describeCursorToolCall(event: Json): Turn | undefined {
+  if (event["subtype"] === "started") return { kind: "tool", text: `→ ${cursorToolText(event["tool_call"])}` };
+  if (event["subtype"] !== "completed") return undefined;
+  const call = isRecord(event["tool_call"]) ? Object.values(event["tool_call"])[0] : undefined;
+  const result = isRecord(call) && isRecord(call["result"]) ? call["result"] : {};
+  const failed = result["error"] !== undefined || result["failure"] !== undefined;
+  return { kind: failed ? "err" : "tool", text: `← ${cursorToolText(event["tool_call"])}` };
+}
+
 function describeEvent(event: Json): Turn | undefined {
   const type = event["type"];
+  if (type === "tool_call") return describeCursorToolCall(event);
   if (typeof type === "string" && /^(thread|turn|item)\.|^error$/.test(type)) return describeCodexEvent(event);
   if (type === "system") return { kind: "meta", text: `system: ${textOf(event["subtype"])} ${textOf(event["model"])}`.trim() };
   if (type === "rate_limit_event") {
@@ -74,7 +94,7 @@ function describeEvent(event: Json): Turn | undefined {
   return { kind: first.kind, text: parts.map((part) => part.text).join("\n") };
 }
 
-/** Agent transcript (claude or codex JSON lines) as readable turns; non-JSON lines pass through as meta. */
+/** Agent transcript (claude, codex or cursor JSON lines) as readable turns; non-JSON lines pass through as meta. */
 export function transcriptTurns(text: string): Turn[] {
   const turns: Turn[] = [];
   for (const line of text.split("\n")) {

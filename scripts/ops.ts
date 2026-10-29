@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
-import { fetchRunSnapshot } from "../src/gh/snapshot.js";
+import { createRunReader, localIssueStore } from "../src/tracker/index.js";
+import { isParentHandle, resolveParentHandle } from "../src/cli/parentArg.js";
 import { loadRunModel, type RunModel } from "../src/model/runModel.js";
 import { NodeCommandRunner } from "../src/real/commandRunner.js";
 import { bootProject } from "../src/project/boot.js";
@@ -32,6 +33,7 @@ const USAGE = [
   "  status [--parent=N] [--items]      one run: phases, holds, waiting reasons, parks, its feed and the queue",
   "  status --summary                   queue, global slots and one line per run (also what status prints when it cannot pick one run)",
   "  queue                              queue settings, the queued parents and the runs on the control plane",
+  "  recheck-auth [--parent=N]          after the Operator re-logged in: probe the agent credentials now and lift the auth Hold if they work",
   "  resume-parked [--parent=N] [--only=<text>]  retry every parked item whose reason contains <text> (default: all)",
   "  resolve-conflict <item> [--parent=N]        retry one parked item — the gate re-runs and may resolve it with an agent",
   "  logs <item> [stage] [--bytes=N]    tail the newest recorded attempt for that item",
@@ -62,7 +64,12 @@ function flagNumber(name: string, fallback: number): number {
 }
 
 function issueNumber(raw: string | undefined): number | undefined {
-  return raw !== undefined && /^#?\d+$/.test(raw) ? Number(raw.replace("#", "")) : undefined;
+  if (raw === undefined || !isParentHandle(project, raw)) return undefined;
+  try {
+    return resolveParentHandle(project, raw);
+  } catch {
+    return undefined;
+  }
 }
 
 function parentFlag(): number | undefined {
@@ -163,7 +170,7 @@ async function applyQueueFlags(): Promise<Record<string, unknown>> {
 }
 
 async function runModelOf(parentNumber: number): Promise<RunModel> {
-  const result = loadRunModel(await fetchRunSnapshot(hubRepo, parentNumber));
+  const result = loadRunModel(await createRunReader(project, flag("repo")).fetchRunSnapshot(parentNumber));
   if (!result.ok) die(`#${parentNumber} does not satisfy the publish contract`, { errors: result.errors });
   return result.model;
 }
@@ -179,6 +186,7 @@ async function preflight(): Promise<void> {
     config: loadOrchestratorConfig(fs, layout, { hubRepo }),
     model: await runModelOf(parentNumber),
     skipVerify: args.includes("--skip-verify"),
+    ...(project.tracker === "local" ? { localStore: localIssueStore(project) } : {}),
     skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
   });
   print({ ok: report.failures.length === 0, parent: parentNumber, checks: report.checks });
@@ -291,6 +299,22 @@ async function queue(): Promise<void> {
   print(queueReport(await api<UiState>("/api/state")));
 }
 
+async function recheckAuth(): Promise<void> {
+  const state = await api<UiState>("/api/state");
+  const held = state.runs.filter((run) => run.hold?.reason === "auth").map((run) => run.parent.number);
+  const parent = parentFlag() ?? (held.length === 1 ? held[0] : undefined);
+  if (parent === undefined) {
+    die(held.length === 0 ? "no run is held on agent credentials - nothing to re-check" : `several runs are held on agent credentials (${held.map((n) => `#${n}`).join(", ")}) - pass --parent=N`);
+  }
+  const { result } = await api<{ result: { ok: boolean; error?: string } }>(`/api/runs/${parent}/auth/recheck`, { method: "POST" });
+  print({
+    ok: result.ok,
+    parent,
+    ...(result.ok ? { note: "agent credentials work - the auth Hold is lifted and waiting items resume" } : { error: result.error, note: "still rejected - the hold stays; log in again (claude /login on this machine) and re-run recheck-auth" }),
+  });
+  if (!result.ok) process.exit(1);
+}
+
 async function resumeParked(): Promise<void> {
   const state = await api<UiState>("/api/state");
   const parent = parentFlag();
@@ -369,6 +393,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   pause: () => holdStarts("pause"),
   resume: () => holdStarts("resume"),
   stop,
+  "recheck-auth": recheckAuth,
   "resume-parked": resumeParked,
   "resolve-conflict": resolveConflict,
   logs,
