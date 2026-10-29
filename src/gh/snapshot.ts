@@ -1,33 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { messageOf } from "../messageOf.js";
+import type { IssueSnapshot, RunSnapshot } from "../tracker/types.js";
 
 const exec = promisify(execFile);
 const DEPENDENCIES_UNAVAILABLE = /HTTP 404|HTTP 410|Not Found/i;
 
-export interface IssueSnapshot {
-  number: number;
-  title: string;
-  state: "OPEN" | "CLOSED";
-  labels: string[];
-  body: string;
-}
-
-export interface WorkItemSnapshot extends IssueSnapshot {
-  blockedBy: number[] | null;
-}
-
-export interface RunSnapshot {
-  repo: string;
-  parent: IssueSnapshot;
-  subIssues: WorkItemSnapshot[];
-}
-
-export function isRunSnapshot(value: unknown): value is RunSnapshot {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate["parent"] === "object" && Array.isArray(candidate["subIssues"]);
-}
+export type { IssueSnapshot, RunSnapshot, WorkItemSnapshot } from "../tracker/types.js";
+export { isRunSnapshot } from "../tracker/types.js";
 
 const SUB_ISSUES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {

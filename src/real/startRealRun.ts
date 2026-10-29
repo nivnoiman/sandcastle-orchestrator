@@ -1,6 +1,6 @@
 import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import type { RunModel } from "../model/runModel.js";
 import { integrationBase } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
@@ -125,7 +125,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     };
 
     const watch = new WatchLoop({
-      fetchSnapshot: () => fetchRunSnapshot(config.hubRepo, model.parentNumber),
+      fetchSnapshot: () => createRunReader(config.hubRepo).fetchRunSnapshot(model.parentNumber),
       engine: {
         applySnapshot: (next) => {
           context.update(next);

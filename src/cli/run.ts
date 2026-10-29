@@ -1,6 +1,6 @@
 import { bootProject } from "../project/boot.js";
 import { dryRun } from "../engine/dryRunner.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
 import { startRealRun } from "../real/startRealRun.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
@@ -37,7 +37,7 @@ const isDryRun = args.includes("--dry-run");
 const hubRepo = repoArg ?? project.hubRepo;
 
 function loadModel(snapshotRepo: string, issue: number): Promise<RunModel> {
-  return fetchRunSnapshot(snapshotRepo, issue).then((snapshot) => {
+  return createRunReader(snapshotRepo).fetchRunSnapshot(issue).then((snapshot) => {
     const result = loadRunModel(snapshot);
     if (result.ok) return result.model;
     throw new Error(`INVALID run model:\n  - ${result.errors.join("\n  - ")}`);

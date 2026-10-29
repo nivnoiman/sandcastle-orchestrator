@@ -4,8 +4,7 @@ import type { StageName } from "../engine/adapters.js";
 import { stageNames } from "../engine/stageChain.js";
 import type { PendingStage } from "../engine/fakes.js";
 import { OperatorError } from "../engine/operatorError.js";
-import { fetchSandcastleParents, type ParentSummary } from "../gh/parents.js";
-import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { createRunReader, isRunSnapshot, type ParentSummary, type RunSnapshot } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { controlPlaneHost } from "../real/controlPlane.js";
@@ -103,7 +102,7 @@ async function readFixture(path: string): Promise<RunSnapshot> {
 }
 
 async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
-  if (!fixture) return fetchRunSnapshot(hubRepo, parentNumber);
+  if (!fixture) return createRunReader(hubRepo).fetchRunSnapshot(parentNumber);
   const snapshot = await readFixture(fixture);
   if (snapshot.parent.number !== parentNumber) {
     throw new Error(`fixture ${fixture} publishes parent #${snapshot.parent.number}, not #${parentNumber}`);
@@ -112,7 +111,7 @@ async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
 }
 
 async function listParents(): Promise<ParentSummary[]> {
-  if (!fixture) return fetchSandcastleParents(hubRepo);
+  if (!fixture) return createRunReader(hubRepo).listParents();
   const snapshot = await readFixture(fixture);
   return [
     {

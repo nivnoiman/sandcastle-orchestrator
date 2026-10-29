@@ -1,6 +1,6 @@
 import { bootProject } from "../project/boot.js";
 import { OperatorError } from "../engine/operatorError.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { nodeFileSystem } from "../real/fileSystem.js";
@@ -19,7 +19,7 @@ if (!issueArg || !/^\d+$/.test(issueArg)) {
 }
 
 const hubRepo = repoArg ?? project.hubRepo;
-const snapshot = await fetchRunSnapshot(hubRepo, Number(issueArg));
+const snapshot = await createRunReader(hubRepo).fetchRunSnapshot(Number(issueArg));
 const result = loadRunModel(snapshot);
 if (!result.ok) {
   console.error(`INVALID — #${issueArg} does not satisfy the publish contract, so reset cannot tell which items are its own:`);
