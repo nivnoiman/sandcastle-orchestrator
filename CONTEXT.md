@@ -42,8 +42,16 @@ _Avoid_: Old UI, classic view
 
 ### Work
 
+**Tracker**:
+Where a Project's Orchestration Issues and Items live and where the engine records their state: `github` (hub repo issues, labels, comments) or `local`.
+_Avoid_: Backend, issue source
+
+**Local Tracker**:
+The `local` Tracker: issues are files under `.scratch/<slug>/issues/` in the hub repo, engine state lives in their frontmatter, and a Run ends with an integration branch instead of pull requests.
+_Avoid_: Offline mode, file mode
+
 **Orchestration Issue**:
-The parent GitHub issue whose sub-issues make up one feature's work.
+The parent issue (GitHub issue, or parent file in the Local Tracker) whose sub-issues make up one feature's work.
 _Avoid_: Epic, parent ticket
 
 **Run**:
