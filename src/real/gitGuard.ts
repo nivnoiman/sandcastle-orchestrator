@@ -71,7 +71,10 @@ export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch
   }
   const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0, branches: new Map<string, number>(), hostBranches: new Set<string>() };
   entry.active++;
-  if (ownBranch !== undefined) entry.branches.set(ownBranch, (entry.branches.get(ownBranch) ?? 0) + 1);
+  if (ownBranch !== undefined) {
+    entry.branches.set(ownBranch, (entry.branches.get(ownBranch) ?? 0) + 1);
+    entry.hostBranches.delete(ownBranch);
+  }
   activeByGitDir.set(key, entry);
   return { gitDir, ownBranch, files: entry.baseline };
 }
