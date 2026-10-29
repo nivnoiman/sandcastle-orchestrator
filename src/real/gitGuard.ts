@@ -231,13 +231,17 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
   if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed, changes);
 }
 
-/** Names the lines that differ, keys only: values may carry URLs or tokens and must not reach logs or issue comments. */
+/** Names the lines that differ, labels only: values and subsections (remote names, urls) may carry URLs or tokens and must not reach logs or issue comments. */
 function describeChange(file: string, before: string | undefined, after: string | undefined): string[] {
-  const keyOf = (line: string): string => line.split("=")[0]!.trim();
+  const labelOf = (line: string): string => {
+    const header = /^\s*\[([A-Za-z0-9.-]+)/.exec(line);
+    if (header) return `[${header[1]}]`;
+    return /^\s*([A-Za-z][A-Za-z0-9-]*)/.exec(line)?.[1] ?? "?";
+  };
   const lines = (text: string | undefined): string[] => (text ?? "").split(/\r?\n/).filter((line) => line.trim() !== "");
   const beforeLines = new Set(lines(before));
   const afterLines = new Set(lines(after));
   const added = lines(after).filter((line) => !beforeLines.has(line));
   const removed = lines(before).filter((line) => !afterLines.has(line));
-  return [...added.map((line) => `${file} +${keyOf(line)}`), ...removed.map((line) => `${file} -${keyOf(line)}`)].slice(0, 12);
+  return [...added.map((line) => `${file} +${labelOf(line)}`), ...removed.map((line) => `${file} -${labelOf(line)}`)].slice(0, 12);
 }

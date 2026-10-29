@@ -39,6 +39,22 @@ describe("git control guard", () => {
     expect(error?.message).not.toContain("secret");
   });
 
+  it("does not leak a secret carried in a section header", () => {
+    const fs = fsWith({ [CONFIG]: "[core]\n" });
+    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    fs.writeText(CONFIG, '[core]\n[remote "https://user:secret@evil.test/x"]\n\turl = a\n');
+
+    const error = (() => {
+      try {
+        assertGitControlUnchanged(fs, snapshot);
+      } catch (cause) {
+        return cause as Error;
+      }
+    })();
+    expect(error?.message).toContain("config +[remote]");
+    expect(error?.message).not.toContain("secret");
+  });
+
   it("restores a tampered config, removes a planted attributes file, and refuses the stage", () => {
     const fs = fsWith({ [CONFIG]: "[core]\n" });
     const snapshot = snapshotGitControl(fs, GIT_DIR);
@@ -51,7 +67,6 @@ describe("git control guard", () => {
   });
 
   const BASE_CONFIG = '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/acme/api.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n';
-  const OWN_BRANCH = "x";
 
   it("passes the stage's own branch tracking written by push -u and gh pr create", () => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
@@ -169,14 +184,29 @@ describe("git control guard", () => {
     ["unclosed quote in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = "origin\n`],
     ["unknown escape in a branch value", `${BASE_CONFIG}[branch "x"]\n\tremote = ori\\gin\n`],
     ["vertical tab between key and =", `${BASE_CONFIG}[branch "x"]\n\tremote\v= origin\n`],
-    ["own branch remote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tremote = https://evil.test/x.git\n`],
-    ["own branch pushRemote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tpushRemote = https://evil.test/x.git\n`],
-    ["own branch remote naming an unknown remote", `${BASE_CONFIG}[branch "x"]\n\tremote = upstream\n`],
+    ["branch remote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tremote = https://evil.test/x.git\n`],
+    ["branch pushRemote set to a URL", `${BASE_CONFIG}[branch "x"]\n\tpushRemote = https://evil.test/x.git\n`],
+    ["branch remote naming an unknown remote", `${BASE_CONFIG}[branch "x"]\n\tremote = upstream\n`],
     ["gh-resolved on an unknown remote", `${BASE_CONFIG}[remote "evil"]\n\tgh-resolved = base\n`],
-    ["own branch mergeOptions", `${BASE_CONFIG}[branch "x"]\n\tmergeOptions = -s evil\n`],
-    ["own branch remote smuggled past a comment", `${BASE_CONFIG}[branch "x"]\n\tremote = "evil";origin\n`],
-    ["own branch remote as a bare key", `${BASE_CONFIG}[branch "x"]\n\tremote\n`],
-    ["own branch via legacy subsection syntax", `${BASE_CONFIG}[branch.x]\n\tremote = https://evil.test/x.git\n`],
+    ["branch mergeOptions", `${BASE_CONFIG}[branch "x"]\n\tmergeOptions = -s evil\n`],
+    ["branch remote smuggled past a comment", `${BASE_CONFIG}[branch "x"]\n\tremote = "evil";origin\n`],
+    ["branch remote as a bare key", `${BASE_CONFIG}[branch "x"]\n\tremote\n`],
+    ["credential helper", `${BASE_CONFIG}[credential]
+	helper = !sh evil.sh
+`],
+    ["url insteadOf rewrite", `${BASE_CONFIG}[url "https://evil.test/"]
+	insteadOf = https://github.com/
+`],
+    ["core.sshCommand", `${BASE_CONFIG}[core]
+	sshCommand = sh evil.sh
+`],
+    ["core.fsmonitor", `${BASE_CONFIG}[core]
+	fsmonitor = sh evil.sh
+`],
+    ["unrelated branch pushRemote naming an unknown remote", `${BASE_CONFIG}[branch "main"]
+	pushRemote = upstream
+`],
+    ["branch via legacy subsection syntax", `${BASE_CONFIG}[branch.x]\n\tremote = https://evil.test/x.git\n`],
   ])("refuses and restores a %s change", (_name, tampered) => {
     const fs = fsWith({ [CONFIG]: BASE_CONFIG });
     const snapshot = snapshotGitControl(fs, GIT_DIR);
