@@ -35,6 +35,10 @@ function actionButton(entry: AttentionEntry, action: AttentionAction, primary: b
   })}>${inner}</button>`;
 }
 
+function safeHref(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : "#";
+}
+
 function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const park = entry.park;
   if (!park) return "";
@@ -43,10 +47,10 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const stage = park.stage ? `<span class="chip">stage <b>${esc(park.stage)}</b></span>` : "";
   const since = park.since ? `<span class="chip">parked ${esc(formatClock(park.since, nowMs))} ago</span>` : "";
   const run = entry.runNumber === undefined ? "" : `<span class="chip">run #${entry.runNumber}</span>`;
-  const pr = park.pullRequestUrl ? `<a class="chip link" href="${esc(park.pullRequestUrl)}" target="_blank" rel="noreferrer">PR</a>` : "";
+  const pr = park.pullRequestUrl ? `<a class="chip link" href="${esc(safeHref(park.pullRequestUrl))}" target="_blank" rel="noreferrer">PR</a>` : "";
   return `<li class="alert red k-parked needs-human" data-key="${esc(entry.key)}">
       <div class="nh-head">${icon("alert")}<div class="nh-title">${esc(entry.title)}</div></div>
-      <div class="nh-meta">${stage}${run}${since}${pr}<a class="chip link" href="${esc(park.issueUrl)}" target="_blank" rel="noreferrer">Issue</a></div>
+      <div class="nh-meta">${stage}${run}${since}${pr}<a class="chip link" href="${esc(safeHref(park.issueUrl))}" target="_blank" rel="noreferrer">Issue</a></div>
       <div class="nh-label">Why it stopped</div>
       <pre class="nh-reason">${esc(park.reason)}</pre>
       <p class="nh-help">Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.</p>

@@ -198,6 +198,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const attention = everything.filter((entry) => !isHeld(heldMap, entry));
     ui.held = everything.filter((entry) => !attention.includes(entry));
     announceNew(everything);
+    syncDialog();
+    ui.notifyPermission = notifyPermission();
     patch(zones.rail, renderRail(ui, attention));
     patch(zones.main, renderMain(ui, attention));
     patch(zones.side, renderSide(ui));
@@ -222,6 +224,23 @@ export function mountBoard(options: BoardOptions): BoardHandle {
         desktopNotify(entry, text);
       }
     }
+  }
+
+  /** Keeps an open dialog honest: refresh the park reason, or close it when its item is no longer parked. */
+  function syncDialog(): void {
+    const dialog = ui.dialog;
+    if (!dialog || dialog.busy || dialog.result) return;
+    const project = projectById(dialog.projectId);
+    const entry = project ? parkedEntry(project, dialog.itemNumber) : undefined;
+    if (entry) {
+      dialog.title = entry.title;
+      dialog.stage = entry.park?.stage;
+      dialog.reason = entry.park?.reason ?? dialog.reason;
+      return;
+    }
+    if (dialog.kind === "comment" && project) return;
+    ui.dialog = undefined;
+    toast("info", `#${dialog.itemNumber} is no longer parked; dialog closed.`);
   }
 
   function desktopNotify(entry: AttentionEntry, text: { title: string; body: string }): void {
@@ -759,7 +778,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (!dialog || !project || dialog.busy) return;
     if (dialog.kind === "hold") {
       const entry = parkedEntry(project, dialog.itemNumber);
-      if (entry) setHeld(entry, true);
+      if (!entry) {
+        dialog.result = { ok: false, message: `#${dialog.itemNumber} is no longer parked, nothing to hold.` };
+        render();
+        return;
+      }
+      setHeld(entry, true);
       dialog.result = { ok: true, message: `#${dialog.itemNumber} is on Hold. It stays parked; use Unhold to show it again.` };
       render();
       return;
