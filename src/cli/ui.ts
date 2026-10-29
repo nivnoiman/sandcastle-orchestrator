@@ -54,8 +54,9 @@ function isStageName(value: string): value is StageName {
 function injectedStages(flag: "fail" | "auth-hold"): Set<string> {
   const keys = new Set<string>();
   for (const arg of args) {
-    if (!arg.startsWith(`--${flag}=`)) continue;
-    const [itemPart, stagePart] = arg.slice(flag.length + 3).split(":");
+    const prefix = `--${flag}=`;
+    if (!arg.startsWith(prefix)) continue;
+    const [itemPart, stagePart] = arg.slice(prefix.length).split(":");
     if (!itemPart || !stagePart || !/^\d+$/.test(itemPart) || !isStageName(stagePart)) {
       fail(`--${flag} must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
     }

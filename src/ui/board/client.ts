@@ -813,8 +813,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
     try {
       const payload = await apiOf(project).send("POST", `/api/runs/${runNumber}/auth/recheck`);
-      const result = payload["result"] as { ok: boolean } | undefined;
-      if (result?.ok) toast("info", "Agent credentials work - the hold is lifted.");
+      const result = payload["result"];
+      if (typeof result === "object" && result !== null && "ok" in result && result.ok === true) toast("info", "Agent credentials work - the hold is lifted.");
     } catch (cause) {
       fail(project, cause);
     }
