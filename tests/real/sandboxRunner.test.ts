@@ -305,8 +305,19 @@ describe("develop stage", () => {
       expect(fs.readText(REPO_CONFIG)).toBe(after);
     });
 
-    it("restores and refuses tracking the agent wrote for another branch", async () => {
-      const { fs, outcome } = await runWithAgentWriting(`${BASE}[branch "main"]\n\tremote = origin\n`);
+    it("keeps inert tracking written for another branch", async () => {
+      const after = `${BASE}[branch "main"]
+	remote = origin
+`;
+      const { fs, outcome } = await runWithAgentWriting(after);
+      expect(outcome).toBe("success");
+      expect(fs.readText(REPO_CONFIG)).toBe(after);
+    });
+
+    it("restores and refuses another branch pointed at a URL", async () => {
+      const { fs, outcome } = await runWithAgentWriting(`${BASE}[branch "main"]
+	remote = https://evil.test/x.git
+`);
       expect(outcome).not.toBe("success");
       expect(fs.readText(REPO_CONFIG)).toBe(BASE);
     });

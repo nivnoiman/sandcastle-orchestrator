@@ -21,9 +21,10 @@ export function hostGitEnv(): Record<string, string> {
 }
 
 export class GitControlTampered extends Error {
-  constructor(readonly gitDir: string, readonly files: readonly string[]) {
+  constructor(readonly gitDir: string, readonly files: readonly string[], readonly changes: readonly string[] = []) {
+    const detail = changes.length > 0 ? ` (${changes.join("; ")})` : "";
     super(
-      `an agent container changed ${files.join(", ")} under ${gitDir} — sandcastle restored the original and refuses the stage. ` +
+      `an agent container changed ${files.join(", ")}${detail} under ${gitDir} — sandcastle restored the original and refuses the stage. ` +
         "Read the stage transcript before resuming this item.",
     );
     this.name = "GitControlTampered";
@@ -34,14 +35,11 @@ export interface GitControlSnapshot {
   gitDir: string;
   /** The trusted baseline shared by every stage active on this git dir. */
   files: ReadonlyMap<string, string | undefined>;
-  ownBranch: string | undefined;
 }
 
 interface ActiveGitDir {
   baseline: ReadonlyMap<string, string | undefined>;
   active: number;
-  liveStagesByBranch: Map<string, number>;
-  hostWorktreeBranchesAwaitingStage: Set<string>;
 }
 
 const activeByGitDir = new Map<string, ActiveGitDir>();
@@ -60,30 +58,17 @@ function readGuardedFiles(fs: FileSystemPort, gitDir: string): Map<string, strin
  * The first stage on a git dir reads the baseline from disk; stages that start while others run reuse it, so a
  * config a running container already tampered with can never become a later stage's trusted baseline.
  */
-export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch?: string): GitControlSnapshot {
+export function snapshotGitControl(fs: FileSystemPort, gitDir: string): GitControlSnapshot {
   const key = registryKey(gitDir);
   const current = activeByGitDir.get(key);
   if (current) {
-    const drifted = [...current.baseline].filter(([file, trusted]) => !guardedFileUnchanged(fs, gitDir, file, trusted, trackedBranches(current)));
+    const drifted = [...current.baseline].filter(([file, trusted]) => !guardedFileUnchanged(fs, gitDir, file, trusted));
     if (drifted.length > 0) throw new GitControlTampered(gitDir, drifted.map(([file]) => file));
   }
-  const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0, liveStagesByBranch: new Map<string, number>(), hostWorktreeBranchesAwaitingStage: new Set<string>() };
+  const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0 };
   entry.active++;
-  if (ownBranch !== undefined) {
-    entry.liveStagesByBranch.set(ownBranch, (entry.liveStagesByBranch.get(ownBranch) ?? 0) + 1);
-    entry.hostWorktreeBranchesAwaitingStage.delete(ownBranch);
-  }
   activeByGitDir.set(key, entry);
-  return { gitDir, ownBranch, files: entry.baseline };
-}
-
-function trackedBranches(entry: ActiveGitDir): Set<string> {
-  return new Set([...entry.liveStagesByBranch.keys(), ...entry.hostWorktreeBranchesAwaitingStage]);
-}
-
-/** Call before the host creates a worktree on `branch`: stages already running on this git dir must not read the host's tracking config as tampering. */
-export function expectHostBranchTracking(gitDir: string, branch: string): void {
-  activeByGitDir.get(registryKey(gitDir))?.hostWorktreeBranchesAwaitingStage.add(branch);
+  return { gitDir, files: entry.baseline };
 }
 
 /** Ends a stage's hold on its git dir; idempotent. The last stage out clears the baseline. */
@@ -94,11 +79,6 @@ export function releaseGitControl(snapshot: GitControlSnapshot): void {
   const entry = activeByGitDir.get(key);
   if (!entry) return;
   entry.active--;
-  if (snapshot.ownBranch !== undefined) {
-    const remaining = (entry.liveStagesByBranch.get(snapshot.ownBranch) ?? 1) - 1;
-    if (remaining > 0) entry.liveStagesByBranch.set(snapshot.ownBranch, remaining);
-    else entry.liveStagesByBranch.delete(snapshot.ownBranch);
-  }
   if (entry.active <= 0) activeByGitDir.delete(key);
 }
 
@@ -191,12 +171,13 @@ function parsePlainGitConfigOrUndefined(text: string): ConfigEntry[] | undefined
 
 const GH_PR_CREATE_REMOTE_KEY = "gh-resolved";
 const REMOTE_NAMING_BRANCH_KEYS = new Set(["remote", "pushremote"]);
-const OWN_BRANCH_KEYS_WRITTEN_BY_PUSH_U_GH_PR_AND_BRANCH_TRACK = new Set([
+const INERT_BRANCH_KEYS_WRITTEN_BY_GIT_TRACKING = new Set([
   ...REMOTE_NAMING_BRANCH_KEYS,
   "merge",
   "rebase",
   "description",
   "gh-merge-base",
+  "vscode-merge-base",
 ]);
 
 function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): ReadonlySet<string> {
@@ -207,59 +188,59 @@ function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): Readonly
   );
 }
 
-function isStageBranchBookkeeping(
-  entry: ConfigEntry,
-  stageBranches: ReadonlySet<string>,
-  remotesSafeToName: ReadonlySet<string>,
-): boolean {
+function isInertBranchBookkeepingFromOtherGitUsers(entry: ConfigEntry, remotesSafeToName: ReadonlySet<string>): boolean {
   if (entry.subsection === undefined) return false;
   if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotesSafeToName.has(entry.subsection);
-  if (entry.section !== "branch" || !stageBranches.has(entry.subsection)) return false;
-  if (!OWN_BRANCH_KEYS_WRITTEN_BY_PUSH_U_GH_PR_AND_BRANCH_TRACK.has(entry.key)) return false;
+  if (entry.section !== "branch") return false;
+  if (!INERT_BRANCH_KEYS_WRITTEN_BY_GIT_TRACKING.has(entry.key)) return false;
   return (
     !REMOTE_NAMING_BRANCH_KEYS.has(entry.key) || (entry.value !== BARE_KEY_IMPLICIT_TRUE && remotesSafeToName.has(entry.value))
   );
 }
 
-function configChangeIsOnlyStageBranchBookkeeping(
-  before: string | undefined,
-  after: string | undefined,
-  stageBranches: ReadonlySet<string>,
-): boolean {
+function configChangeIsOnlyInertBookkeeping(before: string | undefined, after: string | undefined): boolean {
   if (after === undefined) return false;
   const beforeEntries = parsePlainGitConfigOrUndefined(before ?? "");
   const afterEntries = parsePlainGitConfigOrUndefined(after);
   if (!beforeEntries || !afterEntries) return false;
   const remotesSafeToName = remoteNamesWithUrlSafeToName(beforeEntries);
   const guardedFingerprint = (entries: readonly ConfigEntry[]): string =>
-    JSON.stringify(entries.filter((entry) => !isStageBranchBookkeeping(entry, stageBranches, remotesSafeToName)));
+    JSON.stringify(entries.filter((entry) => !isInertBranchBookkeepingFromOtherGitUsers(entry, remotesSafeToName)));
   return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
-function guardedFileUnchanged(
-  fs: FileSystemPort,
-  gitDir: string,
-  file: string,
-  before: string | undefined,
-  stageBranches: Iterable<string>,
-): boolean {
+function guardedFileUnchanged(fs: FileSystemPort, gitDir: string, file: string, before: string | undefined): boolean {
   const after = fs.readText(join(gitDir, file));
   if (after === before) return true;
-  return file === "config" && configChangeIsOnlyStageBranchBookkeeping(before, after, new Set(stageBranches));
+  return file === "config" && configChangeIsOnlyInertBookkeeping(before, after);
 }
 
 /** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. Always releases the stage. */
 export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitControlSnapshot): void {
-  const active = activeByGitDir.get(registryKey(snapshot.gitDir));
-  const stageBranches = active ? trackedBranches(active) : [];
   const changed: string[] = [];
+  const changes: string[] = [];
   for (const [file, before] of snapshot.files) {
-    if (guardedFileUnchanged(fs, snapshot.gitDir, file, before, stageBranches)) continue;
-    changed.push(file);
+    if (guardedFileUnchanged(fs, snapshot.gitDir, file, before)) continue;
     const path = join(snapshot.gitDir, file);
+    changed.push(file);
+    changes.push(...describeChangedLabelsWithoutValues(file, before, fs.readText(path)));
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
   }
   releaseGitControl(snapshot);
-  if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed);
+  if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed, changes);
+}
+
+function describeChangedLabelsWithoutValues(file: string, before: string | undefined, after: string | undefined): string[] {
+  const labelOf = (line: string): string => {
+    const header = /^\s*\[([A-Za-z0-9.-]+)/.exec(line);
+    if (header) return `[${header[1]}]`;
+    return /^\s*([A-Za-z][A-Za-z0-9-]*)/.exec(line)?.[1] ?? "?";
+  };
+  const lines = (text: string | undefined): string[] => (text ?? "").split(/\r?\n/).filter((line) => line.trim() !== "");
+  const beforeLines = new Set(lines(before));
+  const afterLines = new Set(lines(after));
+  const added = lines(after).filter((line) => !beforeLines.has(line));
+  const removed = lines(before).filter((line) => !afterLines.has(line));
+  return [...added.map((line) => `${file} +${labelOf(line)}`), ...removed.map((line) => `${file} -${labelOf(line)}`)].slice(0, 12);
 }
