@@ -267,7 +267,7 @@ export function startWorktreeContainer(
   container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; branch: string | undefined },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
-  const gitControl = snapshotGitControl(deps.fs, repoGitDir, container.branch);
+  const gitControl = snapshotGitControl(deps.fs, repoGitDir);
   const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
   try {
     withContainerEnvFile(deps.fs, env, (envFile) => {
