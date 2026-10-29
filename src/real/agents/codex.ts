@@ -65,10 +65,7 @@ export function codexErrorMessages(stdout: string, stderr: string): string[] {
       messages.push(stringField(event["item"], "message") ?? "");
     }
   }
-  const plainStderr = stderr
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("{"))
-    .join("\n");
+  const plainStderr = plainStderrOf(stderr);
   if (plainStderr.trim()) messages.push(plainStderr);
   return messages.filter((message) => message.trim().length > 0);
 }

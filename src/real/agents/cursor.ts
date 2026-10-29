@@ -50,10 +50,7 @@ export function cursorErrorMessages(stdout: string, stderr: string): string[] {
     if (event["type"] === "result" && event["is_error"] === true) messages.push(stringField(event, "result") ?? "");
     if (event["type"] === "error") messages.push(stringField(event, "message") ?? "");
   }
-  const plainStderr = stderr
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("{"))
-    .join("\n");
+  const plainStderr = plainStderrOf(stderr);
   if (plainStderr.trim()) messages.push(plainStderr);
   return messages.filter((message) => message.trim().length > 0);
 }
