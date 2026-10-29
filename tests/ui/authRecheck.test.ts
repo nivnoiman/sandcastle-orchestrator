@@ -93,6 +93,17 @@ describe("auth recheck", () => {
     expect(controller.state().hold).toBeUndefined();
   });
 
+  it("scrubs credentials from a probe that throws", async () => {
+    const { controller } = heldRun(() => Promise.reject(new Error("boom CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-abcdefgh")));
+    await controller.startRun({ parent: PARENT, cap: 2 });
+
+    const result = await controller.recheckAuth(PARENT);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).not.toContain("sk-ant");
+    expect(JSON.stringify(controller.state())).not.toContain("sk-ant");
+  });
+
   it("refuses a run that is not held on credentials", async () => {
     const { controller, engine } = heldRun(() => Promise.resolve(PASS));
     await controller.startRun({ parent: PARENT, cap: 2 });

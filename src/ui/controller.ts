@@ -5,7 +5,7 @@ import { isParentReference, parseParentInputs, type ParentInput } from "../gh/pa
 import type { ParentSummary } from "../gh/parents.js";
 import type { RunSnapshot } from "../gh/snapshot.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
-import type { AuthRecheck } from "../real/authHold.js";
+import { scrubProbeError, type AuthRecheck } from "../real/authHold.js";
 import { parseAttemptId, type AttemptChunk, type AttemptRecord } from "../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../real/reset.js";
 import { IDLE_TIMEOUT_DEFAULT } from "../real/env.js";
@@ -308,7 +308,7 @@ export class UiController {
       throw new OperatorError(`#${parent} is not held on agent credentials - nothing to re-check`);
     }
     if (this.authRecheck) return this.authRecheck;
-    const probing = recheck().catch((cause: unknown): AuthRecheck => ({ ok: false, error: messageOf(cause) }));
+    const probing = recheck().catch((cause: unknown): AuthRecheck => ({ ok: false, error: scrubProbeError(messageOf(cause), undefined) }));
     this.authRecheck = probing;
     this.publish();
     const result = await probing;
