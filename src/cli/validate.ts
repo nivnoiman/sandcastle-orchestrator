@@ -1,5 +1,5 @@
 import { bootProject } from "../project/boot.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 
 const project = bootProject();
@@ -10,7 +10,7 @@ if (!issueArg || !/^\d+$/.test(issueArg)) {
 }
 
 const repo = repoArg ?? project.hubRepo;
-const snapshot = await fetchRunSnapshot(repo, Number(issueArg));
+const snapshot = await createRunReader(repo).fetchRunSnapshot(Number(issueArg));
 const result = loadRunModel(snapshot);
 
 if (!result.ok) {
