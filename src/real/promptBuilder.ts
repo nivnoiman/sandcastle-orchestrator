@@ -186,6 +186,10 @@ function environmentToolLine(context: StagePromptContext): string {
   return `- There is no \`gh\`, no GitHub and no pull-request host: record your stage notes in \`${LOCAL_PR_NOTES_FILE}\` (below) and commit your work to the branch. \`origin\` is not reachable from this container — never fetch or push; sandcastle pushes the branch after you stop. \`~/.claude\` is a container-local copy of the host's, so skills under \`~/.claude/skills/\` are readable and nothing you write there reaches the host.`;
 }
 
+function notesTarget(context: StagePromptContext): string {
+  return isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body";
+}
+
 function stopSummary(context: StagePromptContext): string {
   return isLocal(context)
     ? "Print a one-line summary of what you did as the last line of your final message and stop."
@@ -450,7 +454,7 @@ function buildFreshEyesPrompt(context: StagePromptContext, stage: FreshEyesStage
     "",
     `**5. Commit.** \`git add <specific files>\` (never \`git add .\`), then commit with \`${tag} <brief description>\` (lowercase, no trailing period). Small commits, one finding or one tight group each.`,
     "",
-    `**6. Append a \`${section}\` section to ${isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body"} — append, never overwrite:**`,
+    `**6. Append a \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, stage),
     `The \`${sentinel}\` marker line is how the orchestrator knows this stage ran — copy it verbatim, above the \`${section}\` heading, exactly once. If you found nothing, still append the section with one line saying "no findings" — a missing marker fails the stage even when the code was already perfect.`,
     "",
@@ -499,7 +503,7 @@ function buildReworkDevelopPrompt(context: StagePromptContext, rework: ReworkCon
     "",
     `**6. Commit.** \`git add <specific files>\` (never \`git add .\`), then \`${REWORK_COMMIT_TAG} <what>\` (lowercase, no trailing period). Put the why in the commit body — the next stages read it.`,
     "",
-    `**7. Append a \`${section}\` section to ${isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body"} — append, never overwrite:**`,
+    `**7. Append a \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, "develop", REWORK_FIX_TEMPLATE),
     `The \`${sentinel}\` marker is how the orchestrator knows this round's develop finished — copy it verbatim, exactly once. This section is the story the simplify, review and verify passes read next, so write what was wrong, what you changed, and how it is proven.`,
     "",
@@ -529,7 +533,7 @@ function buildReworkSalvagePrompt(context: StagePromptContext, rework: ReworkCon
     "",
     `**1. Land what is half-applied.** If the working tree has uncommitted edits, run the typecheck and the tests covering them until green, then commit as \`${REWORK_COMMIT_TAG} <what>\`.`,
     "",
-    `**2. Append the \`${section}\` section to ${isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body"} — append, never overwrite:**`,
+    `**2. Append the \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, "develop", REWORK_FIX_TEMPLATE),
     "Describe only what actually landed.",
     "",
@@ -573,7 +577,7 @@ function buildFreshEyesSalvagePrompt(context: StagePromptContext, stage: FreshEy
     "",
     `**1. Land what is half-applied.** If the working tree has uncommitted ${stage} edits, run the repo's typecheck and the tests covering them until green, then commit as \`${tag} <what>\`. If the tree is clean, go straight to step 2.`,
     "",
-    `**2. Append the \`${section}\` section to ${isLocal(context) ? `\`${LOCAL_PR_NOTES_FILE}\`` : "the pull request body"} — append, never overwrite:**`,
+    `**2. Append the \`${section}\` section to ${notesTarget(context)} — append, never overwrite:**`,
     ...appendSectionBlock(context, stage),
     `Describe only what actually landed — \`git log origin/${context.integrationBranch}..HEAD --oneline\` is your source of truth. If the stage landed nothing, write "no findings"; the \`${sentinel}\` marker must be there either way, because it is what marks the stage complete. If what is on the branch cannot be finished in place, append the section with the marker plus a line \`UNFIXABLE: <one-line reason>\` and stop.`,
     "",
