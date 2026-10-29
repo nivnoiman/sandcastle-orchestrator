@@ -60,12 +60,15 @@ export function blockedByOf(issue: LocalIssue): number[] | null {
   return blockedNumbers(line.split(/[,;]|\band\b/i), issue.parentNumber);
 }
 
+function isClosed(issue: LocalIssue): boolean {
+  return String(issue.data["state"] ?? "").toLowerCase() === "closed";
+}
+
 function toIssueSnapshot(issue: LocalIssue): IssueSnapshot {
-  const closed = String(issue.data["state"] ?? "").toLowerCase() === "closed";
   return {
     number: issue.number,
     title: titleOf(issue),
-    state: closed ? "CLOSED" : "OPEN",
+    state: isClosed(issue) ? "CLOSED" : "OPEN",
     labels: labelsOf(issue),
     body: splitComments(issue.body).text,
   };
@@ -80,7 +83,7 @@ export function toRunSnapshot(feature: LocalFeature, hubRepo: string): RunSnapsh
 }
 
 export function toParentSummary(feature: LocalFeature): ParentSummary {
-  const done = feature.items.filter((item) => toIssueSnapshot(item).state === "CLOSED").length;
+  const done = feature.items.filter(isClosed).length;
   return { number: feature.parent.number, title: titleOf(feature.parent), subIssues: feature.items.length, completedSubIssues: done };
 }
 
@@ -92,7 +95,7 @@ export function createLocalRunReader(store: LocalIssueStore, hubRepo: string): R
       Promise.resolve().then(() =>
         store
           .features()
-          .filter((feature) => toIssueSnapshot(feature.parent).state === "OPEN")
+          .filter((feature) => !isClosed(feature.parent))
           .map(toParentSummary),
       ),
   };

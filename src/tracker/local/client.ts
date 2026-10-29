@@ -1,6 +1,5 @@
-import type { StageLabel } from "../../engine/adapters.js";
+import type { MergedPullRequest, StageLabel } from "../../engine/adapters.js";
 import type { TargetRepo } from "../../model/runModel.js";
-import type { MergedPullRequest } from "../../engine/adapters.js";
 import type { CreateDraftPrInput, PullRequestRef, TrackerClient } from "../types.js";
 import { LocalItems } from "./items.js";
 import { LocalPullRequests, type LocalPullRequestDeps } from "./pullRequests.js";
