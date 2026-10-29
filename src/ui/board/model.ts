@@ -1,4 +1,5 @@
 import type { ItemPhase } from "../../engine/engine.js";
+import type { TrackerKind } from "../../project/projectConfig.js";
 import type { RunMode, UiItem, UiRun, UiState } from "../state.js";
 
 export interface ParentOption {
@@ -6,6 +7,8 @@ export interface ParentOption {
   title: string;
   subIssues: number;
   completedSubIssues: number;
+  /** Set by the local Tracker. */
+  integrationBranch?: string;
 }
 
 export type ProjectStatus = "running" | "stopped" | "died";
@@ -24,6 +27,25 @@ export interface BoardProject {
   state: UiState | undefined;
   parents: ParentOption[];
   connected: boolean;
+}
+
+/** A Project Server that predates the Tracker field is a github one. */
+export function trackerOf(project: Pick<BoardProject, "state">): TrackerKind {
+  return project.state?.tracker ?? "github";
+}
+
+export function isLocalProject(project: Pick<BoardProject, "state">): boolean {
+  return trackerOf(project) === "local";
+}
+
+/** The url only when a browser can open it; local pull-request records and file-based issues have none. */
+export function webUrl(url: string | undefined): string | undefined {
+  return url !== undefined && /^https?:\/\//i.test(url) ? url : undefined;
+}
+
+/** What the Operator runs in a repo checkout on the base branch to take in a finished local Run. */
+export function mergeCommand(integrationBranch: string): string {
+  return `git merge origin/${integrationBranch}`;
 }
 
 export type PhaseBucket = "done" | "run" | "wait" | "park" | "idle";
@@ -126,7 +148,8 @@ function gateDetail(phase: string, reason: string | undefined): string {
   return phase === "skipped" && reason ? `skipped — ${reason}` : phase;
 }
 
-function prsStep(run: UiRun, prsReady: boolean, prs: readonly string[]): LifecycleStep {
+function prsStep(run: UiRun, prsReady: boolean, prs: readonly string[], tracker: TrackerKind): LifecycleStep {
+  if (tracker === "local") return branchStep(run, prsReady, prs);
   const base = { id: "prs", label: "PRs" } as const;
   if (run.settled && prs.length > 0) return { ...base, state: "done", detail: `${prs.length} for your merge` };
   if (run.settled) return { ...base, state: "skipped", detail: "none opened" };
@@ -134,8 +157,16 @@ function prsStep(run: UiRun, prsReady: boolean, prs: readonly string[]): Lifecyc
   return { ...base, state: "pending", detail: "after polish" };
 }
 
-/** Run Lifecycle: Items → Integration → Feature Verify → Polish → PRs. Once the run settled no step stays active. */
-export function lifecycleSteps(run: UiRun, mode: RunMode = "real"): LifecycleStep[] {
+function branchStep(run: UiRun, ready: boolean, records: readonly string[]): LifecycleStep {
+  const base = { id: "prs", label: "Integration branch" } as const;
+  if (run.settled && records.length > 0) return { ...base, state: "done", detail: "ready for your merge" };
+  if (run.settled) return { ...base, state: "skipped", detail: "not recorded" };
+  if (ready) return { ...base, state: "active", detail: "ready for your merge" };
+  return { ...base, state: "pending", detail: "after polish" };
+}
+
+/** Run Lifecycle: Items → Integration → Feature Verify → Polish → PRs (Integration branch with the local Tracker). Once the run settled no step stays active. */
+export function lifecycleSteps(run: UiRun, mode: RunMode = "real", tracker: TrackerKind = "github"): LifecycleStep[] {
   const total = run.items.length;
   const done = run.items.filter((item) => item.phase === "done").length;
   const allDone = allItemsMerged(run);
@@ -152,7 +183,7 @@ export function lifecycleSteps(run: UiRun, mode: RunMode = "real"): LifecycleSte
     { id: "integration", label: "Integration", state: integrationState, detail: allDone ? "all merged" : `${total - done} to go` },
     { id: "verify", label: "Feature Verify", state: verifyStepState(verify.phase), detail: gateDetail(verify.phase, verify.reason) },
     { id: "polish", label: "Polish", state: polishStepState(polish.phase), detail: gateDetail(polish.phase, polish.reason) },
-    prsStep(run, verifyCleared && polishCleared, runPullRequests(gates)),
+    prsStep(run, verifyCleared && polishCleared, runPullRequests(gates), tracker),
   ];
 }
 

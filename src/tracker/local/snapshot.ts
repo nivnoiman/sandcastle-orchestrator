@@ -82,9 +82,23 @@ export function toRunSnapshot(feature: LocalFeature, hubRepo: string): RunSnapsh
   return { repo: hubRepo, parent: toIssueSnapshot(feature.parent), subIssues: feature.items.map(toWorkItemSnapshot) };
 }
 
+const FEATURE_LINE = /^feature:\s*["']?([a-z0-9]+(?:-[a-z0-9]+)*)["']?\s*$/m;
+
+function integrationBranchOf(parent: LocalIssue): string | undefined {
+  const feature = FEATURE_LINE.exec(parent.body)?.[1];
+  return feature ? `integration/${feature}` : undefined;
+}
+
 export function toParentSummary(feature: LocalFeature): ParentSummary {
   const done = feature.items.filter(isClosed).length;
-  return { number: feature.parent.number, title: titleOf(feature.parent), subIssues: feature.items.length, completedSubIssues: done };
+  const integrationBranch = integrationBranchOf(feature.parent);
+  return {
+    number: feature.parent.number,
+    title: titleOf(feature.parent),
+    subIssues: feature.items.length,
+    completedSubIssues: done,
+    ...(integrationBranch ? { integrationBranch } : {}),
+  };
 }
 
 /** Reads Orchestration Issues from `.scratch/<slug>/issues/`, fresh from disk on every call. */

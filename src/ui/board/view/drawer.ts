@@ -1,8 +1,8 @@
 import type { UiItem, UiRun } from "../../state.js";
 import { esc } from "../format.js";
-import type { BoardProject } from "../model.js";
+import { isLocalProject, webUrl, type BoardProject } from "../model.js";
 import { transcriptTurns } from "../transcript.js";
-import { attrs, button, tag } from "./html.js";
+import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import { prLabel } from "./run.js";
 import type { BoardUi, DrawerState } from "./ui.js";
@@ -63,12 +63,12 @@ function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "i
   const acts = [
     item.phase === "parked" || item.phase === "waiting" ? button({ label: "Retry item", icon: "retry", cls: "primary", data: { "data-act": "retry", ...data } }) : "",
     item.phase === "running" ? button({ label: "Cancel", icon: "x", cls: "danger", data: { "data-act": "cancel", ...data } }) : "",
-    `<a class="btn" href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("ext")}Open issue</a>`,
-    item.pullRequestUrl ? `<a class="btn" href="${esc(item.pullRequestUrl)}" target="_blank" rel="noreferrer">${icon("pr")}${esc(prLabel(item.pullRequestUrl))}</a>` : "",
+    webUrl(item.issueUrl) ? `<a class="btn" href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("ext")}Open issue</a>` : "",
+    webUrl(item.pullRequestUrl) ? `<a class="btn" href="${esc(item.pullRequestUrl)}" target="_blank" rel="noreferrer">${icon("pr")}${esc(prLabel(item.pullRequestUrl ?? ""))}</a>` : "",
   ].join("");
   const reason = item.parkReason ? `<div class="d-reason"><b>Parked:</b> ${esc(item.parkReason)}</div>` : "";
   return `<div class="d-head">
-      <div class="row"><h2><a href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">#${item.number}</a>${esc(item.title)}</h2>${closeButton()}</div>
+      <div class="row"><h2>${issueLink(webUrl(item.issueUrl), `#${item.number}`)}${esc(item.title)}</h2>${closeButton()}</div>
       <div class="d-meta">
         ${tag(`${item.phase}${item.stage ? ` · ${item.stage}` : ""}`, PHASE_TONE[item.phase])}
         <span>${icon("pin")}${esc(item.repo)}</span>
@@ -112,7 +112,22 @@ function resetBody(drawer: Extract<DrawerState, { kind: "reset" }>): string {
     </div>`;
 }
 
-function addBody(drawer: Extract<DrawerState, { kind: "add" }>): string {
+function newParentBody(drawer: Extract<DrawerState, { kind: "add" }>): string {
+  const missing = drawer.title.trim() === "";
+  return `<form class="d-form" data-act="add-submit" data-proj="${esc(drawer.projectId)}">
+      <label for="add-title" class="field-label">Title</label>
+      <input${attrs({ id: "add-title", type: "text", value: drawer.title, placeholder: "Add billing export", "data-act": "add-title", "data-focus": "add-title", autocomplete: "off", spellcheck: false })} />
+      <label for="add-input" class="field-label">Description (optional)</label>
+      <textarea${attrs({ id: "add-input", rows: 6, placeholder: "What this feature should do. Items are added as files next to it.", "data-act": "add-text", "data-focus": "add-input" })}>${esc(drawer.text)}</textarea>
+      <div class="d-acts">
+        ${button({ label: drawer.busy ? "Creating…" : "Create parent file", icon: "plus", cls: "primary", disabled: drawer.busy || missing, data: { "data-act": "add-submit-btn" } })}
+      </div>
+      ${drawer.result ? `<pre class="plan" tabindex="0">${esc(drawer.result)}</pre>` : ""}
+    </form>`;
+}
+
+function addBody(drawer: Extract<DrawerState, { kind: "add" }>, local: boolean): string {
+  if (local) return newParentBody(drawer);
   return `<form class="d-form" data-act="add-submit" data-proj="${esc(drawer.projectId)}">
       <label for="add-input" class="field-label">Issue numbers or URLs, one per line</label>
       <textarea${attrs({ id: "add-input", rows: 6, placeholder: "142\nhttps://github.com/owner/hub/issues/150", "data-act": "add-text", "data-focus": "add-input", spellcheck: false })}>${esc(drawer.text)}</textarea>
@@ -124,6 +139,7 @@ function addBody(drawer: Extract<DrawerState, { kind: "add" }>): string {
 }
 
 export function renderDrawer(ui: BoardUi, project: BoardProject, drawer: DrawerState, logText: string): DrawerParts {
+  const local = isLocalProject(project);
   if (drawer.kind === "item") {
     return {
       label: "Item detail",
@@ -141,9 +157,9 @@ export function renderDrawer(ui: BoardUi, project: BoardProject, drawer: DrawerS
     };
   }
   return {
-    label: "Add orchestration issue",
-    head: `<div class="d-head"><div class="row"><h2>Add orchestration issue</h2>${closeButton()}</div><div class="d-meta"><span>Checks each issue against the hub and adds it to the parent list for ${esc(project.name)}.</span></div></div>`,
+    label: local ? "New orchestration issue" : "Add orchestration issue",
+    head: `<div class="d-head"><div class="row"><h2>${local ? "New orchestration issue" : "Add orchestration issue"}</h2>${closeButton()}</div><div class="d-meta"><span>${local ? `Writes a parent file under <code>.scratch/</code> for ${esc(project.name)}; add its items as files next to it.` : `Checks each issue against the hub and adds it to the parent list for ${esc(project.name)}.`}</span></div></div>`,
     attempts: "",
-    body: addBody(drawer),
+    body: addBody(drawer, local),
   };
 }

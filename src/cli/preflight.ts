@@ -1,5 +1,5 @@
 import { bootProject } from "../project/boot.js";
-import { createRunReader } from "../tracker/index.js";
+import { createRunReader, localIssueStore } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { loadOrchestratorConfig, resolveLayout } from "../real/env.js";
@@ -7,10 +7,11 @@ import { nodeFileSystem } from "../real/fileSystem.js";
 import { TOOL_DIR } from "../real/paths.js";
 import { runPreflight } from "../real/preflight.js";
 import { staleSkills } from "../skills/install.js";
+import { parentFromArgs } from "./parentArg.js";
 import { messageOf } from "../messageOf.js";
 
 const USAGE = [
-  "usage: sandcastle preflight <parent-issue> [owner/repo] [--skip-verify]",
+  "usage: sandcastle preflight <parent-issue | slug | path> [owner/repo] [--skip-verify]",
   "  runs every start-time check without taking the lock or spending tokens on a run",
 ].join("\n");
 
@@ -19,10 +20,7 @@ const args = process.argv.slice(2);
 const positional = args.filter((arg) => !arg.startsWith("--"));
 const [parentArg, repoArg] = positional;
 
-if (!parentArg || !/^\d+$/.test(parentArg)) {
-  console.error(USAGE);
-  process.exit(2);
-}
+const parentNumber = parentFromArgs(project, parentArg, USAGE);
 
 const hubRepo = repoArg ?? project.hubRepo;
 const fs = nodeFileSystem;
@@ -37,10 +35,10 @@ const config = (() => {
   }
 })();
 
-const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(Number(parentArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(parentNumber);
 const result = loadRunModel(snapshot);
 if (!result.ok) {
-  console.error(`#${parentArg} does not satisfy the publish contract:\n  - ${result.errors.join("\n  - ")}`);
+  console.error(`#${parentNumber} does not satisfy the publish contract:\n  - ${result.errors.join("\n  - ")}`);
   process.exit(1);
 }
 
@@ -51,6 +49,7 @@ const report = await runPreflight({
   config,
   model: result.model,
   skipVerify: args.includes("--skip-verify"),
+  ...(config.tracker === "local" ? { localStore: localIssueStore(project) } : {}),
   skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
   log: (message: string) => console.log(message),
 });

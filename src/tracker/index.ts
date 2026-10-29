@@ -1,11 +1,11 @@
 import type { ProjectConfig } from "../project/projectConfig.js";
 import { createGitHubRunReader } from "./github.js";
-import { createLocalRunReader } from "./local/snapshot.js";
+import { createLocalRunReader, toParentSummary } from "./local/snapshot.js";
 import { LocalIssueStore, scratchRootOf } from "./local/store.js";
 import type { RunReader } from "./types.js";
 
 export * from "./types.js";
-export { createGitHubRunReader, createLocalRunReader };
+export { createGitHubRunReader, createLocalRunReader, toParentSummary };
 export { LocalIssueStore, scratchRootOf };
 export { ensureLocalRemote } from "./local/remotes.js";
 export { LocalTrackerClient } from "./local/client.js";

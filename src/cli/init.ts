@@ -2,11 +2,13 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { invocationDir } from "../project/boot.js";
-import { CONFIG_FILE, CONFIG_HINT, isRepoSlug, PROJECT_FOLDER, tcpPort } from "../project/projectConfig.js";
+import { CONFIG_FILE, CONFIG_HINT, DEFAULT_TRACKER, isRepoSlug, PROJECT_FOLDER, tcpPort, type TrackerKind } from "../project/projectConfig.js";
 import {
   buildInitConfig,
+  buildLocalInitConfig,
   detectPackageManager,
   firstFreePort,
   guessRepoCommands,
@@ -15,14 +17,17 @@ import {
 } from "../project/scaffold.js";
 import { ORCHESTRATOR_ENV_FILE } from "../real/env.js";
 import { TOOL_DIR } from "../real/paths.js";
+import { writeIssueTrackerDoc } from "../project/trackerDoc.js";
 import { messageOf } from "../messageOf.js";
 import { installSkills } from "../skills/install.js";
 import { fail } from "./args.js";
 
 const USAGE = [
-  "usage: sandcastle init [--hub=owner/name] [--port=N]",
+  "usage: sandcastle init [--tracker=local|github] [--hub=owner/name] [--port=N]",
   `  run in the project root — creates ${PROJECT_FOLDER}/ with ${CONFIG_FILE}, .gitignore and the two env files`,
-  "  --hub=owner/name   the repo holding the issues (default: gh repo view, else the origin remote)",
+  "  --tracker=KIND     where issues live: github (hub repo issues) or local (files under .scratch/, no GitHub);",
+  "                     asked interactively when omitted, github when there is no terminal",
+  "  --hub=owner/name   github only: the repo holding the issues (default: gh repo view, else the origin remote)",
   "  --port=N           control plane port (default: the first free port from 7777)",
 ].join("\n");
 
@@ -118,16 +123,41 @@ function installAgentSkills(): void {
   }
 }
 
+async function chooseTracker(): Promise<TrackerKind> {
+  const explicit = flag("tracker");
+  if (explicit !== undefined) {
+    if (explicit !== "github" && explicit !== "local") return fail(`--tracker must be "local" or "github", got "${explicit}"`);
+    return explicit;
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return DEFAULT_TRACKER;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    for (;;) {
+      const answer = (await rl.question("Where do this project's issues live? [github/local] (github): ")).trim().toLowerCase();
+      if (answer === "") return DEFAULT_TRACKER;
+      if (answer === "github" || answer === "local") return answer;
+      console.log("  type github or local");
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 const root = invocationDir();
 const folder = join(root, PROJECT_FOLDER);
 const configPath = join(folder, CONFIG_FILE);
 if (existsSync(configPath)) fail(`${configPath} already exists — edit it instead of running init again`);
 
-const hubRepo = detectHub(root);
+const tracker = await chooseTracker();
+if (tracker === "local" && flag("hub") !== undefined) fail("--hub only applies to --tracker=github");
+const hubRepo = tracker === "github" ? detectHub(root) : undefined;
 const manager = detectPackageManager((name) => existsSync(join(root, name)));
 const commands = guessRepoCommands(manager, packageScripts(root), existsSync(join(root, ".yarnrc.yml")));
 const port = await choosePort();
-const config = buildInitConfig({ hubRepo, commands, port });
+const config =
+  hubRepo === undefined
+    ? buildLocalInitConfig({ dirName: basename(root), commands, port })
+    : buildInitConfig({ hubRepo, commands, port });
 
 mkdirSync(folder, { recursive: true });
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
@@ -142,14 +172,26 @@ for (const secret of SECRET_FILES) {
   created.push(target);
 }
 
-console.log(`sandcastle project initialised for ${hubRepo} (control plane port ${port})`);
+const trackerDoc = writeIssueTrackerDoc(root, tracker, hubRepo);
+if (trackerDoc.written) created.push(trackerDoc.path);
+
+console.log(`sandcastle project initialised for ${hubRepo ?? `the local tracker (.scratch/)`} (control plane port ${port})`);
 for (const path of created) console.log(`  created ${path}`);
+if (!trackerDoc.written) console.log(`  kept ${trackerDoc.path} (already there)`);
 console.log("");
 console.log("next steps:");
-console.log(`  1. fill GH_TOKEN in ${join(folder, ORCHESTRATOR_ENV_FILE)} (or share one in ${join(TOOL_DIR, ORCHESTRATOR_ENV_FILE)})`);
+console.log(
+  tracker === "local"
+    ? `  1. put your agent credentials (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN) in ${join(folder, ORCHESTRATOR_ENV_FILE)} — no GH_TOKEN needed`
+    : `  1. fill GH_TOKEN in ${join(folder, ORCHESTRATOR_ENV_FILE)} (or share one in ${join(TOOL_DIR, ORCHESTRATOR_ENV_FILE)})`,
+);
 console.log(`  2. put SAFE dev values in ${join(folder, ".env.sandbox")} (an empty file is fine)`);
 console.log(`  3. review bootstrap + checks in ${CONFIG_HINT}${manager === undefined ? " — no lockfile found, checks is a placeholder that fails" : ""}`);
-console.log(`  4. commit ${CONFIG_HINT} and ${PROJECT_FOLDER}/.gitignore`);
-console.log("  5. sandcastle validate <parent-issue>");
+console.log(`  4. commit ${CONFIG_HINT}, ${PROJECT_FOLDER}/.gitignore and docs/agents/issue-tracker.md`);
+console.log(
+  tracker === "local"
+    ? "  5. write an Orchestration Issue under .scratch/<feature>/issues/ (or add one in the Board View), then: sandcastle validate <number | slug>"
+    : "  5. sandcastle validate <parent-issue>",
+);
 
 installAgentSkills();

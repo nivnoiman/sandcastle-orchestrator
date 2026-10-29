@@ -472,6 +472,12 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); }
   color: oklch(0.25 0.05 70); border: 1px solid color-mix(in oklch, var(--wait) 70%, transparent);
   background: repeating-linear-gradient(135deg, var(--wait) 0 6px, color-mix(in oklch, var(--wait) 55%, white) 6px 12px);
 }
+.mode-chip.tracker { color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); text-transform: none; }
+.mode-chip.tracker.local { color: var(--accent-ink); background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 40%, transparent); }
+.nolink { color: var(--ink-2); font-weight: 600; }
+.merge-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.merge-hint code { padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: 12px; user-select: all; overflow-wrap: anywhere; }
+.alert .why:has(+ .merge-hint) { white-space: normal; }
 .proj .mode-chip { margin-left: 6px; height: 16px; padding: 0 6px; font-size: 10px; }
 .mode-banner {
   display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 9px 12px; border-radius: var(--radius-sm);

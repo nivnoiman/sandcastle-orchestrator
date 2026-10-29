@@ -7,15 +7,33 @@ import type { CommandRunner } from "./commandRunner.js";
 import { assertDockerReady } from "./docker.js";
 import { resolveSandboxEnvFile, sandboxEnvPreflightRepos, type OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
-import { integrationBase } from "../project/projectConfig.js";
+import { integrationBase, isKnownRepo, knownRepos } from "../project/projectConfig.js";
+import type { LocalIssueStore } from "../tracker/local/store.js";
 import { missingMemoryFiles } from "./memories.js";
 import { repoRoot, type SandcastleLayout } from "./paths.js";
 import { missingSkillFiles, SKILLS_FIX, type SkillsCheckResult } from "./skills.js";
 import { messageOf } from "../messageOf.js";
 
-/** api.github.com plus every host the providers in use call. */
+/** Every host the providers in use call, plus api.github.com unless the Tracker is local. */
 export function containerEgressHosts(config: OrchestratorConfig): string[] {
-  return [...new Set([...agentsInUse(config).flatMap((agent) => agent.provider.egressHosts), "api.github.com"])];
+  const github = config.tracker === "local" ? [] : ["api.github.com"];
+  return [...new Set([...agentsInUse(config).flatMap((agent) => agent.provider.egressHosts), ...github])];
+}
+
+export const LOCAL_ISSUES_FIX =
+  "fix the issue file, or run `sandcastle init` (tracker: local) to set up the config and docs/agents/issue-tracker.md";
+
+/** The Orchestration Issue's files parse and every item names a repo of this Project. */
+export function checkLocalIssueFiles(store: LocalIssueStore, parentNumber: number): string {
+  const feature = store.feature(parentNumber);
+  const problems = feature.items.flatMap((item) => {
+    const repo = item.data["repo"];
+    if (typeof repo !== "string" || repo.trim().length === 0) return [`${item.path}: no \`repo:\` in its frontmatter`];
+    if (!isKnownRepo(repo.trim())) return [`${item.path}: repo "${repo.trim()}" is not a repo of this project (known: ${knownRepos().join(", ")})`];
+    return [];
+  });
+  if (problems.length > 0) throw new Error(`${problems.join("; ")} — ${LOCAL_ISSUES_FIX}`);
+  return `${feature.slug}: parent #${feature.parent.number} + ${feature.items.length} item file(s) parse, every item has a valid repo`;
 }
 
 export function containerEgressProbeArgs(image: string, host: string): string[] {
@@ -43,6 +61,8 @@ export interface PreflightDeps {
   config: OrchestratorConfig;
   model: RunModel;
   skipVerify: boolean;
+  /** The local Tracker's issue files; required when `config.tracker` is local. */
+  localStore?: LocalIssueStore;
   claudeHomeInUse?: boolean;
   /** `sandcastle skills install --check` against the agent home; without it the required skill files are looked up through `fs`. */
   skillsCheck?: () => SkillsCheckResult;
@@ -112,19 +132,27 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightReport
     return `daemon reachable, image ${config.imageTag} present`;
   });
 
-  await record("gh auth (host)", () => {
-    runner.run({ command: "gh", args: ["auth", "status"] });
-    return "the host gh cli can write labels and comments";
-  });
-
-  await record("GH_TOKEN (containers)", () => {
-    const { stdout } = runner.run({
-      command: "gh",
-      args: ["api", "user", "-q", ".login"],
-      env: { GH_TOKEN: config.ghToken, GITHUB_TOKEN: config.ghToken },
+  const local = config.tracker === "local";
+  if (local) {
+    await record("issue files", () => {
+      if (!deps.localStore) throw new Error(`no local issue store was given to preflight — ${LOCAL_ISSUES_FIX}`);
+      return checkLocalIssueFiles(deps.localStore, model.parentNumber);
     });
-    return `pushes and pull requests run as ${stdout.trim()}`;
-  });
+  } else {
+    await record("gh auth (host)", () => {
+      runner.run({ command: "gh", args: ["auth", "status"] });
+      return "the host gh cli can write labels and comments";
+    });
+
+    await record("GH_TOKEN (containers)", () => {
+      const { stdout } = runner.run({
+        command: "gh",
+        args: ["api", "user", "-q", ".login"],
+        env: { GH_TOKEN: config.ghToken, GITHUB_TOKEN: config.ghToken },
+      });
+      return `pushes and pull requests run as ${stdout.trim()}`;
+    });
+  }
 
   await record("repo checkouts", () => {
     const roots = repos.map((repo) => repoRoot(layout, repo));
@@ -137,7 +165,7 @@ export async function runPreflight(deps: PreflightDeps): Promise<PreflightReport
     return roots.join(", ");
   });
 
-  await record("integration base", () => {
+  if (!local) await record("integration base", () => {
     for (const repo of repos) {
       const cwd = repoRoot(layout, repo);
       runner.run({ command: "git", args: ["fetch", "origin", "--prune"], cwd });

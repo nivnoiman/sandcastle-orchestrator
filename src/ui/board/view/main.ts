@@ -1,7 +1,7 @@
 import type { AttentionEntry } from "../attention.js";
 import { esc } from "../format.js";
-import { chooseRun, type BoardProject } from "../model.js";
-import { attrs, button, meter, modeChip, tag } from "./html.js";
+import { chooseRun, isLocalProject, type BoardProject } from "../model.js";
+import { attrs, button, meter, modeChip, tag, trackerChip } from "./html.js";
 import { icon } from "./icons.js";
 import { renderAttention } from "./attention.js";
 import { renderFeed, renderQueue, renderStartForm } from "./panels.js";
@@ -30,6 +30,7 @@ function topbar(ui: BoardUi, project: BoardProject): string {
       <h1>${esc(project.name)}</h1>
       <span class="hubrepo mono">${esc(project.hub)}</span>
       ${modeChip(project.mode)}
+      ${state ? trackerChip(state.tracker ?? "github") : ""}
       ${state && !project.connected ? tag("reconnecting…", "wait") : ""}
       ${project.idle && (state?.runs.length ?? 0) === 0 ? tag("idle", "") : ""}
       <span class="spacer"></span>
@@ -48,7 +49,7 @@ function topbar(ui: BoardUi, project: BoardProject): string {
 
 function modeBanner(project: BoardProject): string {
   if (project.mode !== "dry") return "";
-  return `<div class="mode-banner" role="note">${icon("bolt")}<span><b>Dry mode</b> — this Project Server simulates runs. No containers start, GitHub is not written, no tokens are spent.</span></div>`;
+  return `<div class="mode-banner" role="note">${icon("bolt")}<span><b>Dry mode</b> — this Project Server simulates runs. No containers start, ${isLocalProject(project) ? "no issue file is written" : "GitHub is not written"}, no tokens are spent.</span></div>`;
 }
 
 function emptyState(ui: BoardUi, project: BoardProject): string {

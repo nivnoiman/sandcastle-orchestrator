@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter, setFrontmatterKey, type FrontmatterData, type FrontmatterValue } from "./frontmatter.js";
 
@@ -132,6 +132,22 @@ export class LocalIssueStore {
     });
   }
 
+  /** Creates `.scratch/<slug>/issues/00-parent.md` with the publish-contract fence and returns the new feature, numbered. */
+  createParent(input: { title: string; body?: string }): LocalFeature {
+    const title = input.title.trim();
+    if (title.length === 0) throw new Error("an Orchestration Issue needs a title");
+    const base = featureSlug(title);
+    const taken = new Set(this.features().map((feature) => feature.slug));
+    let slug = base;
+    for (let suffix = 2; taken.has(slug); suffix += 1) slug = `${base}-${suffix}`;
+    const dir = join(this.scratchRoot, slug, ISSUES_FOLDER);
+    mkdirSync(dir, { recursive: true });
+    const description = input.body?.trim() ?? "";
+    const content = [`# ${title}`, "", ...(description ? [description, ""] : []), "```yaml", "sandcastle: v1", `feature: ${slug}`, "```", ""].join("\n");
+    writeFileSync(join(dir, `${PARENT_FILE_PREFIX}parent.md`), content, { encoding: "utf8", flag: "wx" });
+    return this.feature(this.resolve(slug));
+  }
+
   find(number: number): LocalIssue {
     for (const feature of this.features()) {
       if (feature.parent.number === number) return feature.parent;
@@ -191,6 +207,19 @@ export class LocalIssueStore {
   comments(number: number): string[] {
     return splitComments(this.find(number).body).comments;
   }
+}
+
+const FEATURE_SLUG_MAX = 40;
+
+/** A kebab-case feature slug (the publish contract's `feature`) from a title. */
+export function featureSlug(title: string): string {
+  const kebab = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, FEATURE_SLUG_MAX)
+    .replace(/-+$/g, "");
+  return kebab.length > 0 ? kebab : "feature";
 }
 
 export function scratchRootOf(projectRoot: string): string {

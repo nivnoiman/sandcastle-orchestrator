@@ -48,6 +48,16 @@ export function externalLink(href: string, label: string, cls = ""): string {
   return `<a${attrs({ href, target: "_blank", rel: "noreferrer", class: cls })}>${label}</a>`;
 }
 
+/** A link to an issue or pull request; plain text when the Tracker gives it no web page. */
+export function issueLink(href: string | undefined, label: string, cls = ""): string {
+  if (!href) return `<span${attrs({ class: `nolink ${cls}`.trim() })}>${label}</span>`;
+  return externalLink(href, label, cls);
+}
+
+export function trackerChip(tracker: "github" | "local"): string {
+  return `<span class="mode-chip tracker ${tracker}" title="${tracker === "local" ? "Local Tracker: issues are files under .scratch/, a Run ends with an integration branch" : "GitHub Tracker: issues, labels and pull requests live on GitHub"}">${tracker}</span>`;
+}
+
 export function modeChip(mode: "dry" | "real"): string {
   return `<span class="mode-chip ${mode}" title="${mode === "dry" ? "Dry mode: simulated run, nothing real is touched" : "Real mode"}">${mode}</span>`;
 }

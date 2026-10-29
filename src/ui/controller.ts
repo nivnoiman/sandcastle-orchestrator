@@ -4,6 +4,7 @@ import { activeStageChain } from "../engine/stageChain.js";
 import { isParentReference, parseParentInputs, type ParentInput } from "../gh/parentInput.js";
 import type { ParentSummary, RunSnapshot } from "../tracker/types.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
+import type { TrackerKind } from "../project/projectConfig.js";
 import { parseAttemptId, type AttemptChunk, type AttemptRecord } from "../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../real/reset.js";
 import { IDLE_TIMEOUT_DEFAULT } from "../real/env.js";
@@ -13,6 +14,7 @@ import { RunQueue, type QueueMode } from "./runQueue.js";
 import {
   idleFeatureVerify,
   idlePolish,
+  issueUrlOf,
   phaseCounts,
   uiHold,
   uiItems,
@@ -47,9 +49,17 @@ export interface GlobalCapControl {
   set(value: number): void;
 }
 
+export interface NewLocalParent {
+  title: string;
+  body?: string;
+}
+
 export interface ControllerDeps {
   mode: RunMode;
+  tracker?: TrackerKind;
   hubRepo: string;
+  /** Creates a parent file in the local Tracker; absent for the github Tracker. */
+  createParent?: (input: NewLocalParent) => ParentSummary;
   startCap: number;
   preselectedParent?: number;
   listParents: () => Promise<ParentSummary[]>;
@@ -129,6 +139,18 @@ export class UiController {
     const listed = await this.deps.listParents();
     const known = new Set(listed.map((parent) => parent.number));
     return [...listed, ...[...this.added.values()].filter((parent) => !known.has(parent.number))];
+  }
+
+  /** Local Tracker only: writes a new Orchestration Issue file and puts it on the parent list. */
+  createLocalParent(input: NewLocalParent): ParentCheck {
+    const create = this.deps.createParent;
+    if (!create) throw new OperatorError("this Project uses the github Tracker — add Orchestration Issues on GitHub");
+    const summary = create(input);
+    this.added.set(summary.number, summary);
+    this.forgetOldestAdded();
+    this.note("note", undefined, `created #${summary.number} ${summary.title}`);
+    this.publish();
+    return { input: input.title, number: summary.number, title: summary.title, ok: true };
   }
 
   async addParents(text: string): Promise<ParentCheck[]> {
@@ -253,7 +275,7 @@ export class UiController {
 
   private stateBody(): Omit<UiState, "rev" | "boot"> {
     const quietFor = this.quietResolver();
-    const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo, quietFor));
+    const runs = this.slots.all().map((slot) => slot.view(this.urlOf(), quietFor));
     const primary = this.slots.primary();
     const engine = primary?.engine;
     const views = engine ? engine.view() : [];
@@ -261,10 +283,11 @@ export class UiController {
       version: 2,
       stages: uiStageChain(activeStageChain()),
       mode: this.deps.mode,
+      tracker: this.deps.tracker ?? "github",
       hubRepo: this.deps.hubRepo,
       startCap: this.deps.startCap,
       preselectedParent: this.deps.preselectedParent,
-      parent: primary ? uiParent(this.deps.hubRepo, primary.model) : undefined,
+      parent: primary ? uiParent(this.urlOf(), primary.model) : undefined,
       cap: engine?.cap() ?? this.deps.startCap,
       paused: engine?.newStartsArePaused() ?? false,
       started: engine !== undefined,
@@ -283,9 +306,13 @@ export class UiController {
       queueSettings: this.queueSettings(),
       runs,
       globalRunning: runs.reduce((sum, run) => sum + run.running, 0),
-      items: uiItems(this.deps.hubRepo, views, (view) => quietFor(view, primary?.session.attempts)),
+      items: uiItems(this.urlOf(), views, (view) => quietFor(view, primary?.session.attempts)),
       feed: [...this.feed],
     };
+  }
+
+  private urlOf() {
+    return issueUrlOf(this.deps.hubRepo, this.deps.tracker);
   }
 
   private quietResolver(): QuietFor {

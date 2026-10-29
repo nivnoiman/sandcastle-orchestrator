@@ -71,6 +71,8 @@ export interface GitOpsDeps {
   log: (message: string) => void;
   now?: () => number;
   platform?: NodeJS.Platform;
+  /** A file agents write at their worktree root that must never show in git status (local Tracker stage notes). */
+  untrackedNotesFile?: string;
 }
 
 export function leftoverPatchPath(layout: SandcastleLayout, repo: TargetRepo, worktree: string, stamp: number): string {
@@ -154,6 +156,7 @@ export class RealGitOps implements GitBranchOps {
     this.git(cwd, itemBranchWorktreeArgs({ branch, baseBranch, remoteExists, localExists }, target));
     this.deps.log(`[${repo}] worktree ${target} on ${branch}`);
     this.installSandboxEnv(repo, target);
+    this.excludeNotesFile(target);
   }
 
   createDetachedWorktree(repo: TargetRepo, ref: string, slug: string): string {
@@ -210,6 +213,18 @@ export class RealGitOps implements GitBranchOps {
 
   worktreeFor(repo: TargetRepo, branch: string): string {
     return worktreePath(this.deps.layout, repo, branch);
+  }
+
+  private excludeNotesFile(target: string): void {
+    const notes = this.deps.untrackedNotesFile;
+    if (notes === undefined) return;
+    const { stdout } = this.git(target, ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"]);
+    const excludePath = stdout.trim();
+    if (excludePath.length === 0) throw new Error(`git gave no info/exclude path for ${target}`);
+    const current = this.deps.fs.readText(excludePath) ?? "";
+    if (current.split(/\r?\n/).includes(notes)) return;
+    this.deps.fs.makeDirectory(dirname(excludePath));
+    this.deps.fs.writeText(excludePath, `${current}${current === "" || current.endsWith("\n") ? "" : "\n"}${notes}\n`);
   }
 
   private installSandboxEnv(repo: TargetRepo, target: string): void {

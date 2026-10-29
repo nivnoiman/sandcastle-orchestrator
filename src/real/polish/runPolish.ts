@@ -2,7 +2,7 @@ import { boundedTail, fencedBlock } from "../../markdown.js";
 import type { RunModel, TargetRepo } from "../../model/runModel.js";
 import { involvedRepos } from "../featureVerify/runFeatureVerify.js";
 import type { PullRequestRef } from "../ghClient.js";
-import { integrationBase } from "../../project/projectConfig.js";
+import { integrationBase, type TrackerKind } from "../../project/projectConfig.js";
 import { landAgentWork, type IntegrationHarness } from "../integrationHarness.js";
 import { buildPolishPrompt } from "../promptBuilder.js";
 import { messageOf } from "../../messageOf.js";
@@ -34,6 +34,7 @@ export interface PolishDeps {
   gh: PolishGh;
   model: RunModel;
   hubRepo: string;
+  tracker?: TrackerKind | undefined;
   log: (message: string) => void;
   warn: (itemNumber: number, message: string) => void;
 }
@@ -112,6 +113,7 @@ async function polishTarget(deps: PolishDeps, target: PolishTarget): Promise<Pol
       buildPolishPrompt({
         feature: deps.model.feature,
         hubRepo: deps.hubRepo,
+        ...(deps.tracker ? { tracker: deps.tracker } : {}),
         parentNumber: deps.model.parentNumber,
         repo: target.repo,
         integrationBranch: deps.model.integrationBranch,

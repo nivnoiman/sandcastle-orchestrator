@@ -7,10 +7,12 @@ import {
   lifecycleSteps,
   runGates,
   runHint,
+  trackerOf,
+  webUrl,
   type BoardProject,
   type LifecycleStep,
 } from "../model.js";
-import { attrs, button, externalLink, meter, tag } from "./html.js";
+import { attrs, button, externalLink, issueLink, meter, tag } from "./html.js";
 import { icon } from "./icons.js";
 import type { BoardUi } from "./ui.js";
 
@@ -114,7 +116,7 @@ function itemCard(ui: BoardUi, project: BoardProject, run: UiRun, item: UiItem):
     "data-proj": project.id,
     "data-run": runNumber,
   })}>
-    <div class="top"><a href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">#${item.number}</a>${rework}<span class="repo">${esc(item.repo)}</span></div>
+    <div class="top">${issueLink(webUrl(item.issueUrl), `#${item.number}`)}${rework}<span class="repo">${esc(item.repo)}</span></div>
     <div class="ttl">${esc(item.title)}</div>
     <div class="st"><span class="dot ${PHASE_DOT[item.phase]}"></span>${esc(label)}${quiet}${clockFor(item, ui.nowMs)}</div>
     ${waitsOn(item)}
@@ -130,8 +132,9 @@ function mergedColumn(ui: BoardUi, project: BoardProject, run: UiRun, items: rea
   const shown = open ? items : items.slice(-2);
   const rows = shown
     .map((item) => {
-      const pr = item.pullRequestUrl ? externalLink(item.pullRequestUrl, esc(prLabel(item.pullRequestUrl))) : "";
-      return `<li><a href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">#${item.number}</a><span>${esc(item.title)}</span>${pr}</li>`;
+      const prUrl = webUrl(item.pullRequestUrl);
+      const pr = prUrl ? externalLink(prUrl, esc(prLabel(prUrl))) : "";
+      return `<li>${issueLink(webUrl(item.issueUrl), `#${item.number}`)}<span>${esc(item.title)}</span>${pr}</li>`;
     })
     .join("");
   return `<button${attrs({ type: "button", class: "done-fold", "data-act": "fold", "data-proj": project.id, "data-run": run.parent.number, "aria-expanded": open })}>${icon("check")}${items.length} merged<span class="fold-state">${open ? "Hide" : "Show"}</span></button>
@@ -162,9 +165,16 @@ function stepMarkup(step: LifecycleStep): string {
   return `<li class="step ${step.state}" title="${esc(step.detail)}"><span class="step-node" aria-hidden="true"></span><span class="step-label">${esc(step.label)}</span><span class="step-detail">${esc(step.detail)}</span></li>`;
 }
 
+/** A pull request link, or for a local record (`local-pr://repo/branch`) the branch it stands for. */
+function prLink(url: string): string {
+  if (webUrl(url)) return externalLink(url, `${icon("pr")}${esc(prLabel(url))}`);
+  const local = /^local-pr:\/\/([^/]+)\/(.+)$/.exec(url);
+  return `<span class="chip">${icon("branch")}${esc(local ? `${local[2]} · ${local[1]}` : "integration branch")}</span>`;
+}
+
 function prLinks(urls: readonly string[]): string {
   if (urls.length === 0) return "";
-  return `<div class="pr-links">${urls.map((url) => externalLink(url, `${icon("pr")}${esc(prLabel(url))}`)).join("")}</div>`;
+  return `<div class="pr-links">${urls.map(prLink).join("")}</div>`;
 }
 
 function gateCards(run: UiRun, mode: BoardProject["mode"]): string {
@@ -199,7 +209,7 @@ function runBar(project: BoardProject, run: UiRun): string {
   const data = { "data-proj": project.id, "data-run": number };
   return `<div class="runbar">
       <div class="title">
-        <h3>${externalLink(run.parent.url, `#${number} ${esc(run.parent.title)}`)}${run.paused ? tag("paused", "wait") : ""}</h3>
+        <h3>${issueLink(webUrl(run.parent.url), `#${number} ${esc(run.parent.title)}`)}${run.paused ? tag("paused", "wait") : ""}</h3>
         <span class="branch mono">${icon("branch")}${esc(run.parent.integrationBranch)}</span>
       </div>
       <div class="ctrl">
@@ -249,7 +259,7 @@ export function renderRunTabs(ui: BoardUi, project: BoardProject, selected: UiRu
 }
 
 export function renderRunPanel(ui: BoardUi, project: BoardProject, run: UiRun): string {
-  const steps = lifecycleSteps(run, project.mode);
+  const steps = lifecycleSteps(run, project.mode, trackerOf(project));
   return `<div class="runpanel" role="tabpanel">
     ${runBar(project, run)}
     <ol class="lifecycle" aria-label="Run Lifecycle">${steps.map(stepMarkup).join("")}</ol>

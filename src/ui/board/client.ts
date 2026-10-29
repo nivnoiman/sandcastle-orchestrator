@@ -7,7 +7,7 @@ import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
 import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
-import { chooseRun, shouldAdopt } from "./model.js";
+import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
@@ -591,11 +591,30 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
+  async function submitNewParent(project: BoardProject, drawer: Extract<NonNullable<typeof ui.drawer>, { kind: "add" }>): Promise<void> {
+    try {
+      const payload = await apiOf(project).send("POST", "/api/parents/local", { title: drawer.title, body: drawer.text });
+      const created = payload["result"] as { number?: number; title?: string } | null;
+      if (ui.drawer?.kind === "add" && created?.number !== undefined) {
+        ui.drawer.result = `created #${created.number} ${created.title ?? ""}`;
+        ui.drawer.title = "";
+        ui.drawer.text = "";
+        ui.selectedParent = String(created.number);
+      }
+      await loadParents(project);
+    } catch (cause) {
+      fail(project, cause);
+    }
+    if (ui.drawer?.kind === "add") ui.drawer.busy = false;
+    render();
+  }
+
   async function submitAdd(project: BoardProject): Promise<void> {
     const drawer = ui.drawer;
     if (drawer?.kind !== "add" || drawer.busy) return;
     drawer.busy = true;
     render();
+    if (isLocalProject(project)) return submitNewParent(project, drawer);
     try {
       const payload = await apiOf(project).send("POST", "/api/parents", { text: drawer.text });
       const checks = (payload["result"] as { ok: boolean; number?: number; title?: string; input: string; error?: string }[] | null) ?? [];
@@ -816,6 +835,15 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
+  async function copyToClipboard(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("info", `copied: ${text}`);
+    } catch {
+      toast("error", "Could not reach the clipboard — select the command and copy it by hand.");
+    }
+  }
+
   function onAttentionAction(act_: string, element: HTMLElement, project: BoardProject): void {
     const itemNumber = Number(element.dataset["n"]) || undefined;
     const runNumber = Number(element.dataset["run"]) || undefined;
@@ -843,6 +871,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       feed?.scrollIntoView({ block: "center" });
     } else if (act_ === "att-restart") {
       runAction("restart", project.id);
+    } else if (act_ === "att-copy") {
+      void copyToClipboard(element.dataset["copy"] ?? "");
     }
   }
 
@@ -931,7 +961,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
     if (action === "open-add") {
       stopDrawerPolling();
-      ui.drawer = { kind: "add", projectId: project.id, text: "", busy: false, result: undefined };
+      ui.drawer = { kind: "add", projectId: project.id, title: "", text: "", busy: false, result: undefined };
       render();
       focusDrawer();
       return;
@@ -998,6 +1028,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       render();
     } else if (action === "add-text" && ui.drawer?.kind === "add") {
       ui.drawer.text = value;
+      render();
+    } else if (action === "add-title" && ui.drawer?.kind === "add") {
+      ui.drawer.title = value;
       render();
     }
   }

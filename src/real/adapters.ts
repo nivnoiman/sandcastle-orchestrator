@@ -5,6 +5,7 @@ import type { OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { activeProject } from "../project/projectConfig.js";
 import { LocalTrackerClient, localIssueStore, type TrackerClient } from "../tracker/index.js";
+import { LOCAL_PR_NOTES_FILE } from "../tracker/local/pullRequests.js";
 import { RealGhClient } from "./ghClient.js";
 import { RealGitOps } from "./gitOps.js";
 import type { SandcastleLayout } from "./paths.js";
@@ -71,7 +72,13 @@ export function createRealAdapters(deps: RealAdaptersDeps): RealAdapterBundle {
 
   const gh = createTrackerClient(deps, log, ui);
 
-  const git = new RealGitOps({ runner: deps.runner, fs: deps.fs, layout: deps.layout, log });
+  const git = new RealGitOps({
+    runner: deps.runner,
+    fs: deps.fs,
+    layout: deps.layout,
+    log,
+    ...(deps.config.tracker === "local" ? { untrackedNotesFile: LOCAL_PR_NOTES_FILE } : {}),
+  });
 
   const sandbox = new DockerSandboxRunner({
     runner: deps.runner,

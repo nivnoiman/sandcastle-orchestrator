@@ -2,6 +2,7 @@ import { STAGE_CHAIN, type HoldReason } from "../engine/adapters.js";
 import { stageNames, type StageSpec } from "../engine/stageChain.js";
 import type { ItemPhase, ItemView, StallSummary } from "../engine/engine.js";
 import type { RunModel } from "../model/runModel.js";
+import type { TrackerKind } from "../project/projectConfig.js";
 import { hubIssueUrl } from "../real/ghClient.js";
 import { idleFeatureVerify, type FeatureVerifyStatus } from "../real/featureVerify/runFeatureVerify.js";
 import { idlePolish, type PolishStatus } from "../real/polish/runPolish.js";
@@ -75,6 +76,8 @@ export interface UiState {
   /** `queued`, the configured stage chain, `merged`. */
   stages: string[];
   mode: RunMode;
+  /** Where the Project's issues live; the Board View words PRs, links and the last Run Lifecycle step by it. */
+  tracker: TrackerKind;
   hubRepo: string;
   startCap: number;
   preselectedParent: number | undefined;
@@ -128,22 +131,29 @@ export function polishLabel(status: PolishStatus): string {
 export { idleFeatureVerify, idlePolish };
 export type { FeatureVerifyStatus, PolishStatus };
 
-export function uiParent(hubRepo: string, model: RunModel): UiParent {
+/** An issue's web url; empty with the local Tracker, whose issues are files. */
+export type IssueUrlOf = (number: number) => string;
+
+export function issueUrlOf(hubRepo: string, tracker: TrackerKind = "github"): IssueUrlOf {
+  return tracker === "local" ? () => "" : (number) => issueUrl(hubRepo, number);
+}
+
+export function uiParent(urlOf: IssueUrlOf, model: RunModel): UiParent {
   return {
     number: model.parentNumber,
     title: model.title,
     feature: model.feature,
     integrationBranch: model.integrationBranch,
-    url: issueUrl(hubRepo, model.parentNumber),
+    url: urlOf(model.parentNumber),
   };
 }
 
 export function uiItems(
-  hubRepo: string,
+  urlOf: IssueUrlOf,
   views: readonly ItemView[],
   quietFor: (view: ItemView) => QuietInfo | undefined = () => undefined,
 ): UiItem[] {
-  return views.map((view) => ({ ...view, issueUrl: issueUrl(hubRepo, view.number), quiet: quietFor(view) }));
+  return views.map((view) => ({ ...view, issueUrl: urlOf(view.number), quiet: quietFor(view) }));
 }
 
 function zeroPhaseCounts(): Record<ItemPhase, number> {

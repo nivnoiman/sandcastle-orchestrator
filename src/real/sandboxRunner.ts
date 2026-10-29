@@ -206,7 +206,7 @@ export function containerEnv(
   provider: AgentProvider = defaultAgent(config).provider,
 ): Record<string, string> {
   const env: Record<string, string> = {
-    GH_TOKEN: config.ghToken,
+    ...(config.ghToken ? { GH_TOKEN: config.ghToken } : {}),
     GIT_DIR: gitDir,
     GIT_WORK_TREE: SANDBOX_WORKDIR,
     GIT_AUTHOR_NAME: AGENT_IDENTITY.name,
@@ -462,7 +462,14 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
 
     this.assertLive(attempt);
+    this.pushLocalBranch(worktree, request.branch);
     return this.settleOutcome(request, worktree, baseline);
+  }
+
+  /** The local Tracker's origin is a path on this host the container cannot reach, so the host pushes what the agent committed. */
+  private pushLocalBranch(worktree: string, branch: string): void {
+    if (this.deps.config.tracker !== "local") return;
+    this.deps.runner.run({ command: "git", args: ["push", "--force-with-lease", "origin", branch], cwd: worktree });
   }
 
   private stagePromptContext(request: SpawnRequest): StagePromptContext {
@@ -672,7 +679,13 @@ export class DockerSandboxRunner implements SandboxRunner {
       this.deps.log(`#${request.itemNumber} develop done: ${existing.url}`);
       return { outcome: "success", pullRequestUrl: existing.url };
     }
-    this.deps.warn(request.itemNumber, "agent left commits but no pull request — opening the draft pull request for it");
+    const local = this.deps.config.tracker === "local";
+    this.deps.warn(
+      request.itemNumber,
+      local
+        ? `agent left commits but no pull-request record — recording it for ${request.branch}`
+        : "agent left commits but no pull request — opening the draft pull request for it",
+    );
     this.deps.runner.run({ command: "git", args: ["push", "-u", "origin", request.branch], cwd: worktree });
     const item = this.deps.context.item(request.itemNumber);
     const created = this.deps.gh.createDraftPullRequest({
@@ -686,8 +699,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         "",
         "## How tested",
         "_the develop agent stopped before writing this — check the commits before merging_",
-        "",
-        `Closes ${this.deps.config.hubRepo}#${request.itemNumber}`,
+        ...(local ? [] : ["", `Closes ${this.deps.config.hubRepo}#${request.itemNumber}`]),
       ].join("\n"),
     });
     this.deps.log(`#${request.itemNumber} develop done (orchestrator-opened): ${created.url}`);
@@ -723,6 +735,7 @@ export class DockerSandboxRunner implements SandboxRunner {
           " the conflict is still there",
       );
     }
+    this.pushLocalBranch(worktree, request.branch);
     this.deps.log(`#${request.itemNumber} resolve done — ${request.branch} sits on ${request.integrationBranch} again`);
     return { outcome: "success", resolved: true };
   }

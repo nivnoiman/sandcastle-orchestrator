@@ -33,6 +33,7 @@ function state(overrides: Partial<UiState> = {}): UiState {
     boot: "test-boot",
     stages: ["queued", "develop", "simplify", "review", "verify", "merged"],
     mode: "real",
+    tracker: "github",
     hubRepo: "example-org/hub",
     startCap: 2,
     preselectedParent: 99,

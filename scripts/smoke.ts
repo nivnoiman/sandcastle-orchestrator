@@ -144,6 +144,7 @@ try {
 
   const env = containerEnv(
     {
+      tracker: "github",
       ghToken: "smoke-not-a-real-token",
       anthropicApiKey: undefined,
       claudeOauthToken: undefined,

@@ -1,15 +1,13 @@
 import { bootProject } from "../project/boot.js";
 import { createRunReader } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
+import { parentFromArgs } from "./parentArg.js";
 
 const project = bootProject();
 const [issueArg, repoArg] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
-if (!issueArg || !/^\d+$/.test(issueArg)) {
-  console.error("usage: sandcastle validate <parent-issue-number> [owner/repo]");
-  process.exit(2);
-}
+const parentNumber = parentFromArgs(project, issueArg, "usage: sandcastle validate <parent-issue-number | slug | path> [owner/repo]");
 
-const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(Number(issueArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(parentNumber);
 const result = loadRunModel(snapshot);
 
 if (!result.ok) {
