@@ -291,7 +291,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     ui.localFeed[project.id] = [...(ui.localFeed[project.id] ?? []), line].slice(-FEED_LIMIT);
   }
 
-  /** Errors are a toast plus a feed line, so they survive the toast. */
   function fail(project: BoardProject, cause: unknown): void {
     const message = messageOf(cause);
     localLine(project, "warn", message);
@@ -455,7 +454,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
-  // ---- drawers ----
 
   function stopDrawerPolling(): void {
     if (drawerTimer) clearInterval(drawerTimer);
@@ -629,7 +627,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
-  // ---- project actions ----
 
   async function act(project: BoardProject, run: (api: ProjectApi) => Promise<unknown>): Promise<boolean> {
     try {
@@ -741,7 +738,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     writeStorage(FEED_KEY, open ? "1" : undefined);
   }
 
-  // ---- events ----
 
   function runAction(action: BoardAction, projectId: string): void {
     if (!options.onAction) return toast("info", 'Run "sandcastle ui" inside the project directory to restart it.');
@@ -1089,7 +1085,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   document.addEventListener("keydown", onKeydown);
   document.addEventListener("visibilitychange", pollVisible);
 
-  // ---- clocks and probes ----
 
   timers.push(
     setInterval(() => {

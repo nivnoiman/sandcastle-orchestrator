@@ -165,7 +165,6 @@ function stepMarkup(step: LifecycleStep): string {
   return `<li class="step ${step.state}" title="${esc(step.detail)}"><span class="step-node" aria-hidden="true"></span><span class="step-label">${esc(step.label)}</span><span class="step-detail">${esc(step.detail)}</span></li>`;
 }
 
-/** A pull request link, or for a local record (`local-pr://repo/branch`) the branch it stands for. */
 function prLink(url: string): string {
   if (webUrl(url)) return externalLink(url, `${icon("pr")}${esc(prLabel(url))}`);
   const local = /^local-pr:\/\/([^/]+)\/(.+)$/.exec(url);

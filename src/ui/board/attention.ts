@@ -222,7 +222,6 @@ function localIntegrationEntry(project: BoardProject, parent: BoardProject["pare
   });
 }
 
-/** A parent whose sub-issues are all closed and whose Run (if any) finished verify and polish. */
 function integrationReadyEntries(project: BoardProject): AttentionEntry[] {
   const state = project.state;
   if (!state) return [];
