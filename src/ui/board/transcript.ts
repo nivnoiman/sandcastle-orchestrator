@@ -56,7 +56,6 @@ function cursorToolText(toolCall: unknown): string {
   return `${name}: ${firstLine(target ?? args)}`;
 }
 
-/** cursor-agent stream-json: `tool_call` started/completed events; `system`/`assistant`/`result` share the claude shapes. */
 function describeCursorToolCall(event: Json): Turn | undefined {
   if (event["subtype"] === "started") return { kind: "tool", text: `→ ${cursorToolText(event["tool_call"])}` };
   if (event["subtype"] !== "completed") return undefined;
