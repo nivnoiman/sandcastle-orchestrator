@@ -21,9 +21,10 @@ export function hostGitEnv(): Record<string, string> {
 }
 
 export class GitControlTampered extends Error {
-  constructor(readonly gitDir: string, readonly files: readonly string[]) {
+  constructor(readonly gitDir: string, readonly files: readonly string[], readonly changes: readonly string[] = []) {
+    const detail = changes.length > 0 ? ` (${changes.join("; ")})` : "";
     super(
-      `an agent container changed ${files.join(", ")} under ${gitDir} — sandcastle restored the original and refuses the stage. ` +
+      `an agent container changed ${files.join(", ")}${detail} under ${gitDir} — sandcastle restored the original and refuses the stage. ` +
         "Read the stage transcript before resuming this item.",
     );
     this.name = "GitControlTampered";
@@ -253,13 +254,26 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
   const active = activeByGitDir.get(registryKey(snapshot.gitDir));
   const stageBranches = active ? trackedBranches(active) : [];
   const changed: string[] = [];
+  const changes: string[] = [];
   for (const [file, before] of snapshot.files) {
     if (guardedFileUnchanged(fs, snapshot.gitDir, file, before, stageBranches)) continue;
     changed.push(file);
+    changes.push(...describeChange(file, before, fs.readText(join(snapshot.gitDir, file))));
     const path = join(snapshot.gitDir, file);
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
   }
   releaseGitControl(snapshot);
-  if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed);
+  if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed, changes);
+}
+
+/** Names the lines that differ, keys only: values may carry URLs or tokens and must not reach logs or issue comments. */
+function describeChange(file: string, before: string | undefined, after: string | undefined): string[] {
+  const keyOf = (line: string): string => line.split("=")[0]!.trim();
+  const lines = (text: string | undefined): string[] => (text ?? "").split(/\r?\n/).filter((line) => line.trim() !== "");
+  const beforeLines = new Set(lines(before));
+  const afterLines = new Set(lines(after));
+  const added = lines(after).filter((line) => !beforeLines.has(line));
+  const removed = lines(before).filter((line) => !afterLines.has(line));
+  return [...added.map((line) => `${file} +${keyOf(line)}`), ...removed.map((line) => `${file} -${keyOf(line)}`)].slice(0, 12);
 }

@@ -24,6 +24,22 @@ describe("git control guard", () => {
     expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
   });
 
+  it("names the changed keys in the refusal without leaking their values", () => {
+    const fs = fsWith({ [CONFIG]: "[core]\n" });
+    const snapshot = snapshotGitControl(fs, GIT_DIR);
+    fs.writeText(CONFIG, "[core]\n\thooksPath = https://user:secret@evil.test/x\n");
+
+    const error = (() => {
+      try {
+        assertGitControlUnchanged(fs, snapshot);
+      } catch (cause) {
+        return cause as Error;
+      }
+    })();
+    expect(error?.message).toContain("config +hooksPath");
+    expect(error?.message).not.toContain("secret");
+  });
+
   it("restores a tampered config, removes a planted attributes file, and refuses the stage", () => {
     const fs = fsWith({ [CONFIG]: "[core]\n" });
     const snapshot = snapshotGitControl(fs, GIT_DIR);
