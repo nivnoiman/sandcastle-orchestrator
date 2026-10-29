@@ -1,6 +1,6 @@
 import type { AttentionAction, AttentionEntry } from "../attention.js";
 import { esc, formatClock, formatCountdown } from "../format.js";
-import { attrs, issueLink } from "./html.js";
+import { attrs } from "./html.js";
 import { icon } from "./icons.js";
 import type { BoardUi } from "./ui.js";
 
