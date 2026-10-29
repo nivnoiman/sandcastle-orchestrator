@@ -94,3 +94,9 @@ export interface Tracker {
   items: TrackerItemReader & TrackerWriter;
   pullRequests: PullRequestSeam;
 }
+
+/** What the real adapters hand the engine, stages and verify: writes, item reads, pull requests and the label-retry hook. */
+export interface TrackerClient extends TrackerWriter, TrackerItemReader, PullRequestSeam {
+  /** Retries label writes that failed earlier; a no-op where writes cannot fail remotely. */
+  flushPendingLabels(): void;
+}

@@ -37,7 +37,7 @@ const isDryRun = args.includes("--dry-run");
 const hubRepo = repoArg ?? project.hubRepo;
 
 function loadModel(snapshotRepo: string, issue: number): Promise<RunModel> {
-  return createRunReader(snapshotRepo).fetchRunSnapshot(issue).then((snapshot) => {
+  return createRunReader(project, snapshotRepo).fetchRunSnapshot(issue).then((snapshot) => {
     const result = loadRunModel(snapshot);
     if (result.ok) return result.model;
     throw new Error(`INVALID run model:\n  - ${result.errors.join("\n  - ")}`);

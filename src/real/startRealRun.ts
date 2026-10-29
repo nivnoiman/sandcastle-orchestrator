@@ -1,8 +1,8 @@
 import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
-import { createRunReader } from "../tracker/index.js";
+import { createRunReader, ensureLocalRemote } from "../tracker/index.js";
 import type { RunModel } from "../model/runModel.js";
-import { integrationBase } from "../project/projectConfig.js";
+import { activeProject, integrationBase } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
 import { createRealAdapters } from "./adapters.js";
 import { AttemptLogStore } from "./attemptLog.js";
@@ -71,6 +71,10 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
   const slots = plane.broker.slotsFor({ refill: () => engineRef?.refill() });
 
   try {
+    if (activeProject().tracker === "local") {
+      const remote = { runner, fs, layout, integrationBase: integrationBase(), log };
+      for (const repo of new Set(model.items.map((item) => item.repo))) ensureLocalRemote(remote, repo);
+    }
     await assertPreflight({
       runner,
       fs,
@@ -124,7 +128,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       engine.tick(Date.now());
     };
 
-    const runReader = createRunReader(config.hubRepo);
+    const runReader = createRunReader(activeProject(), config.hubRepo);
     const watch = new WatchLoop({
       fetchSnapshot: () => runReader.fetchRunSnapshot(model.parentNumber),
       engine: {

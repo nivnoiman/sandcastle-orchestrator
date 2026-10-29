@@ -102,7 +102,7 @@ async function readFixture(path: string): Promise<RunSnapshot> {
 }
 
 async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
-  if (!fixture) return createRunReader(hubRepo).fetchRunSnapshot(parentNumber);
+  if (!fixture) return createRunReader(project, repoArg).fetchRunSnapshot(parentNumber);
   const snapshot = await readFixture(fixture);
   if (snapshot.parent.number !== parentNumber) {
     throw new Error(`fixture ${fixture} publishes parent #${snapshot.parent.number}, not #${parentNumber}`);
@@ -111,7 +111,7 @@ async function loadSnapshot(parentNumber: number): Promise<RunSnapshot> {
 }
 
 async function listParents(): Promise<ParentSummary[]> {
-  if (!fixture) return createRunReader(hubRepo).listParents();
+  if (!fixture) return createRunReader(project, repoArg).listParents();
   const snapshot = await readFixture(fixture);
   return [
     {

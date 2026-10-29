@@ -19,7 +19,7 @@ if (!issueArg || !/^\d+$/.test(issueArg)) {
 }
 
 const hubRepo = repoArg ?? project.hubRepo;
-const snapshot = await createRunReader(hubRepo).fetchRunSnapshot(Number(issueArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(Number(issueArg));
 const result = loadRunModel(snapshot);
 if (!result.ok) {
   console.error(`INVALID — #${issueArg} does not satisfy the publish contract, so reset cannot tell which items are its own:`);

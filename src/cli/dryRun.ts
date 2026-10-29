@@ -24,7 +24,7 @@ if (!Number.isInteger(workerCap) || workerCap < 1) {
 
 async function loadSnapshot(fixtureOrIssue: string): Promise<RunSnapshot> {
   if (/^\d+$/.test(fixtureOrIssue)) {
-    return createRunReader(repoArg ?? project.hubRepo).fetchRunSnapshot(Number(fixtureOrIssue));
+    return createRunReader(project, repoArg).fetchRunSnapshot(Number(fixtureOrIssue));
   }
   const raw = await readFile(fixtureOrIssue, "utf8");
   const parsed: unknown = JSON.parse(raw);
