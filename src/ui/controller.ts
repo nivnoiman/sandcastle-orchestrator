@@ -308,10 +308,7 @@ export class UiController {
       throw new OperatorError(`#${parent} is not held on agent credentials - nothing to re-check`);
     }
     if (this.authRecheck) return this.authRecheck;
-    const probing = recheck().then(
-      (result) => result,
-      (cause: unknown): AuthRecheck => ({ ok: false, error: messageOf(cause) }),
-    );
+    const probing = recheck().catch((cause: unknown): AuthRecheck => ({ ok: false, error: messageOf(cause) }));
     this.authRecheck = probing;
     this.publish();
     const result = await probing;
