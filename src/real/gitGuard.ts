@@ -187,8 +187,7 @@ function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): Readonly
   );
 }
 
-/** Any branch's inert tracking: other git users of the shared repo (other sessions, VS Code, host worktree add) write it any time. */
-function isInertBranchBookkeeping(entry: ConfigEntry, remotesSafeToName: ReadonlySet<string>): boolean {
+function isInertBranchBookkeepingFromOtherGitUsers(entry: ConfigEntry, remotesSafeToName: ReadonlySet<string>): boolean {
   if (entry.subsection === undefined) return false;
   if (entry.section === "remote") return entry.key === GH_PR_CREATE_REMOTE_KEY && remotesSafeToName.has(entry.subsection);
   if (entry.section !== "branch") return false;
@@ -205,7 +204,7 @@ function configChangeIsOnlyInertBookkeeping(before: string | undefined, after: s
   if (!beforeEntries || !afterEntries) return false;
   const remotesSafeToName = remoteNamesWithUrlSafeToName(beforeEntries);
   const guardedFingerprint = (entries: readonly ConfigEntry[]): string =>
-    JSON.stringify(entries.filter((entry) => !isInertBranchBookkeeping(entry, remotesSafeToName)));
+    JSON.stringify(entries.filter((entry) => !isInertBranchBookkeepingFromOtherGitUsers(entry, remotesSafeToName)));
   return guardedFingerprint(beforeEntries) === guardedFingerprint(afterEntries);
 }
 
@@ -223,7 +222,7 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
     if (guardedFileUnchanged(fs, snapshot.gitDir, file, before)) continue;
     const path = join(snapshot.gitDir, file);
     changed.push(file);
-    changes.push(...describeChange(file, before, fs.readText(path)));
+    changes.push(...describeChangedLabelsWithoutValues(file, before, fs.readText(path)));
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
   }
@@ -231,8 +230,7 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
   if (changed.length > 0) throw new GitControlTampered(snapshot.gitDir, changed, changes);
 }
 
-/** Names the lines that differ, labels only: values and subsections (remote names, urls) may carry URLs or tokens and must not reach logs or issue comments. */
-function describeChange(file: string, before: string | undefined, after: string | undefined): string[] {
+function describeChangedLabelsWithoutValues(file: string, before: string | undefined, after: string | undefined): string[] {
   const labelOf = (line: string): string => {
     const header = /^\s*\[([A-Za-z0-9.-]+)/.exec(line);
     if (header) return `[${header[1]}]`;

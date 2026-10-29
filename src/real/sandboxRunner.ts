@@ -462,12 +462,11 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
 
     this.assertLive(attempt);
-    this.pushLocalBranch(worktree, request.branch);
+    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
     return this.settleOutcome(request, worktree, baseline);
   }
 
-  /** The local Tracker's origin is a path on this host the container cannot reach, so the host pushes what the agent committed. */
-  private pushLocalBranch(worktree: string, branch: string): void {
+  private pushLocalTrackerBranchFromHost(worktree: string, branch: string): void {
     if (this.deps.config.tracker !== "local") return;
     this.deps.runner.run({ command: "git", args: ["push", "--force-with-lease", "origin", branch], cwd: worktree });
   }
@@ -735,7 +734,7 @@ export class DockerSandboxRunner implements SandboxRunner {
           " the conflict is still there",
       );
     }
-    this.pushLocalBranch(worktree, request.branch);
+    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
     this.deps.log(`#${request.itemNumber} resolve done — ${request.branch} sits on ${request.integrationBranch} again`);
     return { outcome: "success", resolved: true };
   }
