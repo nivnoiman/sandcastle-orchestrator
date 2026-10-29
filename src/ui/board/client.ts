@@ -133,8 +133,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   const connections = new Map<string, Connection>();
   let toastSeq = 0;
   let heldMap: HeldMap = parseHeld(readStorage(HELD_KEY));
-  /** Counted attention keys already announced, per project; absent until the project's first state. */
-  const announced = new Map<string, Set<string>>();
+  const announcedKeysByProject = new Map<string, Set<string>>();
   let renderQueued = false;
   const logState = { attempt: undefined as string | undefined, offset: 0, text: "" };
   let drawerTimer: ReturnType<typeof setInterval> | undefined;
@@ -198,7 +197,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const attention = everything.filter((entry) => !isHeld(heldMap, entry));
     ui.held = everything.filter((entry) => !attention.includes(entry));
     announceNew(everything);
-    syncDialog();
+    closeOrRefreshParkedDialog();
     ui.notifyPermission = notifyPermission();
     patch(zones.rail, renderRail(ui, attention));
     patch(zones.main, renderMain(ui, attention));
@@ -211,13 +210,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     document.title = pageTitle(counted, currentProject(ui)?.name);
   }
 
-  /** A toast and, when allowed, a desktop notification for each entry that appeared since the last state of its project. */
   function announceNew(entries: readonly AttentionEntry[]): void {
     for (const project of ui.projects) {
       if (!project.state) continue;
       const own = entries.filter((entry) => entry.projectId === project.id);
-      const fresh = newlyNeedingAttention(announced.get(project.id), own).filter((entry) => !isHeld(heldMap, entry));
-      announced.set(project.id, new Set(own.filter((entry) => entry.counted).map((entry) => entry.key)));
+      const fresh = newlyNeedingAttention(announcedKeysByProject.get(project.id), own).filter((entry) => !isHeld(heldMap, entry));
+      announcedKeysByProject.set(project.id, new Set(own.filter((entry) => entry.counted).map((entry) => entry.key)));
       for (const entry of fresh) {
         const text = alertText(entry);
         toast("error", `${text.title}. ${text.body.split("\n")[0] ?? ""}`.slice(0, 280));
@@ -226,8 +224,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
   }
 
-  /** Keeps an open dialog honest: refresh the park reason, or close it when its item is no longer parked. */
-  function syncDialog(): void {
+  function closeOrRefreshParkedDialog(): void {
     const dialog = ui.dialog;
     if (!dialog || dialog.busy || dialog.result) return;
     const project = projectById(dialog.projectId);
@@ -253,7 +250,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
         note.close();
       };
     } catch {
-      // some browsers only allow notifications from a service worker; the in-page toast still shows
     }
   }
 
@@ -815,7 +811,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     try {
       await Notification.requestPermission();
     } catch {
-      // older browsers use a callback form; the state below re-reads the permission either way
     }
     ui.notifyPermission = notifyPermission();
     render();
