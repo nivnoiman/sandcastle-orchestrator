@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { agentDetail, AgentWaitError, jsonLines } from "../agentFailure.js";
+import { agentDetail, AgentWaitError, jsonLines, plainStderrOf, stringField } from "../agentFailure.js";
 import type { Mount } from "../docker.js";
 import type { OrchestratorConfig } from "../env.js";
 import { codexDirOf, CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
@@ -52,12 +52,6 @@ export function codexHomeMounts(layout: SandcastleLayout): Mount[] {
 
 export function codexAuthEnv(config: Pick<OrchestratorConfig, "codexApiKey">): Record<string, string> {
   return config.codexApiKey ? { CODEX_API_KEY: config.codexApiKey } : {};
-}
-
-function stringField(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" ? field : undefined;
 }
 
 /** Codex prints failures as JSON on stdout (`error`, `turn.failed`, an `error` item); tool output is never scanned. */

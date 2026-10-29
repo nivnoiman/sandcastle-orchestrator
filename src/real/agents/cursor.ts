@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { agentDetail, AgentWaitError, jsonLines } from "../agentFailure.js";
+import { agentDetail, AgentWaitError, jsonLines, plainStderrOf, stringField } from "../agentFailure.js";
 import type { Mount } from "../docker.js";
 import type { OrchestratorConfig } from "../env.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
@@ -41,12 +41,6 @@ export function cursorHomeMounts(layout: SandcastleLayout): Mount[] {
 
 export function cursorAuthEnv(config: Pick<OrchestratorConfig, "cursorApiKey">): Record<string, string> {
   return config.cursorApiKey ? { CURSOR_API_KEY: config.cursorApiKey } : {};
-}
-
-function stringField(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" ? field : undefined;
 }
 
 /** Failures: a `result` event with `is_error`, or plain stderr text (the process exits non-zero, often without a `result`). Tool output is never scanned. */
