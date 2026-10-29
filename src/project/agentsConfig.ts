@@ -1,4 +1,4 @@
-export const PROVIDER_NAMES = ["claude", "codex"] as const;
+export const PROVIDER_NAMES = ["claude", "codex", "cursor"] as const;
 export type ProviderName = (typeof PROVIDER_NAMES)[number];
 
 /** Every place an agent CLI runs; salvage runs under its stage's role. */

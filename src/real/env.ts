@@ -28,6 +28,7 @@ export interface OrchestratorConfig {
   anthropicApiKey: string | undefined;
   claudeOauthToken: string | undefined;
   codexApiKey: string | undefined;
+  cursorApiKey: string | undefined;
   agents: AgentsConfig;
   stages: readonly StageSpec[];
   model: string;
@@ -212,6 +213,7 @@ export function loadOrchestratorConfig(
     anthropicApiKey: values["ANTHROPIC_API_KEY"] || undefined,
     claudeOauthToken: values["CLAUDE_CODE_OAUTH_TOKEN"] || undefined,
     codexApiKey: values["CODEX_API_KEY"] || values["OPENAI_API_KEY"] || undefined,
+    cursorApiKey: values["CURSOR_API_KEY"] || undefined,
     agents: project.agents,
     stages: project.stages,
     model: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL,

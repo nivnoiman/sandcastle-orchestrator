@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
+# Cursor CLI: install under a shared HOME so the binary is on every user's PATH (incl. the agent user).
+RUN HOME=/opt/cursor bash -c 'curl -fsSL https://cursor.com/install | bash'  && ln -sf /opt/cursor/.local/bin/cursor-agent /usr/local/bin/cursor-agent  && chmod -R a+rX /opt/cursor
+
 ENV COREPACK_HOME=/usr/local/share/corepack
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable \

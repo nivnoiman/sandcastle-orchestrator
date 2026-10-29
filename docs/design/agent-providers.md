@@ -6,7 +6,7 @@ Status: approved 2026-10-23.
 
 Run any agent stage with an agent CLI other than Claude Code, on the owner's **subscription login** (Claude Pro/Max, ChatGPT Plus/Pro) or an API key, and mix providers per stage.
 
-First: `claude` (unchanged behaviour), `codex` (OpenAI Codex CLI). Room for `gemini`.
+First: `claude` (unchanged behaviour), `codex` (OpenAI Codex CLI), `cursor` (Cursor CLI, added later). Room for `gemini`.
 
 ## Today (what is hardwired)
 
@@ -103,6 +103,8 @@ Secrets stay in `.sandcastle/.env.orchestrator`:
 | claude | mounted `~/.claude` login (`.credentials.json`) or `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` |
 | codex | mounted `~/.codex/auth.json` (`codex login`, ChatGPT account) | `CODEX_API_KEY` (or `OPENAI_API_KEY`, forwarded as `CODEX_API_KEY`) |
 
+| cursor | none (API key only; no login dir mounted) | `CURSOR_API_KEY` |
+
 Host login dirs: `SANDCASTLE_CLAUDE_HOME` (exists), new `SANDCASTLE_CODEX_HOME` (default `~/.codex`).
 
 Least privilege: a container only gets **its own provider's** env and mounts (a codex review container never sees `ANTHROPIC_API_KEY`, and vice versa). Feature-verify containers get the verify agent's provider only.
@@ -156,6 +158,18 @@ Attempt logs keep raw stdout (Claude stream-json or Codex JSONL). `describeEvent
 ### Smoke
 
 `sandcastle smoke [repo] [--agent=claude|codex]` (default `claude`, today's checks). With `--agent=codex`: `codex --version`, hydrate, then a real `codex exec` "reply ok" through the mounted login/env, classify output, copy-back. This is the end-to-end proof.
+
+### cursor provider
+
+Research from cursor.com/docs (CLI headless, parameters, output-format); not run against a real account.
+
+- **Install:** `curl https://cursor.com/install | bash` in `docker/Dockerfile`, under `HOME=/opt/cursor`, symlinked to `/usr/local/bin/cursor-agent` so the agent user has it on PATH.
+- **Command:** `cursor-agent -p --force --trust --output-format stream-json [--model <m>] "$(cat)"`. `-p` is non-interactive, `--force` allows file writes and commands, `--trust` skips the workspace prompt. The prompt is a positional argument — the docs show no stdin/`-` mode — so the container shell substitutes the stdin we feed it (`$(cat)`). Limit: one argv entry ≤ ~128 KB on Linux.
+- **Auth:** `CURSOR_API_KEY` only. The CLI's browser login is not documented to a stable file path, so no login mount/refresh logic (`credential` unset). Home mounts: shared skills and commands only.
+- **Output:** NDJSON `system/init`, `user`, `assistant`, `tool_call` (`started`/`completed`, keyed `readToolCall`/`writeToolCall`/`function`), terminal `result` (`is_error`). On failure the process exits non-zero and may emit no `result`.
+- **Classification:** auth (unauthorized, 401, invalid API key, not logged in) and rate limit (429, `resource_exhausted`, rate limit, usage limit) matched on `result` errors and plain stderr only; tool output is never scanned. No reset time is known, so rate limits park without a resume instant. Exact error strings are unverified.
+- **Skills:** like codex (`skillTool: false`); no `~/.agents` link — Cursor discovers nothing there, prompts read the files by path.
+- **Transcript:** `describeEvent` learns `tool_call` (→ started, ← completed).
 
 ### Gemini (later, not built now)
 
