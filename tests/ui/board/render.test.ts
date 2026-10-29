@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAttention } from "../../../src/ui/board/attention.js";
 import { transcriptTurns } from "../../../src/ui/board/transcript.js";
-import { switchTargets } from "../../../src/ui/board/view/chrome.js";
+import { renderDialog, switchTargets } from "../../../src/ui/board/view/chrome.js";
 import { renderDrawer } from "../../../src/ui/board/view/drawer.js";
 import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
@@ -28,6 +28,9 @@ function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
     drawer: undefined,
     switcher: undefined,
     toasts: [],
+    dialog: undefined,
+    held: [],
+    notifyPermission: "default",
     busy: new Set(),
     flash: undefined,
     ...extra,
@@ -163,5 +166,55 @@ describe("drawer blocked-by", () => {
     const html = drawerFor(boardProject("p", uiState([run])), 3);
     expect(html).toContain("#99");
     expect(html).not.toContain('data-n="99"');
+  });
+});
+
+describe("Needs Attention banner and dialog", () => {
+  const parkedBoard = (extra: Partial<BoardUi> = {}) =>
+    ui([boardProject("alpha", uiState([uiRun(10, [uiItem(41, "parked", { stage: "develop", parkReason: "<b>config under .git changed</b>", pullRequestUrl: "https://github.com/acme/api/pull/9" })])]))], extra);
+
+  it("shows reason, stage, links and the five actions on a parked item, escaped", () => {
+    const html = main(parkedBoard());
+    expect(html).toContain("needs-human");
+    expect(html).toContain("&lt;b&gt;config under .git changed&lt;/b&gt;");
+    expect(html).toContain("stage <b>develop</b>");
+    expect(html).toContain('href="https://github.com/acme/api/pull/9"');
+    for (const act of ["att-log", "att-comment", "att-hold", "att-requeue"]) expect(html).toContain(`data-act="${act}"`);
+    expect(html).toContain("Open PR");
+    expect(html).toContain("Enable desktop alerts");
+  });
+
+  it("hides the desktop alert prompt once permission is decided", () => {
+    expect(main(parkedBoard({ notifyPermission: "granted" }))).not.toContain("Enable desktop alerts");
+    expect(main(parkedBoard({ notifyPermission: "denied" }))).not.toContain("Enable desktop alerts");
+  });
+
+  it("renders held items as an Unhold line instead of a banner", () => {
+    const board = parkedBoard();
+    const entries = buildAttention(board.projects, "alpha");
+    const html = renderMain({ ...board, held: entries }, []);
+    expect(html).toContain("1 on hold");
+    expect(html).toContain('data-act="att-unhold"');
+    expect(html).not.toContain("needs-human");
+  });
+
+  it("confirms before acting and shows the result after", () => {
+    const base = { kind: "requeue" as const, projectId: "alpha", itemNumber: 41, runNumber: 10, title: "#41 parked", stage: "develop", reason: "boom", text: "", busy: false, result: undefined };
+    const confirm = renderDialog(parkedBoard({ dialog: base }));
+    expect(confirm).toContain("Re-queue #41?");
+    expect(confirm).toContain("ready-for-agent");
+    expect(confirm).toContain('data-act="dialog-confirm"');
+    const done = renderDialog(parkedBoard({ dialog: { ...base, result: { ok: true, message: "Re-queued #41" } } }));
+    expect(done).toContain("Re-queued #41");
+    expect(done).not.toContain('data-act="dialog-confirm"');
+    const failed = renderDialog(parkedBoard({ dialog: { ...base, result: { ok: false, message: "gh: boom" } } }));
+    expect(failed).toContain("gh: boom");
+    expect(failed).toContain('data-act="dialog-confirm"');
+  });
+
+  it("disables Post comment until there is text", () => {
+    const base = { kind: "comment" as const, projectId: "alpha", itemNumber: 41, runNumber: 10, title: "t", stage: undefined, reason: "r", text: "", busy: false, result: undefined };
+    expect(renderDialog(parkedBoard({ dialog: base }))).toMatch(/dialog-confirm"[^>]*disabled/);
+    expect(renderDialog(parkedBoard({ dialog: { ...base, text: "ok" } }))).not.toMatch(/dialog-confirm"[^>]*disabled/);
   });
 });

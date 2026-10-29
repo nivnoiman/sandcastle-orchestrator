@@ -607,7 +607,7 @@ operator collapsed, discards what they were typing, or moves what start will run
 page, unchanged), `GET /board/board.js|css|fonts/*` (assets), `GET /api/state` (full
 projection), `GET /api/events` (a `state` event whenever the projection actually
 changes, plus `feed` lines), `GET /api/parents` (open `sandcastle`-labelled hub issues
-via `gh`), `POST /api/run`, `/api/items/:n/cancel`, `/api/items/:n/retry`,
+via `gh`), `POST /api/run`, `/api/items/:n/cancel`, `/api/items/:n/retry`, `/api/items/:n/comment`,
 `/api/pause`, `/api/resume`, `/api/cap`, `/api/reset`. Bad input is a 400; a command the
 run cannot honour is a 409 carrying the engine's own `OperatorError` message (for
 example, that only a running item can be cancelled); anything else (a `gh`
@@ -637,6 +637,7 @@ The engine exposes four operator levers, and they keep GitHub the mirror:
 | `cancelItem(n)` | running only; kills that stage's container (`SandboxRunner.kill`, `docker rm -f` by tracked name) and parks the item: `sc:needs-human`, `ready-for-agent` -> `ready-for-human`, park comment "cancelled by operator". The freed slot is handed on immediately. |
 | cancel identity | a cancel targets the **attempt**, never the item: every launch takes a fresh attempt token, and the container, the kill, the removal and the dropped completion all key off it. A cancel landing between two containers (the salvage gap) marks the attempt, so the next container is never started rather than running on above the cap; a retried attempt's completion is its own, so it can never be swallowed by the earlier cancel and leave the card stuck `running`. |
 | `retryItem(n)` | parked only; `ready-for-human` -> `ready-for-agent`, drops `sc:needs-human` and re-enters at the **frozen stage** through the same path a human label flip takes, never from scratch. |
+| `commentItem(n, body)` | any item in the run; posts the trimmed text (1 to 4000 characters) as a comment on the hub issue. No label, phase or slot change. Backs the Board View's **Add comment**. |
 | `pauseNewStarts()` / `resumeNewStarts()` | pausing stops **new** items starting; everything already in flight keeps walking its chain, and drain-first is untouched. Resuming fills the free slots at once. |
 | `setWorkerCap(n)` | positive integers only; raising fills the new slots immediately, lowering takes effect as slots free (never kills a worker). |
 
@@ -983,3 +984,17 @@ are the loop around those commands (see README, Agent skills). They cover what t
 reason and the hard rules: never `pkill` the ui, never rebase a worktree whose container is
 up, always `--force-with-lease`, resolve conflicts in `~/.sandcastle/worktrees/<project>/...`
 and never in the shared checkout.
+
+## Needs-human banner, actions and alerts (Board View)
+
+A parked item gets a banner in Needs Attention (`view/attention.ts`, data from `buildAttention` in `attention.ts`, `park` detail on the entry): the full park reason, the stage it stopped at, the run, how long ago, links to the issue and PR, and five actions.
+
+| Action | Effect |
+|---|---|
+| Transcript | opens the item drawer on its latest attempt |
+| Open PR / Open issue | link (PR when the item has one) |
+| Add comment | dialog with a textarea; `POST /api/items/:n/comment` |
+| Hold | hides the banner and the title badge for that park reason; browser-local (`localStorage` `sandcastle.held`), GitHub untouched, shown again by **Unhold** or when the reason changes |
+| Re-queue | `POST /api/items/:n/retry` (flips `ready-for-human` to `ready-for-agent`) |
+
+Every action opens a confirm dialog first and shows the outcome (success or the server's error) inside it, plus a toast. Alerts: when a counted Needs Attention entry appears after a project's first state, the page shows an error toast and, if the browser granted permission (**Enable desktop alerts** button, needs a click), a desktop `Notification` that focuses the tab on click. The tab title carries the open count: `(2) Sandcastle · demo`. Logic lives in `humanAlerts.ts` (pure, unit tested).

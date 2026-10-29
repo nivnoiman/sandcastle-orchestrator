@@ -4,6 +4,14 @@ Issue-driven multi-agent orchestrator. GitHub sub-issues in, verified integratio
 
 You publish one **Orchestration Issue** whose native sub-issues are the work. Each sub-issue runs through a chain of fresh Claude Code agents in throwaway Docker containers and is squash-merged into an integration branch. The assembled feature is then verified, and one `integration/<feature> -> dev` pull request per repo waits for a human to merge.
 
+![Board View: a run with items moving through develop, simplify, review and verify](docs/images/board-view.png)
+
+A parked item shows a **needs-human banner**: why it stopped, the stage, links to the issue and PR, and buttons to open the transcript, add a GitHub comment, hold, or re-queue (each confirms first). New parks also raise a toast, an optional desktop notification and a `(n)` count in the tab title.
+
+![Needs-human banner on a parked item](docs/images/needs-human.jpg)
+
+Try it with no tokens: `sandcastle ui examples/demo/demo-run.json --config=examples/demo --fail=21:develop`, then open the printed URL.
+
 ## How it works
 
 ```
@@ -23,7 +31,7 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
 | Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
 | Polish | A final simplify, review and comment-strip pass on each integration pull request. |
-| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
+| Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, comment, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
 | Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |
 
 The hub repo (where issues live) and the code repos can be one repository or several.
@@ -339,6 +347,15 @@ Log in every provider you use in `agents`, one way each:
 With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach every provider in use with whichever login is configured.
 
 **Codex token refresh.** Codex rotates its ChatGPT refresh token when it refreshes, roughly every 8 days, and a reused token logs every copy out. So sandcastle refreshes a login that is close to expiry once, through the probe, before the stage starts. When a container refreshes anyway, sandcastle writes the new `auth.json` back to the host, unless the host file changed in the meantime. With many parallel codex stages, `CODEX_API_KEY` avoids the question entirely.
+
+## Lessons from real runs
+
+- **Run CI on the integration branch from the start.** Per-item verify only proves each item on its own. Land the CI workflow first (give `GH_TOKEN` the `workflow` scope, or an agent cannot push `.github/workflows`) and require it on pull requests into `integration/<feature>`. Otherwise settings that only break the assembled feature, like a server default that rejects long signed links, surface at Feature Verify or later.
+- **Pin server limits in tests.** Test the longest legal token or path and an empty body with a JSON content type, so behavior never depends on framework defaults.
+- **Do not write to the shared `.git` while stages run.** `git worktree add -b`, `git branch` and `git push -u` add `branch.*` entries to `.git/config`, and the git guard parks the running item as "changed config under .git". Work in a separate clone, and push without `-u`.
+- **After a login or token fix, wait for the next probe.** The auth Hold re-probes every 10 minutes, so it can outlast a working login by up to that long. `sandcastle preflight` shows the real state right away.
+- **Network blips park items.** A stage that fails on a registry timeout (for example corepack fetching pnpm) is safe to retry with `resume-parked --only="<stage> stage failed"`.
+- **Pin the package manager version in the repo.** The image runs `pnpm@latest` for itself, but the project uses the version in `packageManager`. Bump it on purpose, with a lockfile refresh and any build-script allow list the new major needs, not mid-run.
 
 ## Security model
 
