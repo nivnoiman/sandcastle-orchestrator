@@ -264,10 +264,10 @@ export function copyWorkspaceCommand(): string {
 /** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
 export function startWorktreeContainer(
   deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
-  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; branch: string | undefined },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
-  const gitControl = snapshotGitControl(deps.fs, repoGitDir, container.branch);
+  const gitControl = snapshotGitControl(deps.fs, repoGitDir);
   const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
   try {
     withContainerEnvFile(deps.fs, env, (envFile) => {
@@ -462,12 +462,11 @@ export class DockerSandboxRunner implements SandboxRunner {
     }
 
     this.assertLive(attempt);
-    this.pushLocalBranch(worktree, request.branch);
+    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
     return this.settleOutcome(request, worktree, baseline);
   }
 
-  /** The local Tracker's origin is a path on this host the container cannot reach, so the host pushes what the agent committed. */
-  private pushLocalBranch(worktree: string, branch: string): void {
+  private pushLocalTrackerBranchFromHost(worktree: string, branch: string): void {
     if (this.deps.config.tracker !== "local") return;
     this.deps.runner.run({ command: "git", args: ["push", "--force-with-lease", "origin", branch], cwd: worktree });
   }
@@ -735,7 +734,7 @@ export class DockerSandboxRunner implements SandboxRunner {
           " the conflict is still there",
       );
     }
-    this.pushLocalBranch(worktree, request.branch);
+    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
     this.deps.log(`#${request.itemNumber} resolve done — ${request.branch} sits on ${request.integrationBranch} again`);
     return { outcome: "success", resolved: true };
   }
@@ -855,7 +854,6 @@ export class DockerSandboxRunner implements SandboxRunner {
       worktree,
       workspace,
       provider,
-      branch: request.branch,
     });
 
     this.attemptContainers.set(attempt, container);
