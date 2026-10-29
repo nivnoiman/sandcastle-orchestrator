@@ -67,7 +67,6 @@ export function createAuthHoldProbe(deps: AuthHoldDeps): AuthHoldProbe {
 
 export interface AuthRecheck {
   ok: boolean;
-  /** Probe failure with credentials scrubbed; undefined on success. */
   error: string | undefined;
 }
 
@@ -81,7 +80,6 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /[A-Za-z0-9_+/=-]{32,}/g,
 ];
 
-/** Trims a probe failure to something safe to show an Operator: no tokens, bounded length. */
 export function scrubProbeError(detail: string | undefined, reason: string | undefined): string {
   const raw = (detail ?? "").trim();
   if (raw.length === 0) return `agent credentials still rejected (${reason ?? "unknown"})`;

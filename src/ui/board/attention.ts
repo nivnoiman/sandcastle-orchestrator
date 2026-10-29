@@ -58,7 +58,6 @@ export interface AttentionEntry {
   until?: string;
   /** Set on parked entries. */
   park?: ParkDetail;
-  /** Set on auth-hold entries: the Operator-requested credential probe. */
   auth?: { running: boolean; error: string | undefined };
   actions: AttentionAction[];
 }

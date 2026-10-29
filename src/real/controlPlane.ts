@@ -41,7 +41,6 @@ export interface ControlPlane {
   hold: RunHold;
   verifyMutex: VerifyMutex;
   pollAuth(): void;
-  /** Probes the agent credentials now and, when they work, lifts every auth Hold on this plane. */
   recheckAuth(): Promise<AuthRecheck>;
 }
 

@@ -8,7 +8,6 @@ export interface DryRunSessionOptions {
   now: () => number;
   delayMs?: () => number;
   failStage?: (pending: PendingStage) => string | undefined;
-  /** Stage that hits a simulated auth Hold; its recheck fails once, then succeeds. */
   authHoldStage?: (pending: PendingStage) => boolean;
 }
 

@@ -60,7 +60,6 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
 
 const AUTH_FIX_STEPS = `<p class="nh-help">Fix: run <code>claude /login</code> in a terminal on this machine. Or run <code>claude setup-token</code> and set <code>CLAUDE_CODE_OAUTH_TOKEN</code> in <code>.sandcastle/.env.orchestrator</code>. Then press the button; waiting items resume, parked ones are left alone.</p>`;
 
-/** Auth Hold banner: what happened, the fix, and a button that probes the credentials now. */
 function authCard(ui: BoardUi, entry: AttentionEntry): string {
   const auth = entry.auth;
   const other = entry.projectId !== ui.currentId;

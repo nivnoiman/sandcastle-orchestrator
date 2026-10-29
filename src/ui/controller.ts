@@ -299,7 +299,6 @@ export class UiController {
     return { ...hold, probe: { running: this.authRecheck !== undefined, error: this.authRecheckError } };
   }
 
-  /** Probes the agent credentials now for a Run in an auth Hold; one probe at a time per Project Server. */
   async recheckAuth(parent: number): Promise<AuthRecheck> {
     const slot = this.slots.require(parent);
     const recheck = slot.session.recheckAuth;
