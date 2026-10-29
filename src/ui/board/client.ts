@@ -1,7 +1,8 @@
 import type { UiFeedLine, UiState } from "../state.js";
 import type { AttemptChunk, AttemptRecord } from "../../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../../real/reset.js";
-import { buildAttention } from "./attention.js";
+import { buildAttention, type AttentionEntry } from "./attention.js";
+import { alertText, holdReasonOf, isHeld, newlyNeedingAttention, pageTitle, parseHeld, type HeldMap } from "./humanAlerts.js";
 import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
 import { formatClock, formatCountdown } from "./format.js";
@@ -12,9 +13,9 @@ import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
 import { renderMain, renderSide } from "./view/main.js";
 import { renderRail } from "./view/rail.js";
-import { renderSwitcher, renderToasts, switchTargets } from "./view/chrome.js";
+import { renderDialog, renderSwitcher, renderToasts, switchTargets } from "./view/chrome.js";
 import { cardId } from "./view/run.js";
-import { currentProject, type BoardScope, type BoardUi, type DrawerState, type Theme } from "./view/ui.js";
+import { currentProject, type BoardScope, type BoardUi, type DialogState, type DrawerState, type NotifyPermission, type Theme } from "./view/ui.js";
 
 const FEED_LIMIT = 200;
 const PARENT_REFRESH_MS = 60_000;
@@ -23,8 +24,13 @@ const DRAWER_POLL_MS = 1500;
 const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
 const FEED_KEY = "sandcastle.feed";
+const HELD_KEY = "sandcastle.held";
 const THEMES: readonly Theme[] = ["auto", "light", "dark"];
 const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:7700/";
+
+function notifyPermission(): NotifyPermission {
+  return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+}
 
 export interface ProjectSource {
   id: string;
@@ -117,12 +123,17 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     drawer: undefined,
     switcher: undefined,
     toasts: [],
+    dialog: undefined,
+    held: [],
+    notifyPermission: notifyPermission(),
     busy: new Set(),
     flash: undefined,
   };
   const requestedRun = Number(search.get("run")) || undefined;
   const connections = new Map<string, Connection>();
   let toastSeq = 0;
+  let heldMap: HeldMap = parseHeld(readStorage(HELD_KEY));
+  const announcedKeysByProject = new Map<string, Set<string>>();
   let renderQueued = false;
   const logState = { attempt: undefined as string | undefined, offset: 0, text: "" };
   let drawerTimer: ReturnType<typeof setInterval> | undefined;
@@ -143,6 +154,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       <div class="log" data-zone="d-body" tabindex="0"></div>
     </aside>
     <div data-zone="switcher"></div>
+    <div data-zone="dialog"></div>
     <div class="toasts" data-zone="toasts" aria-live="polite"></div>`;
   const zone = (name: string): HTMLElement => {
     const element = root.querySelector<HTMLElement>(`[data-zone="${name}"]`);
@@ -159,6 +171,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     dAtt: zone("d-att"),
     dBody: zone("d-body"),
     switcher: zone("switcher"),
+    dialog: zone("dialog"),
     toasts: zone("toasts"),
   };
 
@@ -180,16 +193,64 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   function renderNow(): void {
     if (destroyed) return;
     ui.nowMs = Date.now();
-    const attention = buildAttention(ui.projects, ui.currentId);
+    const everything = buildAttention(ui.projects, ui.currentId);
+    const attention = everything.filter((entry) => !isHeld(heldMap, entry));
+    ui.held = everything.filter((entry) => !attention.includes(entry));
+    announceNew(everything);
+    closeOrRefreshParkedDialog();
+    ui.notifyPermission = notifyPermission();
     patch(zones.rail, renderRail(ui, attention));
     patch(zones.main, renderMain(ui, attention));
     patch(zones.side, renderSide(ui));
     renderDrawerZones();
     patch(zones.switcher, renderSwitcher(ui));
+    patch(zones.dialog, renderDialog(ui));
     patch(zones.toasts, renderToasts(ui.toasts));
     const counted = attention.filter((entry) => entry.counted).length;
-    const project = currentProject(ui);
-    document.title = `${counted > 0 ? `(${counted}) ` : ""}Sandcastle${project ? ` · ${project.name}` : ""}`;
+    document.title = pageTitle(counted, currentProject(ui)?.name);
+  }
+
+  function announceNew(entries: readonly AttentionEntry[]): void {
+    for (const project of ui.projects) {
+      if (!project.state) continue;
+      const own = entries.filter((entry) => entry.projectId === project.id);
+      const fresh = newlyNeedingAttention(announcedKeysByProject.get(project.id), own).filter((entry) => !isHeld(heldMap, entry));
+      announcedKeysByProject.set(project.id, new Set(own.filter((entry) => entry.counted).map((entry) => entry.key)));
+      for (const entry of fresh) {
+        const text = alertText(entry);
+        toast("error", `${text.title}. ${text.body.split("\n")[0] ?? ""}`.slice(0, 280));
+        desktopNotify(entry, text);
+      }
+    }
+  }
+
+  function closeOrRefreshParkedDialog(): void {
+    const dialog = ui.dialog;
+    if (!dialog || dialog.busy || dialog.result) return;
+    const project = projectById(dialog.projectId);
+    const entry = project ? parkedEntry(project, dialog.itemNumber) : undefined;
+    if (entry) {
+      dialog.title = entry.title;
+      dialog.stage = entry.park?.stage;
+      dialog.reason = entry.park?.reason ?? dialog.reason;
+      return;
+    }
+    if (dialog.kind === "comment" && project) return;
+    ui.dialog = undefined;
+    toast("info", `#${dialog.itemNumber} is no longer parked; dialog closed.`);
+  }
+
+  function desktopNotify(entry: AttentionEntry, text: { title: string; body: string }): void {
+    if (notifyPermission() !== "granted") return;
+    try {
+      const note = new Notification(text.title, { body: text.body.slice(0, 200), tag: entry.key });
+      note.onclick = () => {
+        window.focus();
+        setCurrent(entry.projectId, entry.runNumber);
+        note.close();
+      };
+    } catch {
+    }
   }
 
   function renderDrawerZones(): void {
@@ -673,14 +734,101 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     );
   }
 
+  function parkedEntry(project: BoardProject, itemNumber: number): AttentionEntry | undefined {
+    return buildAttention([project], project.id).find((entry) => entry.kind === "parked" && entry.itemNumber === itemNumber);
+  }
+
+  function openDialog(project: BoardProject, kind: DialogState["kind"], itemNumber: number, runNumber: number | undefined): void {
+    const entry = parkedEntry(project, itemNumber);
+    ui.dialog = {
+      kind,
+      projectId: project.id,
+      itemNumber,
+      runNumber,
+      title: entry?.title ?? `#${itemNumber}`,
+      stage: entry?.park?.stage,
+      reason: entry?.park?.reason ?? "",
+      text: "",
+      busy: false,
+      result: undefined,
+    };
+    render();
+    setTimeout(() => zones.dialog.querySelector<HTMLElement>("[data-focus]")?.focus(), 0);
+  }
+
+  function closeDialog(): void {
+    ui.dialog = undefined;
+    render();
+  }
+
+  function setHeld(entry: AttentionEntry, hold: boolean): void {
+    heldMap = { ...heldMap };
+    if (hold) heldMap[entry.key] = holdReasonOf(entry);
+    else delete heldMap[entry.key];
+    writeStorage(HELD_KEY, Object.keys(heldMap).length ? JSON.stringify(heldMap) : undefined);
+  }
+
+  async function confirmDialog(): Promise<void> {
+    const dialog = ui.dialog;
+    const project = dialog ? projectById(dialog.projectId) : undefined;
+    if (!dialog || !project || dialog.busy) return;
+    if (dialog.kind === "hold") {
+      const entry = parkedEntry(project, dialog.itemNumber);
+      if (!entry) {
+        dialog.result = { ok: false, message: `#${dialog.itemNumber} is no longer parked, nothing to hold.` };
+        render();
+        return;
+      }
+      setHeld(entry, true);
+      dialog.result = { ok: true, message: `#${dialog.itemNumber} is on Hold. It stays parked; use Unhold to show it again.` };
+      render();
+      return;
+    }
+    dialog.busy = true;
+    dialog.result = undefined;
+    render();
+    const api = apiOf(project);
+    try {
+      if (dialog.kind === "requeue") {
+        await api.send("POST", `/api/items/${dialog.itemNumber}/retry`);
+        dialog.result = { ok: true, message: `Re-queued #${dialog.itemNumber}: ready-for-human flipped to ready-for-agent. It restarts shortly.` };
+      } else {
+        await api.send("POST", `/api/items/${dialog.itemNumber}/comment`, { body: dialog.text });
+        dialog.result = { ok: true, message: `Comment posted on #${dialog.itemNumber}.` };
+      }
+      toast("info", dialog.result.message);
+      await refreshState(project).catch(() => undefined);
+    } catch (cause) {
+      dialog.result = { ok: false, message: messageOf(cause) };
+      localLine(project, "warn", messageOf(cause));
+    }
+    dialog.busy = false;
+    render();
+  }
+
+  async function enableDesktopAlerts(): Promise<void> {
+    if (notifyPermission() === "unsupported") return;
+    try {
+      await Notification.requestPermission();
+    } catch {
+    }
+    ui.notifyPermission = notifyPermission();
+    render();
+  }
+
   function onAttentionAction(act_: string, element: HTMLElement, project: BoardProject): void {
     const itemNumber = Number(element.dataset["n"]) || undefined;
     const runNumber = Number(element.dataset["run"]) || undefined;
+    const dialogKind = ({ "att-requeue": "requeue", "att-hold": "hold", "att-comment": "comment" } as const)[act_ as "att-requeue"];
+    if (dialogKind && itemNumber) return openDialog(project, dialogKind, itemNumber, runNumber);
+    if (act_ === "att-unhold") {
+      const entry = ui.held.find((candidate) => candidate.key === element.dataset["key"]);
+      if (entry) setHeld(entry, false);
+      return render();
+    }
     if (act_ === "att-log" && itemNumber) {
       setCurrent(project.id, runNumber);
       openItem(project, itemNumber);
-    } else if (act_ === "att-retry" && itemNumber) {
-      void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/retry`));
     } else if (act_ === "att-cancel" && itemNumber) {
       void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/cancel`));
     } else if (act_ === "att-open-run") {
@@ -719,6 +867,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       else if (itemNumber) dismissToast(itemNumber);
       return;
     }
+    if (action === "dialog-close") return closeDialog();
+    if (action === "dialog-confirm") return void confirmDialog();
+    if (action === "notify-enable") return void enableDesktopAlerts();
     if (action === "switch-go") {
       const index = Array.from(element.parentElement?.children ?? []).indexOf(element);
       goSwitch(index);
@@ -842,6 +993,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     } else if (action === "switcher-query" && ui.switcher) {
       ui.switcher = { query: value, index: 0 };
       render();
+    } else if (action === "dialog-text" && ui.dialog?.kind === "comment") {
+      ui.dialog.text = value;
+      render();
     } else if (action === "add-text" && ui.drawer?.kind === "add") {
       ui.drawer.text = value;
       render();
@@ -859,6 +1013,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       event.preventDefault();
       if (ui.switcher) closeSwitcher();
       else openSwitcher();
+      return;
+    }
+    if (ui.dialog && event.key === "Escape") {
+      event.preventDefault();
+      closeDialog();
       return;
     }
     if (ui.switcher) {

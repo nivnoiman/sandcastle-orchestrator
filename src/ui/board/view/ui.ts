@@ -1,3 +1,4 @@
+import type { AttentionEntry } from "../attention.js";
 import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
@@ -31,6 +32,22 @@ export interface SwitcherState {
   index: number;
 }
 
+/** Confirm dialog for a human action on a parked item; `result` replaces the confirm buttons once the action ran. */
+export interface DialogState {
+  kind: "requeue" | "hold" | "comment";
+  projectId: string;
+  itemNumber: number;
+  runNumber: number | undefined;
+  title: string;
+  stage: string | undefined;
+  reason: string;
+  text: string;
+  busy: boolean;
+  result: { ok: boolean; message: string } | undefined;
+}
+
+export type NotifyPermission = "default" | "granted" | "denied" | "unsupported";
+
 export interface Toast {
   id: number;
   tone: "error" | "info";
@@ -62,6 +79,10 @@ export interface BoardUi {
   drawer: DrawerState | undefined;
   switcher: SwitcherState | undefined;
   toasts: Toast[];
+  dialog: DialogState | undefined;
+  /** Parked entries the operator put on Hold; kept out of the badge and the banner. */
+  held: readonly AttentionEntry[];
+  notifyPermission: NotifyPermission;
   busy: ReadonlySet<string>;
   /** Item card to flash after a "waits on" jump. */
   flash: string | undefined;

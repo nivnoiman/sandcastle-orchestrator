@@ -91,6 +91,7 @@ export interface ItemView {
 }
 
 export const CANCEL_REASON = "cancelled by operator";
+export const COMMENT_LIMIT = 4000;
 
 export interface StallSummary {
   parked: number;
@@ -340,6 +341,16 @@ export class Engine {
     this.adapters.gh.swapLabels(itemNumber, "ready-for-human", "ready-for-agent");
     this.readmitParked(state);
     this.fillSlots();
+  }
+
+  /** Posts an operator note on the item's issue, e.g. the answer a parked item was waiting for. */
+  commentItem(itemNumber: number, body: string): void {
+    this.requireState(itemNumber);
+    const text = body.trim();
+    if (text === "") throw new OperatorError("comment is empty");
+    if (text.length > COMMENT_LIMIT) throw new OperatorError(`comment is ${text.length} characters, the limit is ${COMMENT_LIMIT}`);
+    this.adapters.gh.comment(itemNumber, text);
+    this.adapters.ui.note(itemNumber, "operator comment posted on the issue");
   }
 
   tick(nowMs: number): void {

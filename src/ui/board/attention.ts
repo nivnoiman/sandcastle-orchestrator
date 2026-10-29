@@ -2,6 +2,16 @@ import { hubIssueUrl, runPullRequests, type BoardProject } from "./model.js";
 import { formatQuiet } from "./format.js";
 import type { UiRun } from "../state.js";
 
+/** What a human needs to decide on a parked item: why, where, and the links to look at. */
+export interface ParkDetail {
+  stage: string | undefined;
+  reason: string;
+  /** ISO instant the item parked. */
+  since: string;
+  issueUrl: string;
+  pullRequestUrl: string | undefined;
+}
+
 /** Needs Attention kinds, in the fixed order they are listed. */
 export const ATTENTION_KINDS = [
   "auth-hold",
@@ -19,7 +29,7 @@ export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
 export type AttentionTone = "red" | "amber" | "purple";
 
-export type AttentionActionId = "retry" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart";
+export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart";
 
 export interface AttentionAction {
   id: AttentionActionId;
@@ -46,6 +56,8 @@ export interface AttentionEntry {
   itemNumber?: number;
   /** ISO instant a rate-limit Hold lifts. */
   until?: string;
+  /** Set on parked entries. */
+  park?: ParkDetail;
   actions: AttentionAction[];
 }
 
@@ -89,17 +101,28 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
 
   for (const item of run.items) {
     if (item.phase === "parked") {
+      const reason = item.parkReason ?? "parked with no recorded reason";
       entries.push(
         entry(project, {
           scope: `${number}:${item.number}`,
           kind: "parked",
           title: `#${item.number} ${item.title} parked${item.stage ? ` at ${item.stage}` : ""}`,
-          detail: item.parkReason ?? "parked with no recorded reason",
+          detail: reason,
           runNumber: number,
           itemNumber: item.number,
+          park: {
+            stage: item.stage,
+            reason,
+            since: item.phaseSince,
+            issueUrl: item.issueUrl,
+            pullRequestUrl: item.pullRequestUrl,
+          },
           actions: [
-            { id: "log", label: "Log", itemNumber: item.number, runNumber: number },
-            { id: "retry", label: "Retry", itemNumber: item.number, runNumber: number },
+            { id: "log", label: "Transcript", itemNumber: item.number, runNumber: number },
+            { id: "open-link", label: item.pullRequestUrl ? "Open PR" : "Open issue", href: item.pullRequestUrl ?? item.issueUrl },
+            { id: "comment", label: "Add comment", itemNumber: item.number, runNumber: number },
+            { id: "hold", label: "Hold", itemNumber: item.number, runNumber: number },
+            { id: "requeue", label: "Re-queue", itemNumber: item.number, runNumber: number },
           ],
         }),
       );

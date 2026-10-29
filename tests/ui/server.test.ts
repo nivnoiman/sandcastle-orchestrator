@@ -431,6 +431,16 @@ describe("operator commands", () => {
     expect((await state()).items[0]).toMatchObject({ phase: "running", stage: "develop" });
   });
 
+  it("posts an operator comment on an item's issue and rejects an empty one", async () => {
+    const { post } = await bootRunning();
+
+    expect((await post("/api/items/17/comment", { body: "reviewed, retry" })).status).toBe(200);
+    const empty = await post("/api/items/17/comment", { body: "  " });
+    expect(empty.status).toBe(409);
+    expect(empty.body).toMatchObject({ error: "comment is empty" });
+    expect((await post("/api/items/17/comment", { body: 5 })).status).toBe(400);
+  });
+
   it("refuses to cancel an item that is not running", async () => {
     const { post } = await bootRunning();
     const rejected = await post("/api/items/18/cancel");

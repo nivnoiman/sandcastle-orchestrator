@@ -520,6 +520,11 @@ export class UiController {
     this.publish();
   }
 
+  commentItem(itemNumber: number, body: string): void {
+    this.slots.requireForItem(itemNumber).engine.commentItem(itemNumber, body);
+    this.publish();
+  }
+
   pause(): void {
     for (const slot of this.slots.requireLive()) slot.engine.pauseNewStarts();
     this.note("note", undefined, "new starts paused — items already in flight keep advancing");
