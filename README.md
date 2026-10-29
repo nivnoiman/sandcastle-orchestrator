@@ -6,6 +6,8 @@ You publish one **Orchestration Issue** whose native sub-issues are the work. Ea
 
 ![Board View: a run with items moving through develop, simplify, review and verify](docs/images/board-view.png)
 
+A Run held on rejected agent credentials shows an **auth Hold banner** at the top of the Board View and the Dashboard (and on the Project card): what happened, the fix per agent provider in use (claude: `claude /login`, or `claude setup-token` plus `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`; codex: `codex login`, or `CODEX_API_KEY`), and an **I re-logged in, check now** button. It runs the same probe as `sandcastle preflight` right away: on success the Hold lifts and waiting items resume (parked ones are left alone); on failure the Hold stays and the probe error shows under the banner. A rate-limit Hold only shows its `until` in a neutral info row and resumes itself.
+
 A parked item shows a **needs-human banner**: why it stopped, the stage, links to the issue and PR, and buttons to open the transcript, add a GitHub comment, hold, or re-queue (each confirms first). New parks also raise a toast, an optional desktop notification and a `(n)` count in the tab title.
 
 ![Needs-human banner on a parked item](docs/images/needs-human.jpg)
@@ -314,6 +316,7 @@ See [ADR 0004](docs/adr/0004-tracker-seam-and-local-tracker.md).
 | `sandcastle status [--parent=N] [--items]` | One run: phases, holds, waiting reasons, parks, feed, queue |
 | `sandcastle status --summary` | Queue, global slots, one line per run |
 | `sandcastle logs <item> [stage] [--bytes=N]` | Tail the newest recorded attempt for an item |
+| `sandcastle recheck-auth [--parent=N]` | After a re-login: probe the agent credentials now and lift the auth Hold if they work |
 | `sandcastle resume-parked [--parent=N] [--only=<text>]` | Retry every parked item whose reason contains `<text>` |
 | `sandcastle resolve-conflict <item> [--parent=N]` | Retry one parked item. The gate re-runs and may resolve it with an agent. |
 | `sandcastle finish [--parent=N]` | Assert the run is complete and print its integration pull requests |
@@ -374,7 +377,7 @@ With a subscription, a spent usage window shows items as **waiting**; they resum
 - **Run CI on the integration branch from the start.** Per-item verify only proves each item on its own. Land the CI workflow first (give `GH_TOKEN` the `workflow` scope, or an agent cannot push `.github/workflows`) and require it on pull requests into `integration/<feature>`. Otherwise settings that only break the assembled feature, like a server default that rejects long signed links, surface at Feature Verify or later.
 - **Pin server limits in tests.** Test the longest legal token or path and an empty body with a JSON content type, so behavior never depends on framework defaults.
 - **Do not write to the shared `.git` while stages run.** `git worktree add -b`, `git branch` and `git push -u` add `branch.*` entries to `.git/config`, and the git guard parks the running item as "changed config under .git". Work in a separate clone, and push without `-u`.
-- **After a login or token fix, wait for the next probe.** The auth Hold re-probes every 10 minutes, so it can outlast a working login by up to that long. `sandcastle preflight` shows the real state right away.
+- **After a login or token fix, press the banner button or run `sandcastle recheck-auth`.** The auth Hold re-probes on its own only every 10 minutes, so it can outlast a working login by up to that long. The button and `recheck-auth` probe at once and lift the Hold on success.
 - **Network blips park items.** A stage that fails on a registry timeout (for example corepack fetching pnpm) is safe to retry with `resume-parked --only="<stage> stage failed"`.
 - **Pin the package manager version in the repo.** The image runs `pnpm@latest` for itself, but the project uses the version in `packageManager`. Bump it on purpose, with a lockfile refresh and any build-script allow list the new major needs, not mid-run.
 
@@ -395,6 +398,8 @@ Agents run their CLI with every approval and CLI sandbox switched off inside the
 ## Agent skills
 
 The stage prompts and the Orchestrator Agent invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. They ship in this repo and `sandcastle init` installs them; preflight checks them with `sandcastle skills install --check` and names the fix.
+
+> **Status:** only Claude Code has been tested in a real setup. The skills install into `~/.claude` only. Running the Orchestrator Agent from Codex or Cursor is untested, and a provider choice at install time is [only planned](docs/plans/skill-provider-install.md).
 
 | Source in this repo | Installed to | Used by |
 |---|---|---|

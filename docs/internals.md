@@ -185,7 +185,15 @@ not spawn containers into a dead window.
 - **auth**: the run re-probes the credentials and resumes itself when they work again (a
   `sync-claude` on the host is enough; no restart). The probe backs off 1 -> 2 -> 5 -> 10
   minutes while they stay rejected, so an overnight expiry does not spend a container and
-  an agent call on every poll.
+  an agent call on every poll. The Operator can skip the wait: `POST /api/runs/:parent/auth/recheck`
+  (button in the auth Hold banner, `sandcastle recheck-auth`) runs the same probe now, through the
+  same single in-flight probe, so a double click or a racing poll never starts two. Success lifts
+  the Hold on every engine and resumes waiting items only; parked items stay parked. Failure keeps
+  the Hold and puts the scrubbed probe error (`scrubProbeError`: tokens, bearer headers, long
+  opaque strings redacted, 500 chars max) in `hold.probe.error` of the state, rendered escaped
+  under the banner. `hold.probe.running` disables the button while a probe runs. Dry mode:
+  `sandcastle ui <fixture> --auth-hold=<item>:<stage>` simulates the Hold; its first re-check
+  fails, the second passes.
 - **transient**: a network, GitHub or Claude API outage (`src/engine/transient.ts`:
   `ConnectionRefused`, `ECONNRESET`, `Could not resolve host`, HTTP 502/503/504, …) seen in
   the agent stream, in bootstrap (`npm ci`) output, or when branch creation or the
@@ -984,6 +992,10 @@ are the loop around those commands (see README, Agent skills). They cover what t
 reason and the hard rules: never `pkill` the ui, never rebase a worktree whose container is
 up, always `--force-with-lease`, resolve conflicts in `~/.sandcastle/worktrees/<project>/...`
 and never in the shared checkout.
+
+## Auth Hold banner (Board View)
+
+An auth Hold gets a banner card in Needs Attention for its Project, on the current Project and on every other one in the Dashboard (`authCard` in `view/attention.ts`; entry built by `holdEntries` in `attention.ts`, with `auth: { running, error }`). The button posts through the Project api base, so it works via `/p/<id>/...` (the Dashboard proxy already forwards `/api/`). The Project card in the rail reads `held - agent login expired`. A rate-limit Hold is an `info` tone row that shows `until`; no button.
 
 ## Needs-human banner, actions and alerts (Board View)
 

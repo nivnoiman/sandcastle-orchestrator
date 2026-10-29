@@ -12,6 +12,7 @@ export interface PacedDryRunOptions {
   delayMs: () => number;
   ui?: UiSink;
   failStage?: (pending: PendingStage) => string | undefined;
+  authHoldStage?: ((pending: PendingStage) => boolean) | undefined;
 }
 
 export function randomStageDelay(random: () => number = Math.random): number {
@@ -53,6 +54,9 @@ export class PacedDryRun {
   }
 
   private completionFor(pending: PendingStage) {
+    if (this.options.authHoldStage?.(pending)) {
+      return { itemNumber: pending.itemNumber, stage: pending.stage, outcome: "waiting" as const, waitReason: "auth" as const, detail: "agent credentials rejected (simulated)" };
+    }
     const detail = this.options.failStage?.(pending);
     if (detail === undefined) return { itemNumber: pending.itemNumber, stage: pending.stage, outcome: "success" as const };
     return { itemNumber: pending.itemNumber, stage: pending.stage, outcome: "failure" as const, detail };

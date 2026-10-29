@@ -1,4 +1,5 @@
 import { STAGE_CHAIN, type HoldReason } from "../engine/adapters.js";
+import type { ProviderName } from "../project/agentsConfig.js";
 import { stageNames, type StageSpec } from "../engine/stageChain.js";
 import type { ItemPhase, ItemView, StallSummary } from "../engine/engine.js";
 import type { RunModel } from "../model/runModel.js";
@@ -42,9 +43,16 @@ export interface UiFeedLine {
   message: string;
 }
 
+export interface UiAuthProbe {
+  running: boolean;
+  providers: ProviderName[];
+  error: string | undefined;
+}
+
 export interface UiHold {
   reason: HoldReason;
   until: string | undefined;
+  probe?: UiAuthProbe;
 }
 
 export interface UiRun {

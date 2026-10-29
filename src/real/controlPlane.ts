@@ -1,7 +1,7 @@
 import type { Engine } from "../engine/engine.js";
 import { RunHold } from "../engine/hold.js";
 import { SlotBroker, validGlobalCap } from "../ui/slotBroker.js";
-import { createAuthHoldProbe } from "./authHold.js";
+import { createAuthHoldProbe, toAuthRecheck, type AuthRecheck } from "./authHold.js";
 import { probeAgentAuth, type AuthProbeResult } from "./authProbe.js";
 import { NodeCommandRunner, type CommandRunner } from "./commandRunner.js";
 import { loadOrchestratorConfig, resolveLayout, type OrchestratorConfig } from "./env.js";
@@ -41,6 +41,7 @@ export interface ControlPlane {
   hold: RunHold;
   verifyMutex: VerifyMutex;
   pollAuth(): void;
+  recheckAuth(): Promise<AuthRecheck>;
 }
 
 export interface ParentLease {
@@ -143,6 +144,7 @@ function bootPlane(options: ControlPlaneOptions, deps: ControlPlaneDeps, globalC
       hold: new RunHold(),
       verifyMutex: new VerifyMutex(),
       pollAuth: () => authProbe.poll(),
+      recheckAuth: async () => toAuthRecheck(await authProbe.recheck()),
     };
     return { plane, engines, leases: 0, teardown };
   } catch (cause) {

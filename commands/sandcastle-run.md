@@ -15,7 +15,7 @@ Checklist, from the project root (the folder that holds `.sandcastle/`):
 4. `sandcastle launch <parent> --cap=2`
 5. `sandcastle dashboard --open` so the Operator sees the Board View.
 6. Poll `sandcastle status` every few minutes. Between polls, do nothing.
-7. Report Needs Attention by name and act per the skill (Parked Item, Run Stall, Quiet Item, Holds, Project Server died...).
+7. Report Needs Attention by name and act per the skill (Parked Item, Run Stall, Quiet Item, Holds, Project Server died...). On an auth Hold: tell the Operator to re-login, then `sandcastle recheck-auth` instead of waiting.
 8. On `complete`: `sandcastle finish`, comment a summary on the parent issue, report the integration pull request URLs.
 
 Hard rules:

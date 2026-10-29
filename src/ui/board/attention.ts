@@ -1,6 +1,6 @@
 import { hubIssueUrl, isLocalProject, mergeCommand, runPullRequests, webUrl, type BoardProject } from "./model.js";
 import { formatQuiet } from "./format.js";
-import type { UiRun } from "../state.js";
+import type { UiAuthProbe, UiRun } from "../state.js";
 
 /** What a human needs to decide on a parked item: why, where, and the links to look at. */
 export interface ParkDetail {
@@ -28,9 +28,9 @@ export const ATTENTION_KINDS = [
 
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
-export type AttentionTone = "red" | "amber" | "purple";
+export type AttentionTone = "red" | "amber" | "purple" | "info";
 
-export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart";
+export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart" | "recheck-auth";
 
 /** A finished local Run: the branch to take in, and the command that does it. */
 export interface MergeHint {
@@ -69,6 +69,7 @@ export interface AttentionEntry {
   merge?: MergeHint;
   /** The Project uses the local Tracker. */
   local?: true;
+  auth?: UiAuthProbe;
   actions: AttentionAction[];
 }
 
@@ -80,7 +81,7 @@ const TONES: Record<AttentionKind, AttentionTone> = {
   quiet: "amber",
   "polish-reverted": "red",
   "integration-ready": "purple",
-  "rate-hold": "amber",
+  "rate-hold": "info",
   "server-died": "red",
 };
 
@@ -260,14 +261,21 @@ function holdEntries(project: BoardProject): AttentionEntry[] {
   if (!state) return [];
   const holds = [state.hold, ...state.runs.map((run) => run.hold)].filter((hold) => hold !== undefined);
   const entries: AttentionEntry[] = [];
-  if (holds.some((hold) => hold.reason === "auth")) {
+  const authHold = holds.find((hold) => hold.reason === "auth");
+  if (authHold) {
+    const runNumber = state.runs.find((run) => run.hold?.reason === "auth")?.parent.number ?? state.parent?.number;
     entries.push(
       entry(project, {
         scope: "auth",
         kind: "auth-hold",
         title: "Held — agent credentials rejected",
-        detail: "No new stages start. Sandcastle re-probes the credentials every poll and resumes once they pass.",
-        actions: [{ id: "feed", label: "Feed" }],
+        detail: "No new stages start. Sandcastle re-probes the credentials every ~10 minutes and resumes once they pass.",
+        ...(runNumber === undefined ? {} : { runNumber }),
+        auth: { running: authHold.probe?.running ?? false, providers: authHold.probe?.providers ?? ["claude"], error: authHold.probe?.error },
+        actions: [
+          ...(runNumber === undefined ? [] : [{ id: "recheck-auth" as const, label: "I re-logged in, check now", runNumber }]),
+          { id: "feed", label: "Feed" },
+        ],
       }),
     );
   }

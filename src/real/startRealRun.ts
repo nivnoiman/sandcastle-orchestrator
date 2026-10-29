@@ -6,6 +6,7 @@ import { activeProject, integrationBase } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
 import { createRealAdapters } from "./adapters.js";
 import { AttemptLogStore } from "./attemptLog.js";
+import type { AuthRecheck } from "./authHold.js";
 import { controlPlaneHost, type ControlPlaneHost, type ControlPlaneOptions } from "./controlPlane.js";
 import { createVerifyHarness } from "./featureVerify/verifyStrategy.js";
 import type { FeatureFixBrief, FeatureRound } from "./featureVerify/featureBrief.js";
@@ -47,6 +48,7 @@ export interface RealRun {
   featureVerify(): FeatureVerifyStatus;
   polish(): PolishStatus;
   logs: AttemptLogStore;
+  recheckAuth(): Promise<AuthRecheck>;
   tick(): void;
   stop(): void;
 }
@@ -283,7 +285,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       slots.detach();
     };
 
-    return { engine, config, finished, featureVerify: () => verifyStatus, polish: () => polishStatus, logs, tick, stop };
+    return { engine, config, finished, featureVerify: () => verifyStatus, polish: () => polishStatus, logs, recheckAuth: () => plane.recheckAuth(), tick, stop };
   } catch (cause) {
     slots.detach();
     lease.release();

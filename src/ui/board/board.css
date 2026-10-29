@@ -489,6 +489,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); }
 .alert.red > svg.i { color: var(--park); }
 .alert.amber > svg.i { color: var(--wait); }
 .alert.purple > svg.i { color: var(--merge); }
+.alert.info > svg.i { color: var(--ink-3); }
 .alert-text { min-width: 0; }
 .alert.other { opacity: .82; }
 

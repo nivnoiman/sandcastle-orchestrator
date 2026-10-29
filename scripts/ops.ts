@@ -33,6 +33,7 @@ const USAGE = [
   "  status [--parent=N] [--items]      one run: phases, holds, waiting reasons, parks, its feed and the queue",
   "  status --summary                   queue, global slots and one line per run (also what status prints when it cannot pick one run)",
   "  queue                              queue settings, the queued parents and the runs on the control plane",
+  "  recheck-auth [--parent=N]          after the Operator re-logged in: probe the agent credentials now and lift the auth Hold if they work",
   "  resume-parked [--parent=N] [--only=<text>]  retry every parked item whose reason contains <text> (default: all)",
   "  resolve-conflict <item> [--parent=N]        retry one parked item — the gate re-runs and may resolve it with an agent",
   "  logs <item> [stage] [--bytes=N]    tail the newest recorded attempt for that item",
@@ -298,6 +299,22 @@ async function queue(): Promise<void> {
   print(queueReport(await api<UiState>("/api/state")));
 }
 
+async function recheckAuth(): Promise<void> {
+  const state = await api<UiState>("/api/state");
+  const held = state.runs.filter((run) => run.hold?.reason === "auth").map((run) => run.parent.number);
+  const parent = parentFlag() ?? (held.length === 1 ? held[0] : undefined);
+  if (parent === undefined) {
+    die(held.length === 0 ? "no run is held on agent credentials - nothing to re-check" : `several runs are held on agent credentials (${held.map((n) => `#${n}`).join(", ")}) - pass --parent=N`);
+  }
+  const { result } = await api<{ result: { ok: boolean; error?: string } }>(`/api/runs/${parent}/auth/recheck`, { method: "POST" });
+  print({
+    ok: result.ok,
+    parent,
+    ...(result.ok ? { note: "agent credentials work - the auth Hold is lifted and waiting items resume" } : { error: result.error, note: "still rejected - the hold stays; log in again (claude /login on this machine) and re-run recheck-auth" }),
+  });
+  if (!result.ok) process.exit(1);
+}
+
 async function resumeParked(): Promise<void> {
   const state = await api<UiState>("/api/state");
   const parent = parentFlag();
@@ -376,6 +393,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   pause: () => holdStarts("pause"),
   resume: () => holdStarts("resume"),
   stop,
+  "recheck-auth": recheckAuth,
   "resume-parked": resumeParked,
   "resolve-conflict": resolveConflict,
   logs,
