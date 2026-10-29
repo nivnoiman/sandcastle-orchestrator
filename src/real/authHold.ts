@@ -13,7 +13,6 @@ export interface AuthHoldDeps {
 
 export interface AuthHoldProbe {
   poll(): void;
-  /** Probes now, ignoring the backoff; a probe already in flight is shared, never doubled. */
   recheck(): Promise<AuthProbeResult>;
 }
 
@@ -42,7 +41,7 @@ export function createAuthHoldProbe(deps: AuthHoldDeps): AuthHoldProbe {
     );
   };
 
-  const start = (): Promise<AuthProbeResult> => {
+  const probeOrJoinInFlight = (): Promise<AuthProbeResult> => {
     inFlight ??= deps
       .probe()
       .catch((cause: unknown): AuthProbeResult => ({ ok: false, reason: "other", detail: messageOf(cause) }))
@@ -59,9 +58,9 @@ export function createAuthHoldProbe(deps: AuthHoldDeps): AuthHoldProbe {
   return {
     poll: (): void => {
       if (!deps.held() || inFlight || now() < nextProbeAt) return;
-      start().catch((cause: unknown) => deps.log(`[auth][warn] resuming after the credentials recovered failed: ${messageOf(cause)}`));
+      probeOrJoinInFlight().catch((cause: unknown) => deps.log(`[auth][warn] resuming after the credentials recovered failed: ${messageOf(cause)}`));
     },
-    recheck: start,
+    recheck: probeOrJoinInFlight,
   };
 }
 
