@@ -29,7 +29,8 @@ export function parseFrontmatter(text: string): { data: FrontmatterData; body: s
 
 const RESERVED_WORD = /^(true|false|null|yes|no|on|off|~)$/i;
 const NUMBER_LIKE = /^[0-9.+-]+$/;
-const PLAIN = /^[A-Za-z0-9_./:@-]+$/;
+// no leading "@"/"-" (YAML indicators) and no trailing ":" (reads as a key in a flow list)
+const PLAIN = /^[A-Za-z0-9_./](?:[A-Za-z0-9_./:@-]*[A-Za-z0-9_./@-])?$/;
 
 function scalar(value: string | number | boolean): string {
   if (typeof value !== "string") return String(value);

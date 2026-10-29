@@ -46,6 +46,14 @@ export function writeFileAtomic(path: string, content: string): void {
   renameSync(temp, path);
 }
 
+function parseIssueFile(path: string): { data: FrontmatterData; body: string } {
+  try {
+    return parseFrontmatter(readFileSync(path, "utf8"));
+  } catch (cause) {
+    throw new Error(`${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
 function numberOf(data: FrontmatterData): number | undefined {
   const value = data["number"];
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
@@ -78,7 +86,7 @@ export function splitComments(body: string): { text: string; comments: string[] 
 
 export function commentSection(body: string, now: Date): string {
   const stamp = now.toISOString();
-  return `\n${COMMENT_HEADING} (${stamp})\n<!-- sandcastle-comment ${stamp} -->\n${body.replace(/\s+$/, "")}\n${COMMENT_END}\n`;
+  return `\n${COMMENT_HEADING} (${stamp})\n<!-- sandcastle-comment ${stamp} -->\n${body.replace(/\s+$/, "").replaceAll(COMMENT_END, "<!-- /sandcastle-comment (escaped) -->")}\n${COMMENT_END}\n`;
 }
 
 /** The `.scratch/<slug>/issues/` files of one hub, re-read from disk on every call. */
@@ -95,7 +103,7 @@ export class LocalIssueStore {
       const parentName = readdirSafe(dir)?.sort().find((name) => name.startsWith(PARENT_FILE_PREFIX) && name.endsWith(".md"));
       return parentName ? [{ slug, dir, path: join(dir, parentName) }] : [];
     });
-    const parsed = found.map((entry) => ({ ...entry, ...parseFrontmatter(readFileSync(entry.path, "utf8")) }));
+    const parsed = found.map((entry) => ({ ...entry, ...parseIssueFile(entry.path) }));
     let last = Math.max(0, ...parsed.map((entry) => numberOf(entry.data) ?? 0));
     return parsed.map((entry) => {
       let data = entry.data;
@@ -119,7 +127,7 @@ export class LocalIssueStore {
       const ordinal = Number(match[1]);
       const path = join(dir, name);
       if (ordinal >= PARENT_NUMBER_STRIDE) throw new Error(`${path}: a feature holds at most ${PARENT_NUMBER_STRIDE - 1} issues`);
-      const { data, body } = parseFrontmatter(readFileSync(path, "utf8"));
+      const { data, body } = parseIssueFile(path);
       return [{ number: parentNumber + ordinal, path, slug, kind: "item" as const, ordinal, parentNumber, data, body }];
     });
   }

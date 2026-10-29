@@ -162,8 +162,8 @@ export class LocalPullRequests implements PullRequestSeam {
   }
 
   private recordOf(repo: TargetRepo, pullRequest: PullRequestRef): LocalPrRecord {
-    const branch = pullRequest.url.slice(`${URL_PREFIX}${repo}/`.length);
-    const found = pullRequest.url.startsWith(URL_PREFIX) ? this.read(repo, branch) : undefined;
+    const prefix = `${URL_PREFIX}${repo}/`;
+    const found = pullRequest.url.startsWith(prefix) ? this.read(repo, pullRequest.url.slice(prefix.length)) : undefined;
     if (!found) throw new Error(`no local pull request ${pullRequest.url} in ${repo}`);
     return found;
   }
@@ -194,7 +194,12 @@ export class LocalPullRequests implements PullRequestSeam {
 
   private read(repo: TargetRepo, branch: string): LocalPrRecord | undefined {
     const text = this.deps.fs.readText(this.file(repo, branch));
-    return text === undefined ? undefined : (JSON.parse(text) as LocalPrRecord);
+    if (text === undefined) return undefined;
+    try {
+      return JSON.parse(text) as LocalPrRecord;
+    } catch (cause) {
+      throw new Error(`${this.file(repo, branch)} is not valid JSON: ${messageOf(cause)}`);
+    }
   }
 
   private write(repo: TargetRepo, record: LocalPrRecord): void {
