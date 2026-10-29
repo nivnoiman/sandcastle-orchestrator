@@ -221,9 +221,9 @@ export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitContr
   const changes: string[] = [];
   for (const [file, before] of snapshot.files) {
     if (guardedFileUnchanged(fs, snapshot.gitDir, file, before)) continue;
-    changed.push(file);
-    changes.push(...describeChange(file, before, fs.readText(join(snapshot.gitDir, file))));
     const path = join(snapshot.gitDir, file);
+    changed.push(file);
+    changes.push(...describeChange(file, before, fs.readText(path)));
     if (before === undefined) fs.removeFile(path);
     else fs.writeText(path, before);
   }
