@@ -259,7 +259,10 @@ export class UiController {
 
   private stateBody(): Omit<UiState, "rev" | "boot"> {
     const quietFor = this.quietResolver();
-    const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo, quietFor)).map((run) => ({ ...run, hold: this.withProbe(run.hold) }));
+    const runs = this.slots.all().map((slot) => {
+      const run = slot.view(this.deps.hubRepo, quietFor);
+      return { ...run, hold: this.withProbe(run.hold) };
+    });
     const primary = this.slots.primary();
     const engine = primary?.engine;
     const views = engine ? engine.view() : [];

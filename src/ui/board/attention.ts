@@ -1,7 +1,6 @@
 import { hubIssueUrl, runPullRequests, type BoardProject } from "./model.js";
-import type { ProviderName } from "../../project/agentsConfig.js";
 import { formatQuiet } from "./format.js";
-import type { UiRun } from "../state.js";
+import type { UiAuthProbe, UiRun } from "../state.js";
 
 /** What a human needs to decide on a parked item: why, where, and the links to look at. */
 export interface ParkDetail {
@@ -59,7 +58,7 @@ export interface AttentionEntry {
   until?: string;
   /** Set on parked entries. */
   park?: ParkDetail;
-  auth?: { running: boolean; providers: ProviderName[]; error: string | undefined };
+  auth?: UiAuthProbe;
   actions: AttentionAction[];
 }
 
