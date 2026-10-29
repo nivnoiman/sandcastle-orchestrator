@@ -43,7 +43,7 @@ The hub repo (where issues live) and the code repos can be one repository or sev
 | Node.js 20.11+ and npm | |
 | Docker | Docker Desktop on Windows and macOS |
 | [GitHub CLI](https://cli.github.com/) `gh` | Logged in (`gh auth login`) with write access to the hub repo's issues |
-| An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
+| An agent CLI login | [Claude Code](https://docs.claude.com/en/docs/claude-code) (default) and/or [Codex CLI](https://github.com/openai/codex) and/or [Cursor CLI](https://cursor.com/cli) (API key), logged in with your subscription or an API key. See [Agent providers](#agent-providers) and [Agent login](#agent-login). |
 | Agent skills | Shipped in this repo, installed into `~/.claude` by `sandcastle init`, see [Agent skills](#agent-skills) |
 
 ## Quick start
@@ -65,7 +65,7 @@ sandcastle init                       # or: sandcastle init --hub=owner/name --p
 |---|---|
 | `npm ci` | Dependencies |
 | `npm link` | A global `sandcastle` command |
-| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, pnpm, yarn, Playwright) |
+| `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, cursor-agent, pnpm, yarn, Playwright) |
 | `init` | `.sandcastle/` in the project, and the shipped [agent skills](#agent-skills) installed into `~/.claude` |
 
 `init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
@@ -153,15 +153,16 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 |---|---|---|---|
 | `claude` (default) | Claude Code | `~/.claude` login or `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` |
 | `codex` | OpenAI Codex CLI | `~/.codex/auth.json` from `codex login` (ChatGPT account) | `CODEX_API_KEY` (or `OPENAI_API_KEY`) |
+| `cursor` | Cursor CLI (`cursor-agent`) | none (API key only) | `CURSOR_API_KEY` |
 
 - Roles: `develop`, `simplify`, `review`, `resolve`, `feature-verify`, `feature-fix`, `polish`. Salvage runs under its stage's role.
 - A value is a provider name or `{ "provider": ..., "model": ... }`.
-- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex without a `model` uses its own default.
+- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex and Cursor without a `model` use their own default.
 - Skills are the same files for every provider (see [Agent skills](#agent-skills)). Claude invokes them as skills. Codex reads them by path and also finds them in `~/.agents/skills`. Codex has no `Skill` tool or subagents, so polish tells it to run the `/polish` passes itself, in order.
 - Auth holds and re-probes cover every provider in use. One rejected login holds new stages for the whole run.
 - `sandcastle smoke --agent=codex` checks the codex install, home and flags in a container. It makes a real call only when a Codex login or `CODEX_API_KEY` is present.
 
-> **Status:** `claude` is the tested path. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
+> **Status:** `claude` is the tested path. `cursor` follows the Cursor CLI docs but is unit-tested only: its flags, prompt-as-argument handling and error strings have not been run against a real account. `codex` is unit-tested and smoke-checked up to the CLI, but it has **not** been run end to end on a ChatGPT subscription or an OpenAI API key yet. Gemini CLI fits the same interface but is not built.
 
 ### Stages
 
@@ -343,6 +344,7 @@ Log in every provider you use in `agents`, one way each:
 | claude | API key | Set `ANTHROPIC_API_KEY` in `.sandcastle/.env.orchestrator`. | Anthropic API usage |
 | codex | Host login | Run `codex login` on the host (set `cli_auth_credentials_store = "file"` in `~/.codex/config.toml` if your OS keyring holds it). `~/.codex/auth.json` is mounted read-only and copied into each container. `SANDCASTLE_CODEX_HOME` points elsewhere. | Your ChatGPT subscription |
 | codex | API key | Set `CODEX_API_KEY` (or `OPENAI_API_KEY`) in `.sandcastle/.env.orchestrator`. | OpenAI API usage |
+| cursor | API key | Set `CURSOR_API_KEY` in `.sandcastle/.env.orchestrator`. | Cursor plan usage |
 
 With a subscription, a spent usage window shows items as **waiting**; they resume when the window resets. `sandcastle preflight` checks that a throwaway container can reach every provider in use with whichever login is configured.
 

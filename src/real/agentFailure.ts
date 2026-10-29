@@ -71,6 +71,20 @@ function resetsAtMs(event: Record<string, unknown>): number | undefined {
   return resetsAt > 1e11 ? resetsAt : resetsAt * 1000;
 }
 
+export function stringField(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : undefined;
+}
+
+/** Stderr minus JSON event lines. */
+export function plainStderrOf(stderr: string): string {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("{"))
+    .join("\n");
+}
+
 export function lastStreamEvent(text: string): Record<string, unknown> | undefined {
   return jsonLines(text).at(-1);
 }

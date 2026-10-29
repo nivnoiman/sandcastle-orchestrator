@@ -28,6 +28,7 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
     anthropicApiKey: undefined,
     claudeOauthToken: undefined,
     codexApiKey: undefined,
+    cursorApiKey: undefined,
     agents: DEFAULT_AGENTS,
     stages: DEFAULT_STAGES,
     model: "opus",
