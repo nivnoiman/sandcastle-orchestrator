@@ -377,6 +377,8 @@ Agents run their CLI with every approval and CLI sandbox switched off inside the
 
 The stage prompts and the Orchestrator Agent invoke skills that must exist in the host `~/.claude`, whichever provider runs the stage. They ship in this repo and `sandcastle init` installs them; preflight checks them with `sandcastle skills install --check` and names the fix.
 
+> **Status:** only Claude Code has been tested in a real setup. The skills install into `~/.claude` only. Running the Orchestrator Agent from Codex or Cursor is untested, and a provider choice at install time is [only planned](docs/plans/skill-provider-install.md).
+
 | Source in this repo | Installed to | Used by |
 |---|---|---|
 | `skills/vendor/mattpocock/{tdd,to-spec,to-tickets}` | `~/.claude/skills/` | develop and rework (`tdd`); planning |
