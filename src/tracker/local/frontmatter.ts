@@ -29,12 +29,11 @@ export function parseFrontmatter(text: string): { data: FrontmatterData; body: s
 
 const RESERVED_WORD = /^(true|false|null|yes|no|on|off|~)$/i;
 const NUMBER_LIKE = /^[0-9.+-]+$/;
-// no leading "@"/"-" (YAML indicators) and no trailing ":" (reads as a key in a flow list)
-const PLAIN = /^[A-Za-z0-9_./](?:[A-Za-z0-9_./:@-]*[A-Za-z0-9_./@-])?$/;
+const PLAIN_SCALAR_NO_YAML_INDICATOR_OR_TRAILING_COLON = /^[A-Za-z0-9_./](?:[A-Za-z0-9_./:@-]*[A-Za-z0-9_./@-])?$/;
 
 function scalar(value: string | number | boolean): string {
   if (typeof value !== "string") return String(value);
-  return PLAIN.test(value) && !RESERVED_WORD.test(value) && !NUMBER_LIKE.test(value) ? value : JSON.stringify(value);
+  return PLAIN_SCALAR_NO_YAML_INDICATOR_OR_TRAILING_COLON.test(value) && !RESERVED_WORD.test(value) && !NUMBER_LIKE.test(value) ? value : JSON.stringify(value);
 }
 
 export type FrontmatterValue = string | number | boolean | readonly (string | number)[] | undefined;

@@ -4,6 +4,10 @@ import type { CreateDraftPrInput, PullRequestRef, TrackerClient } from "../types
 import { LocalItems } from "./items.js";
 import { LocalPullRequests, type LocalPullRequestDeps } from "./pullRequests.js";
 
+function noLabelWritePending(): void {
+  return undefined;
+}
+
 /** The Local Tracker as the engine, stages and verify see it: issue-file writes plus git-backed pull requests. */
 export class LocalTrackerClient implements TrackerClient {
   private readonly items: LocalItems;
@@ -47,7 +51,7 @@ export class LocalTrackerClient implements TrackerClient {
   }
 
   flushPendingLabels(): void {
-    // file writes are synchronous and either land or throw
+    return noLabelWritePending();
   }
 
   findPullRequest(repo: TargetRepo, branch: string, baseBranch?: string): PullRequestRef | undefined {
