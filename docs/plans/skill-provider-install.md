@@ -28,9 +28,8 @@ Claude Code: `~/.claude/skills/<n>/SKILL.md`, `~/.claude/commands/<n>.md` (curre
 
 - `sandcastle skills install [--operator=claude|codex|cursor[,..]|all] [--check] [--force] [--target=<dir>]`
 - `sandcastle init` accepts the same `--operator`.
-- Resolution order: flag > saved choice > prompt (TTY only) > default `claude`.
+- Resolution order: flag > prompt (TTY only) > default `claude` (non-TTY). No saved choice.
 - Prompt: TTY only, multi-select (a person may use two CLIs), default = claude. Non-TTY / CI / `--yes`: no prompt, use saved or default `claude` (keeps today's behaviour, no hang).
-- Save choice in `~/.sandcastle/` user config (not the project config: it is per person, not per repo). Alternative: derive from which of `~/.claude`, `~/.codex`, `~/.cursor` exist. Open question 2.
 - `--check` stays provider-aware: checks only chosen targets; preflight keeps checking `~/.claude` for the required stage skills (unchanged).
 
 ## Per-provider install target + format
@@ -78,13 +77,15 @@ No real home writes: all via `--target`-style injected roots. Prompt UI untested
 5. `feat: operator prompt + saved choice` (TTY multi-select, non-interactive default).
 6. `docs: README skills table per operator`.
 
-## Unresolved questions
+## Decisions (from user)
 
-1. Flag name: `--operator=` (recommended, avoids clash with `agents.default.provider`) or `--provider=`?
-2. Remember choice: user config file, infer from existing `~/.codex`/`~/.cursor`, or ask every time?
-3. Cursor: install to `~/.cursor/skills` or rely on its `~/.claude/skills` compat (avoids duplicates)? Needs a quick manual check in Cursor.
-4. Cursor commands: OK to skip command files (legacy, replaced by skills)? I could not verify `~/.cursor/commands` format from docs.
-5. Codex: skills only (`$sandcastle-run`) and skip deprecated `~/.codex/prompts`? Recommended yes.
-6. Should codex/cursor also get stage skills in their own home, or is `~/.claude` as the single source fine (current mounts read only there)? Recommended: single source.
-7. Multi-select default when TTY and nothing saved: claude only, or pre-tick detected CLIs?
-8. Is a new `sandcastle-run` neutral rewrite acceptable even if it loses Claude-specific tool hints (e.g. `Skill` tool)?
+1. Flag is `--operator=claude|codex|cursor[,..]|all`.
+2. No saved choice: prompt every run on a TTY (flag skips it). Drop the saved-config idea; non-TTY defaults to `claude`.
+3. Cursor target is `~/.cursor/skills` (its `~/.claude/skills` compat means no duplicate-handling needed; confirm manually in Cursor during PR 4).
+4. No Cursor command files.
+5. Codex: skills only, no `~/.codex/prompts`.
+6. Operator home gets only the Operator artifacts (`sandcastle-run`), not stage skills. Stage skills stay in `~/.claude` only.
+7. Multi-select pre-ticks detected CLIs (`~/.claude`, `~/.codex`, `~/.cursor` exist), else `claude`.
+8. Rewrite `sandcastle-run` provider-neutral; Claude command stays a thin wrapper.
+
+Remaining: confirm in a real Cursor that `~/.cursor/skills` loads and that no `~/.claude/skills` duplicate appears.
