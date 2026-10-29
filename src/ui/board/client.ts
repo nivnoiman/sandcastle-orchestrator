@@ -196,7 +196,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     ui.nowMs = Date.now();
     const everything = buildAttention(ui.projects, ui.currentId);
     const attention = everything.filter((entry) => !isHeld(heldMap, entry));
-    ui.held = everything.filter((entry) => isHeld(heldMap, entry));
+    ui.held = everything.filter((entry) => !attention.includes(entry));
     announceNew(everything);
     patch(zones.rail, renderRail(ui, attention));
     patch(zones.main, renderMain(ui, attention));
@@ -800,9 +800,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   function onAttentionAction(act_: string, element: HTMLElement, project: BoardProject): void {
     const itemNumber = Number(element.dataset["n"]) || undefined;
     const runNumber = Number(element.dataset["run"]) || undefined;
-    if (act_ === "att-requeue" && itemNumber) return openDialog(project, "requeue", itemNumber, runNumber);
-    if (act_ === "att-hold" && itemNumber) return openDialog(project, "hold", itemNumber, runNumber);
-    if (act_ === "att-comment" && itemNumber) return openDialog(project, "comment", itemNumber, runNumber);
+    const dialogKind = ({ "att-requeue": "requeue", "att-hold": "hold", "att-comment": "comment" } as const)[act_ as "att-requeue"];
+    if (dialogKind && itemNumber) return openDialog(project, dialogKind, itemNumber, runNumber);
     if (act_ === "att-unhold") {
       const entry = ui.held.find((candidate) => candidate.key === element.dataset["key"]);
       if (entry) setHeld(entry, false);

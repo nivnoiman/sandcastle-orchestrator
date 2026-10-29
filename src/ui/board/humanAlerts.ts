@@ -35,8 +35,7 @@ export function parseHeld(raw: string | undefined): HeldMap {
 
 /** One line for a toast or desktop notification. */
 export function alertText(entry: AttentionEntry): { title: string; body: string } {
-  const where = entry.projectName;
-  return { title: `${where}: ${entry.title}`, body: entry.park ? entry.park.reason : entry.detail };
+  return { title: `${entry.projectName}: ${entry.title}`, body: entry.park ? entry.park.reason : entry.detail };
 }
 
 export function pageTitle(count: number, projectName: string | undefined): string {

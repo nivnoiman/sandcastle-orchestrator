@@ -101,17 +101,18 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
 
   for (const item of run.items) {
     if (item.phase === "parked") {
+      const reason = item.parkReason ?? "parked with no recorded reason";
       entries.push(
         entry(project, {
           scope: `${number}:${item.number}`,
           kind: "parked",
           title: `#${item.number} ${item.title} parked${item.stage ? ` at ${item.stage}` : ""}`,
-          detail: item.parkReason ?? "parked with no recorded reason",
+          detail: reason,
           runNumber: number,
           itemNumber: item.number,
           park: {
             stage: item.stage,
-            reason: item.parkReason ?? "parked with no recorded reason",
+            reason,
             since: item.phaseSince,
             issueUrl: item.issueUrl,
             pullRequestUrl: item.pullRequestUrl,
