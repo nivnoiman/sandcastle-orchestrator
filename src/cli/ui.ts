@@ -56,7 +56,7 @@ function injectedStages(flag: "fail" | "auth-hold"): Set<string> {
   for (const arg of args) {
     if (!arg.startsWith(`--${flag}=`)) continue;
     const [itemPart, stagePart] = arg.slice(flag.length + 3).split(":");
-    if (!itemPart || !stagePart || !/^d+$/.test(itemPart) || !isStageName(stagePart)) {
+    if (!itemPart || !stagePart || !/^\d+$/.test(itemPart) || !isStageName(stagePart)) {
       fail(`--${flag} must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
     }
     keys.add(`${itemPart}:${stagePart}`);
