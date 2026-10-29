@@ -42,6 +42,8 @@ interface ActiveGitDir {
   active: number;
   /** Branch -> live stages on it. Concurrent stages write each other's tracking config. */
   branches: Map<string, number>;
+  /** Branches the host itself created a worktree for: `git worktree add` writes their tracking config before their stage registers. */
+  hostBranches: Set<string>;
 }
 
 const activeByGitDir = new Map<string, ActiveGitDir>();
@@ -64,14 +66,23 @@ export function snapshotGitControl(fs: FileSystemPort, gitDir: string, ownBranch
   const key = registryKey(gitDir);
   const current = activeByGitDir.get(key);
   if (current) {
-    const drifted = [...current.baseline].filter(([file, trusted]) => !guardedFileUnchanged(fs, gitDir, file, trusted, current.branches.keys()));
+    const drifted = [...current.baseline].filter(([file, trusted]) => !guardedFileUnchanged(fs, gitDir, file, trusted, trackedBranches(current)));
     if (drifted.length > 0) throw new GitControlTampered(gitDir, drifted.map(([file]) => file));
   }
-  const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0, branches: new Map<string, number>() };
+  const entry = current ?? { baseline: readGuardedFiles(fs, gitDir), active: 0, branches: new Map<string, number>(), hostBranches: new Set<string>() };
   entry.active++;
   if (ownBranch !== undefined) entry.branches.set(ownBranch, (entry.branches.get(ownBranch) ?? 0) + 1);
   activeByGitDir.set(key, entry);
   return { gitDir, ownBranch, files: entry.baseline };
+}
+
+function trackedBranches(entry: ActiveGitDir): Set<string> {
+  return new Set([...entry.branches.keys(), ...entry.hostBranches]);
+}
+
+/** Call before the host creates a worktree on `branch`: stages already running on this git dir must not read the host's tracking config as tampering. */
+export function expectHostBranchTracking(gitDir: string, branch: string): void {
+  activeByGitDir.get(registryKey(gitDir))?.hostBranches.add(branch);
 }
 
 /** Ends a stage's hold on its git dir; idempotent. The last stage out clears the baseline. */
@@ -238,7 +249,8 @@ function guardedFileUnchanged(
 
 /** Restores every guarded file a container tampered with, then throws so the stage parks instead of merging. Always releases the stage. */
 export function assertGitControlUnchanged(fs: FileSystemPort, snapshot: GitControlSnapshot): void {
-  const stageBranches = [...(activeByGitDir.get(registryKey(snapshot.gitDir))?.branches.keys() ?? [])];
+  const active = activeByGitDir.get(registryKey(snapshot.gitDir));
+  const stageBranches = active ? trackedBranches(active) : [];
   const changed: string[] = [];
   for (const [file, before] of snapshot.files) {
     if (guardedFileUnchanged(fs, snapshot.gitDir, file, before, stageBranches)) continue;

@@ -5,6 +5,7 @@ import { integrationBase } from "../project/projectConfig.js";
 import type { CommandRunner } from "./commandRunner.js";
 import { resolveSandboxEnvFile } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
+import { expectHostBranchTracking } from "./gitGuard.js";
 import { repoRoot, worktreePath, type SandcastleLayout } from "./paths.js";
 import { messageOf } from "../messageOf.js";
 
@@ -149,6 +150,7 @@ export class RealGitOps implements GitBranchOps {
     this.git(cwd, ["fetch", "origin", "--prune"]);
     this.removeWorktree(cwd, target);
     this.deps.fs.makeDirectory(dirname(target));
+    expectHostBranchTracking(join(cwd, ".git"), branch);
 
     const remoteExists = this.remoteBranchExists(cwd, branch);
     const localExists = remoteExists ? false : this.localBranchExists(cwd, branch);
