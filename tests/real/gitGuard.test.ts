@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   assertGitControlUnchanged,
+  expectHostBranchTracking,
   GitControlTampered,
   hostGitEnv,
   releaseGitControl,
@@ -47,6 +48,33 @@ describe("git control guard", () => {
 
     expect(() => assertGitControlUnchanged(fs, snapshot)).not.toThrow();
     expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("passes tracking the host wrote for a new worktree before that item's stage registered", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const running = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    expectHostBranchTracking(GIT_DIR, "feat/b");
+    const after = `${BASE_CONFIG}[branch "feat/b"]
+	remote = origin
+	merge = refs/heads/integration/x
+`;
+    fs.writeText(CONFIG, after);
+
+    const next = snapshotGitControl(fs, GIT_DIR, "feat/b");
+    expect(() => assertGitControlUnchanged(fs, running)).not.toThrow();
+    expect(() => assertGitControlUnchanged(fs, next)).not.toThrow();
+    expect(fs.readText(CONFIG)).toBe(after);
+  });
+
+  it("does not trust host-expected tracking pointed at a URL remote", () => {
+    const fs = fsWith({ [CONFIG]: BASE_CONFIG });
+    const running = snapshotGitControl(fs, GIT_DIR, "feat/a");
+    expectHostBranchTracking(GIT_DIR, "feat/b");
+    fs.writeText(CONFIG, `${BASE_CONFIG}[branch "feat/b"]
+	remote = https://evil.test/x.git
+`);
+
+    expect(() => assertGitControlUnchanged(fs, running)).toThrow(GitControlTampered);
   });
 
   it("passes a concurrent stage's branch tracking written while this stage runs", () => {
