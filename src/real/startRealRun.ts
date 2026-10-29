@@ -124,8 +124,9 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       engine.tick(Date.now());
     };
 
+    const runReader = createRunReader(config.hubRepo);
     const watch = new WatchLoop({
-      fetchSnapshot: () => createRunReader(config.hubRepo).fetchRunSnapshot(model.parentNumber),
+      fetchSnapshot: () => runReader.fetchRunSnapshot(model.parentNumber),
       engine: {
         applySnapshot: (next) => {
           context.update(next);
