@@ -30,6 +30,8 @@ export interface ParentSummary {
   title: string;
   subIssues: number;
   completedSubIssues: number;
+  /** Where the Run's integration branch lives; set by the local Tracker so the Board View can name it before any Run exists. */
+  integrationBranch?: string;
 }
 
 /** Remote reads of a Project's Orchestration Issues, bound to one hub. */

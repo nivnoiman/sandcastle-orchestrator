@@ -15,6 +15,7 @@ import {
   uiHold,
   uiItems,
   uiParent,
+  type IssueUrlOf,
   type FeatureVerifyStatus,
   type FeedKind,
   type PolishStatus,
@@ -103,10 +104,10 @@ export class ParentRunSlot {
     this.notePolish(note);
   }
 
-  view(hubRepo: string, quietFor?: QuietFor): UiRun {
+  view(urlOf: IssueUrlOf, quietFor?: QuietFor): UiRun {
     const views = this.engine.view();
     return {
-      parent: uiParent(hubRepo, this.model),
+      parent: uiParent(urlOf, this.model),
       cap: this.engine.cap(),
       paused: this.engine.newStartsArePaused(),
       started: true,
@@ -118,7 +119,7 @@ export class ParentRunSlot {
       featureVerify: this.featureVerify(),
       polish: this.polish(),
       phaseCounts: phaseCounts(views),
-      items: uiItems(hubRepo, views, (item) => quietFor?.(item, this.session.attempts)),
+      items: uiItems(urlOf, views, (item) => quietFor?.(item, this.session.attempts)),
     };
   }
 

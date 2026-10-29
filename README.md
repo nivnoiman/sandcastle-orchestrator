@@ -60,7 +60,7 @@ npm run build-image                  # Docker image sandcastle:latest
 
 # 2. once per project, from its root
 cd ~/src/my-app
-sandcastle init                       # or: sandcastle init --hub=owner/name --port=7781
+sandcastle init                       # asks where issues live; or: sandcastle init --tracker=github --hub=owner/name --port=7781
 ```
 
 | Step | Result |
@@ -70,9 +70,9 @@ sandcastle init                       # or: sandcastle init --hub=owner/name --p
 | `npm run build-image` | Docker image `sandcastle:latest` (node 20, gh, claude, codex, cursor-agent, pnpm, yarn, Playwright) |
 | `init` | `.sandcastle/` in the project, and the shipped [agent skills](#agent-skills) installed into `~/.claude` |
 
-`init` detects the hub repo (`gh repo view`, then the `origin` remote), the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
+`init` asks which [Tracker](#local-tracker) the project uses (`--tracker=local|github` skips the question; without a terminal it picks `github`) and writes `docs/agents/issue-tracker.md` naming it. For `github` it detects the hub repo (`gh repo view`, then the `origin` remote). With `local` there is no hub repo, no `gh` and no `GH_TOKEN`. It also detects the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
 
-3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator`, and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
+3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator` (not needed with the [local Tracker](#local-tracker)), and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
 4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`.
 5. Start the dashboard: `sandcastle dashboard --detach`
 6. Publish an Orchestration Issue (see [Publish contract](#publish-contract)), then ask your agent: **"run sandcastle on #N"**. The `sandcastle-run` skill (the Orchestrator Agent) starts the dashboard, validates, preflights, launches, opens the Board View, watches and reports.
@@ -259,6 +259,25 @@ load_bearing_memories:             # optional slugs from the project's Claude me
 | `sc:<name>` per custom stage | The orchestrator only, created on demand. See [Stages](#stages). |
 
 `sandcastle validate` enforces all of it and names the offending issue for every violation: version `v1`, slug format, `required_reading` keys within the repos used, one known `repo:` label per item, sibling-only edges, no cycles.
+
+## Local tracker
+
+`tracker: "local"` runs the whole pipeline with no GitHub: no hub repo, no `gh`, no `GH_TOKEN`. Pick it with `sandcastle init --tracker=local`, or set `"tracker": "local"` in `config.json` (`hubRepo` and `repos.<name>.github` become optional).
+
+```
+.scratch/billing-export/issues/
+  00-parent.md        # the Orchestration Issue: a `sandcastle: v1` fence with `feature: billing-export`
+  01-csv-writer.md    # an item: frontmatter `repo: app`, optional `blocked-by: [01]`
+  02-endpoint.md
+```
+
+- Numbers: parents are 100, 200, ... and an item is its parent's number plus its file number, so `02-endpoint.md` of the first parent is `#102`. Everywhere a command takes a parent you can pass the number, `#100`, the feature slug (`billing-export`) or the path of a file in the folder.
+- `sandcastle validate billing-export` and `sandcastle preflight billing-export` check that every file parses and every item names a repo from the config.
+- Agents write their stage notes to `.sandcastle-pr.md` in their worktree (never committed) and commit to their branch; sandcastle pushes the branch, records a pull-request record under `.sandcastle/local-prs/`, and squash-merges each item into `integration/<feature>`.
+- A Run ends with that branch, not with pull requests. Needs Attention lists it with its name and a copyable `git merge origin/integration/<feature>`; merge it yourself from the base branch. The Board View's *New orchestration issue* button creates a parent file for you.
+- The engine writes only its own frontmatter keys (`state`, `stage`, `labels`, `merged`, `review`, `number`) and appends comments as sections; edit the files freely while a run is live.
+
+See [ADR 0004](docs/adr/0004-tracker-seam-and-local-tracker.md).
 
 ## Commands
 

@@ -69,6 +69,26 @@ export function repoNameFrom(hubRepo: string): string {
   return name.length > 0 ? name : "app";
 }
 
+export interface LocalInitConfigInput {
+  /** The project directory's name; it becomes the project and repo name, lower kebab. */
+  dirName: string;
+  commands: RepoCommands;
+  port: number;
+}
+
+/** The `.sandcastle/config.json` object `sandcastle init --tracker=local` writes: no hubRepo, no GitHub slugs. */
+export function buildLocalInitConfig(input: LocalInitConfigInput): Record<string, unknown> {
+  const name = repoNameFrom(`local/${input.dirName}`);
+  return {
+    name,
+    tracker: "local",
+    integrationBase: "dev",
+    repos: { [name]: { bootstrap: input.commands.bootstrap, checks: input.commands.checks } },
+    verify: { strategy: "command" },
+    ui: { port: input.port },
+  };
+}
+
 /** The `.sandcastle/config.json` object `sandcastle init` writes for a single-repo project. */
 export function buildInitConfig(input: InitConfigInput): Record<string, unknown> {
   const repoName = repoNameFrom(input.hubRepo);

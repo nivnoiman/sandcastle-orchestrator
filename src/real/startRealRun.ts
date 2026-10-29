@@ -1,6 +1,6 @@
 import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
-import { createRunReader, ensureLocalRemote } from "../tracker/index.js";
+import { createRunReader, ensureLocalRemote, localIssueStore } from "../tracker/index.js";
 import type { RunModel } from "../model/runModel.js";
 import { activeProject, integrationBase } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
@@ -84,6 +84,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       config,
       model,
       skipVerify: options.skipVerify === true,
+      ...(config.tracker === "local" ? { localStore: localIssueStore(activeProject()) } : {}),
       claudeHomeInUse: lease.shared,
       skillsCheck: () => staleSkills({ sourceRoot: TOOL_DIR, claudeDir: layout.claudeDir }),
       log,
@@ -92,6 +93,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     const context = new RunContext(model, {
       loadMemories: (slugs) => loadMemories(fs, layout, slugs),
       hubRepo: config.hubRepo,
+      tracker: config.tracker,
     });
     for (const item of model.items) context.memories(item.number);
 
@@ -184,6 +186,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           gh: bundle.gh,
           model: verifyModel,
           hubRepo: config.hubRepo,
+          tracker: config.tracker,
           rework: round,
           log,
           warn,
@@ -262,7 +265,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
         logs,
       });
       try {
-        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, log, warn });
+        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, tracker: config.tracker, log, warn });
       } catch (cause) {
         const reason = messageOf(cause);
         polishStatus = idlePolish("reverted", reason);

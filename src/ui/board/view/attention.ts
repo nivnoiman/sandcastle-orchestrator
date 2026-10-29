@@ -39,6 +39,10 @@ function safeHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : "#";
 }
 
+function mergeHint(merge: NonNullable<AttentionEntry["merge"]>): string {
+  return `<div class="merge-hint"><span class="chip">branch <b class="mono">${esc(merge.branch)}</b></span><code class="mono">${esc(merge.command)}</code><button${attrs({ type: "button", class: "btn sm", "data-act": "att-copy", "data-copy": merge.command, title: "Copy the merge command" })}>${icon("copy")}Copy</button></div>`;
+}
+
 function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const park = entry.park;
   if (!park) return "";
@@ -48,12 +52,17 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const since = park.since ? `<span class="chip">parked ${esc(formatClock(park.since, nowMs))} ago</span>` : "";
   const run = entry.runNumber === undefined ? "" : `<span class="chip">run #${entry.runNumber}</span>`;
   const pr = park.pullRequestUrl ? `<a class="chip link" href="${esc(safeHref(park.pullRequestUrl))}" target="_blank" rel="noreferrer">PR</a>` : "";
+  const issue = park.issueUrl ? `<a class="chip link" href="${esc(safeHref(park.issueUrl))}" target="_blank" rel="noreferrer">Issue</a>` : "";
+  const branch = entry.local && park.branch ? `<span class="chip">branch <b class="mono">${esc(park.branch)}</b></span>` : "";
+  const help = entry.local
+    ? "Re-queue clears the item's park state and restarts it. Until then its dependents stay blocked. Hold only hides this banner; the issue files are untouched."
+    : "Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.";
   return `<li class="alert red k-parked needs-human" data-key="${esc(entry.key)}">
       <div class="nh-head">${icon("alert")}<div class="nh-title">${esc(entry.title)}</div></div>
-      <div class="nh-meta">${stage}${run}${since}${pr}<a class="chip link" href="${esc(safeHref(park.issueUrl))}" target="_blank" rel="noreferrer">Issue</a></div>
+      <div class="nh-meta">${stage}${run}${since}${branch}${pr}${issue}</div>
       <div class="nh-label">Why it stopped</div>
       <pre class="nh-reason">${esc(park.reason)}</pre>
-      <p class="nh-help">Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.</p>
+      <p class="nh-help">${help}</p>
       <div class="acts">${actions}</div>
     </li>`;
 }
@@ -111,6 +120,7 @@ function row(ui: BoardUi, entry: AttentionEntry): string {
       <div class="alert-text">
         <div class="what"${other ? ` data-project="${esc(entry.projectName)}"` : ""}>${esc(entry.title)}${entry.runNumber !== undefined && entry.kind === "parked" ? `<span class="where">run #${entry.runNumber}</span>` : ""}</div>
         <div class="why">${detail}</div>
+        ${entry.merge && !other ? mergeHint(entry.merge) : ""}
       </div>
       <div class="acts">${other ? goProject : actions}</div>
     </li>`;

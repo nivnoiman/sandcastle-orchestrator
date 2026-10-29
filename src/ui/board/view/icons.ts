@@ -23,6 +23,7 @@ export const ICON_SPRITE = `<svg width="0" height="0" style="position:absolute" 
 <symbol id="i-castle" viewBox="0 0 24 24"><path d="M4 20V9h3V6h2v3h2V5h2v4h2V6h2v3h3v11z"/><path d="M10 20v-4a2 2 0 0 1 4 0v4"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
 <symbol id="i-dash" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="10" rx="1.5"/><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"/></symbol>
 <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 13h6l-1 8 8-10h-6z"/></symbol>
 </defs></svg>`;
 

@@ -115,6 +115,7 @@ export interface InstanceInfo {
   dir: string;
   name: string;
   mode: "dry" | "real";
+  tracker?: "github" | "local";
   /** True while started without a parent: the operator picks one in the UI. */
   idle: boolean;
   pid: number;
@@ -199,6 +200,16 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
       (checked) => response.json({ ok: true, result: checked }),
       (cause: unknown) => fail(response, cause),
     );
+  });
+
+  app.post("/api/parents/local", (request, response) => {
+    send(response, () => {
+      const title = bodyField(request, "title");
+      const body = bodyField(request, "body");
+      if (typeof title !== "string" || title.trim().length === 0) throw new BadRequest("title must be a non-empty string");
+      if (body !== undefined && typeof body !== "string") throw new BadRequest("body must be a string");
+      return controller.createLocalParent({ title, ...(body === undefined ? {} : { body }) });
+    });
   });
 
   app.post("/api/queue", (request, response) => {

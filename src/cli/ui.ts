@@ -4,7 +4,7 @@ import type { StageName } from "../engine/adapters.js";
 import { stageNames } from "../engine/stageChain.js";
 import type { PendingStage } from "../engine/fakes.js";
 import { OperatorError } from "../engine/operatorError.js";
-import { createRunReader, isRunSnapshot, type ParentSummary, type RunSnapshot } from "../tracker/index.js";
+import { createRunReader, isRunSnapshot, localIssueStore, toParentSummary, type ParentSummary, type RunSnapshot } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { controlPlaneHost } from "../real/controlPlane.js";
@@ -13,7 +13,7 @@ import { nodeFileSystem } from "../real/fileSystem.js";
 import { processIsAlive } from "../real/lock.js";
 import { defaultLayout } from "../real/paths.js";
 import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
-import { parentList, UiController, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
+import { parentList, UiController, type NewLocalParent, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
 import { resolveUiPort, startUiServer } from "../ui/server.js";
 import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js";
 import { RunQueue } from "../ui/runQueue.js";
@@ -22,6 +22,7 @@ import type { RunMode } from "../ui/state.js";
 import { messageOf } from "../messageOf.js";
 import { createInstanceRegistry } from "../registry/index.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
+import { isParentHandle, parentFromArgs } from "./parentArg.js";
 
 const TICK_MS = 250;
 
@@ -72,8 +73,8 @@ if (idle && args.includes("--dry")) {
 }
 
 const hubRepo = repoArg ?? project.hubRepo;
-const fixture = !source || /^\d+$/.test(source) ? undefined : source;
-const namedParent = source && !fixture ? Number(source) : undefined;
+const fixture = !source || isParentHandle(project, source) ? undefined : source;
+const namedParent = source && !fixture ? parentFromArgs(project, source, USAGE) : undefined;
 const mode: RunMode = fixture || args.includes("--dry") ? "dry" : "real";
 const cap = flagNumber(args, "cap", 1);
 const parallelLimit = optionalFlagNumber(args, "parallel");
@@ -211,6 +212,10 @@ const reset: ResetOps | undefined =
 
 const controller = new UiController({
   mode,
+  tracker: project.tracker,
+  ...(project.tracker === "local"
+    ? { createParent: (input: NewLocalParent) => toParentSummary(localIssueStore(project).createParent(input)) }
+    : {}),
   hubRepo,
   startCap: cap,
   preselectedParent: namedParent,
@@ -225,7 +230,7 @@ const controller = new UiController({
 });
 
 const registry = createInstanceRegistry();
-const instance = { dir: project.projectRoot, name: project.name, mode, idle, pid: process.pid };
+const instance = { dir: project.projectRoot, name: project.name, mode, tracker: project.tracker, idle, pid: process.pid };
 
 const server = await startUiServer(controller, port, undefined, instance).catch((cause: unknown) => {
   return fail(messageOf(cause));

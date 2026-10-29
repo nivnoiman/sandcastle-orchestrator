@@ -57,6 +57,7 @@ export function uiState(runs: UiRun[], extra: Partial<UiState> = {}): UiState {
     boot: "test-boot",
     stages: ["queued", "develop", "review", "verify", "merged"],
     mode: "real",
+    tracker: "github",
     hubRepo: "acme/hub",
     startCap: 2,
     preselectedParent: undefined,
