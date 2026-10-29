@@ -87,6 +87,7 @@ describe("git control guard", () => {
 	remote = origin
 	merge = refs/heads/main
 	gh-merge-base = main
+	vscode-merge-base = origin/main
 `;
     fs.writeText(CONFIG, after);
 

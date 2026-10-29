@@ -177,6 +177,7 @@ const INERT_BRANCH_KEYS_WRITTEN_BY_GIT_TRACKING = new Set([
   "rebase",
   "description",
   "gh-merge-base",
+  "vscode-merge-base",
 ]);
 
 function remoteNamesWithUrlSafeToName(entries: readonly ConfigEntry[]): ReadonlySet<string> {
