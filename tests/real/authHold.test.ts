@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthProbeResult } from "../../src/real/authProbe.js";
-import { AUTH_PROBE_BACKOFF_MS, createAuthHoldProbe } from "../../src/real/authHold.js";
+import { AUTH_PROBE_BACKOFF_MS, createAuthHoldProbe, scrubProbeError } from "../../src/real/authHold.js";
 
 function rejected(): AuthProbeResult {
   return { ok: false, reason: "auth", detail: "OAuth session expired" };
@@ -66,5 +66,65 @@ describe("auth hold probe", () => {
     await test.pollAt(3_600_000);
 
     expect(test.calls).toEqual([0]);
+  });
+});
+
+describe("auth recheck", () => {
+  function recheckHarness(results: AuthProbeResult[]) {
+    let held = true;
+    let probes = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const probe = createAuthHoldProbe({
+      held: () => held,
+      probe: async () => {
+        probes += 1;
+        await gate;
+        return results.shift() ?? rejected();
+      },
+      onRecovered: () => {
+        held = false;
+      },
+      log: () => undefined,
+      now: () => 0,
+    });
+    return { probe, release, isHeld: () => held, probes: () => probes };
+  }
+
+  it("lifts the hold when the probe passes, ignoring the backoff", async () => {
+    const test = recheckHarness([rejected(), { ok: true, reason: undefined, detail: undefined }]);
+    test.release();
+
+    expect((await test.probe.recheck()).ok).toBe(false);
+    expect(test.isHeld()).toBe(true);
+    expect((await test.probe.recheck()).ok).toBe(true);
+    expect(test.isHeld()).toBe(false);
+  });
+
+  it("shares one probe between a double click and a background poll", async () => {
+    const test = recheckHarness([{ ok: true, reason: undefined, detail: undefined }]);
+
+    const first = test.probe.recheck();
+    const second = test.probe.recheck();
+    test.probe.poll();
+    test.release();
+
+    expect(await first).toBe(await second);
+    expect(test.probes()).toBe(1);
+  });
+
+  it("scrubs credentials out of a probe failure", () => {
+    const error = scrubProbeError(
+      'claude failed: Authorization: Bearer abc.def-ghi_jkl CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-secretsecret "accessToken":"tok_1234567890" key ' +
+        "A".repeat(40),
+      "auth",
+    );
+
+    expect(error).not.toMatch(/abc\.def|secretsecret|tok_1234567890|AAAAAAAAAA/);
+    expect(error).toContain("claude failed");
+    expect(scrubProbeError("login failed. ".repeat(60), undefined)).toHaveLength(501);
+    expect(scrubProbeError(undefined, "auth")).toContain("rejected (auth)");
   });
 });

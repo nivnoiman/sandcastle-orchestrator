@@ -47,7 +47,7 @@ describe("Needs Attention ordering", () => {
     const entries = buildAttention([everythingWrong(), boardProject("beta", undefined, { status: "died" })], "alpha");
     expect(attentionBadge(entries, "alpha")).toEqual({ red: 6, purple: 1 });
     expect(attentionBadge(entries, "beta")).toEqual({ red: 1, purple: 0 });
-    expect(entries.find((entry) => entry.kind === "rate-hold")).toMatchObject({ counted: false, tone: "amber" });
+    expect(entries.find((entry) => entry.kind === "rate-hold")).toMatchObject({ counted: false, tone: "info" });
     expect(entries.find((entry) => entry.kind === "integration-ready")).toMatchObject({ tone: "purple" });
   });
 

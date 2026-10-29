@@ -258,6 +258,20 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo): 
     send(response, () => controller.setRunCap(routeParent(request), requiredInteger(bodyField(request, "cap"), "cap")));
   });
 
+  app.post("/api/runs/:parent/auth/recheck", (request, response) => {
+    let parent: number;
+    try {
+      parent = routeParent(request);
+    } catch (cause) {
+      fail(response, cause);
+      return;
+    }
+    controller.recheckAuth(parent).then(
+      (result) => response.json({ ok: true, result }),
+      (cause: unknown) => fail(response, cause),
+    );
+  });
+
   app.post("/api/reset", (request, response) => {
     let parent: number;
     let apply: boolean;

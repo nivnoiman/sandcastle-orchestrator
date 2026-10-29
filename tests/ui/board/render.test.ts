@@ -218,3 +218,57 @@ describe("Needs Attention banner and dialog", () => {
     expect(renderDialog(parkedBoard({ dialog: { ...base, text: "ok" } }))).not.toMatch(/dialog-confirm"[^>]*disabled/);
   });
 });
+
+describe("auth hold banner", () => {
+  const authState = (probe?: { running: boolean; error: string | undefined }) =>
+    uiState([uiRun(10, [uiItem(1, "waiting", { waitReason: "auth" })], { hold: { reason: "auth", until: undefined, ...(probe ? { probe } : {}) } })], {
+      hold: { reason: "auth", until: undefined, ...(probe ? { probe } : {}) },
+    });
+
+  function html(state: ReturnType<typeof uiState>, extra: Partial<BoardUi> = {}): string {
+    const projects = [boardProject("alpha", state)];
+    return renderMain(ui(projects, extra), buildAttention(projects, "alpha"));
+  }
+
+  it("tells the Operator the fix, shows no credential, and offers the check button", () => {
+    const out = html(authState());
+
+    expect(out).toContain("Agent login expired");
+    expect(out).toContain("claude /login");
+    expect(out).toContain("claude setup-token");
+    expect(out).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(out).toContain('data-act="att-recheck-auth"');
+    expect(out).toContain('data-run="10"');
+    expect(out).not.toContain("Last check failed");
+    expect(out).not.toMatch(/<button[^>]*att-recheck-auth[^>]*disabled/);
+  });
+
+  it("shows the escaped probe error inline and disables the button while a probe runs", () => {
+    const failed = html(authState({ running: false, error: "<img src=x onerror=alert(1)> expired" }));
+    expect(failed).toContain("Last check failed");
+    expect(failed).toContain("&lt;img src=x onerror=alert(1)&gt; expired");
+    expect(failed).not.toContain("<img src=x");
+
+    const running = html(authState({ running: true, error: undefined }));
+    expect(running).toMatch(/<button[^>]*att-recheck-auth[^>]*disabled/);
+    expect(running).toContain("Checking");
+
+    expect(html(authState(), { busy: new Set(["recheck:alpha"]) })).toMatch(/<button[^>]*att-recheck-auth[^>]*disabled/);
+  });
+
+  it("renders only for an auth Hold: a rate-limit Hold gets a neutral info row, no button", () => {
+    const rate = { reason: "rate-limit" as never, until: "2026-08-15T10:00:00.000Z" };
+    const out = html(uiState([uiRun(10, [uiItem(1, "waiting")], { hold: rate })], { hold: rate }));
+
+    expect(out).toContain("k-rate-hold");
+    expect(out).toContain("alert info");
+    expect(out).not.toContain("att-recheck-auth");
+    expect(out).not.toContain("Agent login expired");
+    expect(html(uiState([uiRun(10, [uiItem(1, "running")])]))).not.toContain("att-recheck-auth");
+  });
+
+  it("marks the Project card in the rail", () => {
+    const projects = [boardProject("alpha", authState())];
+    expect(renderRail(ui(projects), buildAttention(projects, "alpha"))).toContain("held - agent login expired");
+  });
+});

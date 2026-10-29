@@ -41,9 +41,18 @@ export interface UiFeedLine {
   message: string;
 }
 
+/** The Operator-requested credential probe of an auth Hold. */
+export interface UiAuthProbe {
+  running: boolean;
+  /** Scrubbed failure of the last probe; undefined while none failed since the Hold was raised. */
+  error: string | undefined;
+}
+
 export interface UiHold {
   reason: HoldReason;
   until: string | undefined;
+  /** Set only on an auth Hold. */
+  probe?: UiAuthProbe;
 }
 
 export interface UiRun {

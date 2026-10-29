@@ -36,6 +36,7 @@ const OPS_COMMANDS = new Set([
   "stop",
   "status",
   "queue",
+  "recheck-auth",
   "resume-parked",
   "resolve-conflict",
   "logs",
@@ -61,7 +62,7 @@ project
 operating a run (JSON out; also: sandcastle ops <command>)
   launch <parent>... [--cap=N] [--parallel=N | --sequential] [--global-cap=N]
   enqueue | dequeue | queue-mode | queue-resume | queue-clear | queue
-  cap <N> | pause | resume | stop <parent> | status | resume-parked | resolve-conflict <item>
+  cap <N> | pause | resume | stop <parent> | status | recheck-auth | resume-parked | resolve-conflict <item>
   logs <item> [stage] | finish
 
 The project is --config, else SANDCASTLE_CONFIG, else the nearest .sandcastle/config.json at or above the cwd

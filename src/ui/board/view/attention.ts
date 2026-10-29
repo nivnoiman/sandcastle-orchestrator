@@ -58,8 +58,37 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
     </li>`;
 }
 
-function row(entry: AttentionEntry, currentId: string, nowMs: number): string {
+const AUTH_FIX_STEPS = `<p class="nh-help">Fix: run <code>claude /login</code> in a terminal on this machine. Or run <code>claude setup-token</code> and set <code>CLAUDE_CODE_OAUTH_TOKEN</code> in <code>.sandcastle/.env.orchestrator</code>. Then press the button; waiting items resume, parked ones are left alone.</p>`;
+
+/** Auth Hold banner: what happened, the fix, and a button that probes the credentials now. */
+function authCard(ui: BoardUi, entry: AttentionEntry): string {
+  const auth = entry.auth;
+  const other = entry.projectId !== ui.currentId;
+  const checking = (auth?.running ?? false) || ui.busy.has(`recheck:${entry.projectId}`);
+  const recheck = entry.actions.find((action) => action.id === "recheck-auth");
+  const feed = entry.actions.find((action) => action.id === "feed");
+  const project = other ? `<span class="chip">${esc(entry.projectName)}</span>` : "";
+  const error = auth?.error
+    ? `<div class="nh-label">Last check failed</div><pre class="nh-reason" role="alert">${esc(auth.error)}</pre>`
+    : "";
+  const check = recheck
+    ? `<button${attrs({ type: "button", class: "btn sm primary", "data-act": "att-recheck-auth", "data-proj": entry.projectId, "data-run": recheck.runNumber, disabled: checking })}>${icon("retry")}${checking ? "Checking…" : esc(recheck.label)}</button>`
+    : "";
+  const goProject = other ? `<button type="button" class="btn sm ghost" data-act="select-project" data-proj="${esc(entry.projectId)}">Open project</button>` : "";
+  const feedButton = feed && !other ? actionButton(entry, feed, false) : "";
+  return `<li class="alert red k-auth-hold needs-human" data-key="${esc(entry.key)}">
+      <div class="nh-head">${icon("alert")}<div class="nh-title">Agent login expired - the Run is held</div>${project}</div>
+      <p class="nh-help">The agent credentials were rejected, so no new stages start. Sandcastle re-probes only about every 10 minutes.</p>
+      ${AUTH_FIX_STEPS}
+      ${error}
+      <div class="acts">${feedButton}${goProject}${check}</div>
+    </li>`;
+}
+
+function row(ui: BoardUi, entry: AttentionEntry): string {
+  const { currentId, nowMs } = ui;
   const other = entry.projectId !== currentId;
+  if (entry.kind === "auth-hold") return authCard(ui, entry);
   if (entry.kind === "parked" && !other) return parkedCard(entry, nowMs);
   const lastIndex = entry.actions.length - 1;
   const detail =
@@ -97,7 +126,7 @@ export function renderAttention(ui: BoardUi, entries: readonly AttentionEntry[])
   const count = ui.scope === "dashboard" || others > 0 ? `${own} here${others > 0 ? ` · ${others} in other projects` : ""}` : `${own}`;
   return `<section class="attention" aria-labelledby="att-h">
     <header><h2 id="att-h">${icon("alert")}Needs attention <span class="count">${count}</span></h2>${notifyButton}</header>
-    <ul class="alerts">${entries.map((entry) => row(entry, ui.currentId, ui.nowMs)).join("")}</ul>
+    <ul class="alerts">${entries.map((entry) => row(ui, entry)).join("")}</ul>
     ${heldLine}
   </section>`;
 }

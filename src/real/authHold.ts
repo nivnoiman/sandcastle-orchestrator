@@ -13,6 +13,8 @@ export interface AuthHoldDeps {
 
 export interface AuthHoldProbe {
   poll(): void;
+  /** Probes now, ignoring the backoff; a probe already in flight is shared, never doubled. */
+  recheck(): Promise<AuthProbeResult>;
 }
 
 function backoffFor(failures: number): number {
@@ -21,7 +23,7 @@ function backoffFor(failures: number): number {
 
 export function createAuthHoldProbe(deps: AuthHoldDeps): AuthHoldProbe {
   const now = deps.now ?? Date.now;
-  let inFlight = false;
+  let inFlight: Promise<AuthProbeResult> | undefined;
   let failures = 0;
   let nextProbeAt = 0;
 
@@ -40,19 +42,54 @@ export function createAuthHoldProbe(deps: AuthHoldDeps): AuthHoldProbe {
     );
   };
 
+  const start = (): Promise<AuthProbeResult> => {
+    inFlight ??= deps
+      .probe()
+      .catch((cause: unknown): AuthProbeResult => ({ ok: false, reason: "other", detail: messageOf(cause) }))
+      .then((result) => {
+        settle(result);
+        return result;
+      })
+      .finally(() => {
+        inFlight = undefined;
+      });
+    return inFlight;
+  };
+
   return {
     poll: (): void => {
       if (!deps.held() || inFlight || now() < nextProbeAt) return;
-      inFlight = true;
-      void deps
-        .probe()
-        .then(settle)
-        .catch((cause: unknown) => {
-          settle({ ok: false, reason: "other", detail: messageOf(cause) });
-        })
-        .finally(() => {
-          inFlight = false;
-        });
+      start().catch((cause: unknown) => deps.log(`[auth][warn] resuming after the credentials recovered failed: ${messageOf(cause)}`));
     },
+    recheck: start,
   };
+}
+
+export interface AuthRecheck {
+  ok: boolean;
+  /** Probe failure with credentials scrubbed; undefined on success. */
+  error: string | undefined;
+}
+
+const MAX_ERROR_CHARS = 500;
+const REDACTED = "[redacted]";
+const SECRET_PATTERNS: readonly RegExp[] = [
+  /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|API_KEY|PASSWORD)\s*=\s*\S+/g,
+  /\bBearer\s+[\w.~+/=-]+/gi,
+  /(["']?(?:access|refresh|id)[_-]?token["']?\s*[:=]\s*)["']?[^\s"',}]+["']?/gi,
+  /\bsk-[\w-]{8,}/g,
+  /[A-Za-z0-9_+/=-]{32,}/g,
+];
+
+/** Trims a probe failure to something safe to show an Operator: no tokens, bounded length. */
+export function scrubProbeError(detail: string | undefined, reason: string | undefined): string {
+  const raw = (detail ?? "").trim();
+  if (raw.length === 0) return `agent credentials still rejected (${reason ?? "unknown"})`;
+  let text = raw;
+  for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, (_match, prefix: unknown) => `${typeof prefix === "string" ? prefix : ""}${REDACTED}`);
+  return text.length > MAX_ERROR_CHARS ? `${text.slice(0, MAX_ERROR_CHARS)}…` : text;
+}
+
+export function toAuthRecheck(result: AuthProbeResult): AuthRecheck {
+  return result.ok ? { ok: true, error: undefined } : { ok: false, error: scrubProbeError(result.detail, result.reason) };
 }

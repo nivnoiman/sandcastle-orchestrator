@@ -14,6 +14,7 @@ sandcastle preflight <parent>                # every start-time check, no lock t
 sandcastle launch <parent>... --cap=N        # starts the Project Server if down; several parents = queued
 sandcastle status [--items] [--parent=N]     # phases, hold, stalled, quiet, waiting, parked, feed
 sandcastle logs <item> [stage]               # tail the newest recorded attempt
+sandcastle recheck-auth [--parent=N]         # after the Operator re-logged in: probe credentials now, lift the auth Hold
 sandcastle resume-parked [--only=<text>]     # retry parked Items whose reason matches
 sandcastle resolve-conflict <item>           # retry one park; the gate gets another resolve agent
 sandcastle finish                            # assert complete, print the integration pull requests
@@ -58,7 +59,7 @@ The Board View lists these, in this order. Name each one by its glossary name wh
 
 | # | Needs Attention | you |
 |---|---|---|
-| 1 | **auth Hold** | Run re-probes every poll. Still held after two polls: `sandcastle sync-claude <source>`, or re-login on the host. |
+| 1 | **auth Hold** | Tell the Operator to re-login: `claude /login` in a terminal on the host (or `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env.orchestrator`). Never read or print a token. When they say done, run `sandcastle recheck-auth`; do not wait for the ~10 minute probe. `ok: true` means the Hold lifted. `ok: false` carries the probe `error`: report it, the Hold stays. |
 | 2 | **Parked Item** | merge conflict: `resolve-conflict <item>`; if it parks again, `logs <item>`, resolve by hand in `~/.sandcastle/worktrees/<project>/<repo>/<branch>` (never the Operator's checkout), push `--force-with-lease`. Red checks: `logs <item> verify`; trivial and inside the Item's own files: fix in its worktree, push, `resume-parked --only=<reason>`; pre-existing breakage on the base branch is a `checks` config problem, tell the Operator. `UNFIXABLE`: report the agent's reason, do not retry. Anything else: `logs <item>`, report the last event, decide. |
 | 3 | **Feature Verify red** after fix rounds | report the reason and failing scenarios. Not a retry. |
 | 4 | **Run Stall** | work for you: act on the Parked Items behind it. Held Items need the Operator. |
@@ -89,7 +90,7 @@ A `waiting` Item is not a parked Item. Retrying one throws the wait away.
 - **Never merge the integration pull requests.** A human does.
 - Never relabel held Items on your own.
 - **Keep the shared `.git` quiet.** Never run `git worktree add -b`, `git branch`, `git push -u` or `git config` in the Operator checkout while stages run: the git guard parks the running item for a changed config. Use a separate clone.
-- **A login fix lifts the auth Hold at the next probe,** up to 10 minutes later. `preflight` shows the real state at once. Do not relaunch or retry waiting items for it.
+- **A login fix lifts the auth Hold at the next probe,** up to 10 minutes later, or at once with `sandcastle recheck-auth`. Do not relaunch or retry waiting items for it.
 - **Check CI is installed before launch.** The token needs the `workflow` scope, and the first pull request into the integration branch should land `.github/workflows` so the full suite runs on every merge.
 
 ## Reporting

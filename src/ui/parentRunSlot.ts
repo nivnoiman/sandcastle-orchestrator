@@ -4,6 +4,7 @@ import { OperatorError } from "../engine/operatorError.js";
 import type { QuietInfo } from "./quiet.js";
 import type { RunModel } from "../model/runModel.js";
 import type { AttemptChunk, AttemptRecord } from "../real/attemptLog.js";
+import type { AuthRecheck } from "../real/authHold.js";
 import {
   featureVerifyLabel,
   idleFeatureVerify,
@@ -33,6 +34,7 @@ export interface Session {
   polish?: () => PolishStatus;
   finished?: Promise<void>;
   attempts?: AttemptReader;
+  recheckAuth?: () => Promise<AuthRecheck>;
   tick(): void;
   stop(): void;
 }
