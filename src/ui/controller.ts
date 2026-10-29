@@ -1,4 +1,5 @@
 import type { UiSink } from "../engine/adapters.js";
+import type { ProviderName } from "../project/agentsConfig.js";
 import { OperatorError } from "../engine/operatorError.js";
 import { activeStageChain } from "../engine/stageChain.js";
 import { isParentReference, parseParentInputs, type ParentInput } from "../gh/parentInput.js";
@@ -294,9 +295,14 @@ export class UiController {
     };
   }
 
+  private authProviders(): ProviderName[] {
+    const names = new Set(this.slots.all().flatMap((slot) => slot.session.authProviders?.() ?? []));
+    return names.size > 0 ? [...names] : ["claude"];
+  }
+
   private withProbe(hold: UiHold | undefined): UiHold | undefined {
     if (hold?.reason !== "auth") return hold;
-    return { ...hold, probe: { running: this.authRecheck !== undefined, error: this.authRecheckError } };
+    return { ...hold, probe: { running: this.authRecheck !== undefined, providers: this.authProviders(), error: this.authRecheckError } };
   }
 
   async recheckAuth(parent: number): Promise<AuthRecheck> {

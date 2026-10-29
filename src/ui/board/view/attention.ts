@@ -58,7 +58,15 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
     </li>`;
 }
 
-const AUTH_FIX_STEPS = `<p class="nh-help">Fix: run <code>claude /login</code> in a terminal on this machine. Or run <code>claude setup-token</code> and set <code>CLAUDE_CODE_OAUTH_TOKEN</code> in <code>.sandcastle/.env.orchestrator</code>. Then press the button; waiting items resume, parked ones are left alone.</p>`;
+const AUTH_FIX: Record<string, string> = {
+  claude: "run <code>claude /login</code> in a terminal on this machine, or run <code>claude setup-token</code> and set <code>CLAUDE_CODE_OAUTH_TOKEN</code> in <code>.sandcastle/.env.orchestrator</code>",
+  codex: "run <code>codex login</code> in a terminal on this machine, or set <code>CODEX_API_KEY</code> in <code>.sandcastle/.env.orchestrator</code>",
+};
+
+function authFixSteps(providers: readonly string[]): string {
+  const fixes = providers.map((name) => `<li><b>${esc(name)}</b>: ${AUTH_FIX[name] ?? "log in again on this machine"}</li>`).join("");
+  return `<p class="nh-help">Fix, for each agent in use:</p><ul class="nh-help">${fixes}</ul><p class="nh-help">Then press the button; waiting items resume, parked ones are left alone.</p>`;
+}
 
 function authCard(ui: BoardUi, entry: AttentionEntry): string {
   const auth = entry.auth;
@@ -78,7 +86,7 @@ function authCard(ui: BoardUi, entry: AttentionEntry): string {
   return `<li class="alert red k-auth-hold needs-human" data-key="${esc(entry.key)}">
       <div class="nh-head">${icon("alert")}<div class="nh-title">Agent login expired - the Run is held</div>${project}</div>
       <p class="nh-help">The agent credentials were rejected, so no new stages start. Sandcastle re-probes only about every 10 minutes.</p>
-      ${AUTH_FIX_STEPS}
+      ${authFixSteps(auth?.providers ?? ["claude"])}
       ${error}
       <div class="acts">${feedButton}${goProject}${check}</div>
     </li>`;

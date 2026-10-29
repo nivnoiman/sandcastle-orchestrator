@@ -220,9 +220,9 @@ describe("Needs Attention banner and dialog", () => {
 });
 
 describe("auth hold banner", () => {
-  const authState = (probe?: { running: boolean; error: string | undefined }) =>
-    uiState([uiRun(10, [uiItem(1, "waiting", { waitReason: "auth" })], { hold: { reason: "auth", until: undefined, ...(probe ? { probe } : {}) } })], {
-      hold: { reason: "auth", until: undefined, ...(probe ? { probe } : {}) },
+  const authState = (probe?: { running: boolean; providers?: ("claude" | "codex")[]; error: string | undefined }) =>
+    uiState([uiRun(10, [uiItem(1, "waiting", { waitReason: "auth" })], { hold: { reason: "auth", until: undefined, ...(probe ? { probe: { providers: ["claude" as const], ...probe } } : {}) } })], {
+      hold: { reason: "auth", until: undefined, ...(probe ? { probe: { providers: ["claude" as const], ...probe } } : {}) },
     });
 
   function html(state: ReturnType<typeof uiState>, extra: Partial<BoardUi> = {}): string {
@@ -241,6 +241,14 @@ describe("auth hold banner", () => {
     expect(out).toContain('data-run="10"');
     expect(out).not.toContain("Last check failed");
     expect(out).not.toMatch(/<button[^>]*att-recheck-auth[^>]*disabled/);
+  });
+
+  it("names the login fix of every provider in use", () => {
+    const out = html(authState({ running: false, providers: ["claude", "codex"], error: undefined }));
+    expect(out).toContain("claude /login");
+    expect(out).toContain("codex login");
+    expect(out).toContain("CODEX_API_KEY");
+    expect(html(authState({ running: false, providers: ["codex"], error: undefined }))).not.toContain("claude /login");
   });
 
   it("shows the escaped probe error inline and disables the button while a probe runs", () => {

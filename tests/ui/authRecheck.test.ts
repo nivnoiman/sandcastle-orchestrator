@@ -67,7 +67,7 @@ describe("auth recheck", () => {
 
     expect(result).toEqual({ ok: false, error: "OAuth session expired" });
     const state = controller.state();
-    expect(state.hold).toEqual({ reason: "auth", until: undefined, probe: { running: false, error: "OAuth session expired" } });
+    expect(state.hold).toEqual({ reason: "auth", until: undefined, probe: { running: false, providers: ["claude"], error: "OAuth session expired" } });
     expect(state.runs[0]?.hold?.probe?.error).toBe("OAuth session expired");
     expect(engine().phases().get(WAITING)).toBe("waiting");
   });

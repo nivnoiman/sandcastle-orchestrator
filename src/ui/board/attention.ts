@@ -1,4 +1,5 @@
 import { hubIssueUrl, runPullRequests, type BoardProject } from "./model.js";
+import type { ProviderName } from "../../project/agentsConfig.js";
 import { formatQuiet } from "./format.js";
 import type { UiRun } from "../state.js";
 
@@ -58,7 +59,7 @@ export interface AttentionEntry {
   until?: string;
   /** Set on parked entries. */
   park?: ParkDetail;
-  auth?: { running: boolean; error: string | undefined };
+  auth?: { running: boolean; providers: ProviderName[]; error: string | undefined };
   actions: AttentionAction[];
 }
 
@@ -236,7 +237,7 @@ function holdEntries(project: BoardProject): AttentionEntry[] {
         title: "Held — agent credentials rejected",
         detail: "No new stages start. Sandcastle re-probes the credentials every ~10 minutes and resumes once they pass.",
         ...(runNumber === undefined ? {} : { runNumber }),
-        auth: { running: authHold.probe?.running ?? false, error: authHold.probe?.error },
+        auth: { running: authHold.probe?.running ?? false, providers: authHold.probe?.providers ?? ["claude"], error: authHold.probe?.error },
         actions: [
           ...(runNumber === undefined ? [] : [{ id: "recheck-auth" as const, label: "I re-logged in, check now", runNumber }]),
           { id: "feed", label: "Feed" },
