@@ -1,9 +1,11 @@
 import type { UiSink } from "../engine/adapters.js";
+import type { ProviderName } from "../project/agentsConfig.js";
 import { OperatorError } from "../engine/operatorError.js";
 import { activeStageChain } from "../engine/stageChain.js";
 import { isParentReference, parseParentInputs, type ParentInput } from "../gh/parentInput.js";
 import type { ParentSummary, RunSnapshot } from "../tracker/types.js";
 import { loadRunModel, type RunModel } from "../model/runModel.js";
+import { scrubProbeError, type AuthRecheck } from "../real/authHold.js";
 import { parseAttemptId, type AttemptChunk, type AttemptRecord } from "../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../real/reset.js";
 import { IDLE_TIMEOUT_DEFAULT } from "../real/env.js";
@@ -21,6 +23,7 @@ import {
   type FeedKind,
   type RunMode,
   type UiFeedLine,
+  type UiHold,
   type UiQueueSettings,
   type UiState,
 } from "./state.js";
@@ -103,6 +106,8 @@ export class UiController {
   private readonly added = new Map<number, ParentSummary>();
   private readonly startingFromQueue = new Set<number>();
   private readonly removedWhileStarting = new Set<number>();
+  private authRecheck: Promise<AuthRecheck> | undefined;
+  private authRecheckError: string | undefined;
 
   constructor(private readonly deps: ControllerDeps) {
     this.queue =
@@ -253,10 +258,14 @@ export class UiController {
 
   private stateBody(): Omit<UiState, "rev" | "boot"> {
     const quietFor = this.quietResolver();
-    const runs = this.slots.all().map((slot) => slot.view(this.deps.hubRepo, quietFor));
+    const runs = this.slots.all().map((slot) => {
+      const run = slot.view(this.deps.hubRepo, quietFor);
+      return { ...run, hold: this.withProbe(run.hold) };
+    });
     const primary = this.slots.primary();
     const engine = primary?.engine;
     const views = engine ? engine.view() : [];
+    if (!runs.some((run) => run.hold?.reason === "auth")) this.authRecheckError = undefined;
     return {
       version: 2,
       stages: uiStageChain(activeStageChain()),
@@ -271,7 +280,7 @@ export class UiController {
       complete: engine?.complete() ?? false,
       running: engine?.running() ?? 0,
       stalled: engine?.stalled(),
-      hold: uiHold(engine),
+      hold: this.withProbe(uiHold(engine)),
       canStart: this.startRefusal() === undefined,
       featureVerify: primary?.featureVerify() ?? idleFeatureVerify(),
       polish: primary?.polish() ?? idlePolish(),
@@ -286,6 +295,35 @@ export class UiController {
       items: uiItems(this.deps.hubRepo, views, (view) => quietFor(view, primary?.session.attempts)),
       feed: [...this.feed],
     };
+  }
+
+  private authProviders(): ProviderName[] {
+    const names = new Set(this.slots.all().flatMap((slot) => slot.session.authProviders?.() ?? []));
+    return names.size > 0 ? [...names] : ["claude"];
+  }
+
+  private withProbe(hold: UiHold | undefined): UiHold | undefined {
+    if (hold?.reason !== "auth") return hold;
+    return { ...hold, probe: { running: this.authRecheck !== undefined, providers: this.authProviders(), error: this.authRecheckError } };
+  }
+
+  async recheckAuth(parent: number): Promise<AuthRecheck> {
+    const slot = this.slots.require(parent);
+    const recheck = slot.session.recheckAuth;
+    if (!recheck) throw new OperatorError("this run has no agent credentials to probe - only a real run holds on them");
+    if (!slot.engine.authHeld() && !slot.engine.waitingOnAuth()) {
+      throw new OperatorError(`#${parent} is not held on agent credentials - nothing to re-check`);
+    }
+    if (this.authRecheck) return this.authRecheck;
+    const probing = recheck().catch((cause: unknown): AuthRecheck => ({ ok: false, error: scrubProbeError(messageOf(cause), undefined) }));
+    this.authRecheck = probing;
+    this.publish();
+    const result = await probing;
+    this.authRecheck = undefined;
+    this.authRecheckError = result.ok ? undefined : result.error;
+    this.note(result.ok ? "note" : "warn", undefined, result.ok ? "agent credentials re-checked: they work, the hold is lifted" : `agent credentials re-checked: still rejected - ${result.error ?? "no detail"}`, parent);
+    this.publish();
+    return result;
   }
 
   private quietResolver(): QuietFor {

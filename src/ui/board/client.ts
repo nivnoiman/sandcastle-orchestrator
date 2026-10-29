@@ -806,6 +806,25 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
+  async function recheckAuth(project: BoardProject, runNumber: number): Promise<void> {
+    const key = `recheck:${project.id}`;
+    if (ui.busy.has(key)) return;
+    ui.busy = new Set(ui.busy).add(key);
+    render();
+    try {
+      const payload = await apiOf(project).send("POST", `/api/runs/${runNumber}/auth/recheck`);
+      const result = payload["result"];
+      if (typeof result === "object" && result !== null && "ok" in result && result.ok === true) toast("info", "Agent credentials work - the hold is lifted.");
+    } catch (cause) {
+      fail(project, cause);
+    }
+    const next = new Set(ui.busy);
+    next.delete(key);
+    ui.busy = next;
+    await refreshState(project).catch(() => undefined);
+    render();
+  }
+
   async function enableDesktopAlerts(): Promise<void> {
     if (notifyPermission() === "unsupported") return;
     try {
@@ -821,6 +840,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const runNumber = Number(element.dataset["run"]) || undefined;
     const dialogKind = ({ "att-requeue": "requeue", "att-hold": "hold", "att-comment": "comment" } as const)[act_ as "att-requeue"];
     if (dialogKind && itemNumber) return openDialog(project, dialogKind, itemNumber, runNumber);
+    if (act_ === "att-recheck-auth" && runNumber) return void recheckAuth(project, runNumber);
     if (act_ === "att-unhold") {
       const entry = ui.held.find((candidate) => candidate.key === element.dataset["key"]);
       if (entry) setHeld(entry, false);

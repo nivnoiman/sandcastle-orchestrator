@@ -1,4 +1,5 @@
 import { PacedDryRun, randomStageDelay } from "../engine/pacedDryRunner.js";
+import { agentsInUse } from "../real/agents/index.js";
 import type { PendingStage } from "../engine/fakes.js";
 import type { ControlPlaneHost } from "../real/controlPlane.js";
 import { startParentRun } from "../real/startRealRun.js";
@@ -8,6 +9,7 @@ export interface DryRunSessionOptions {
   now: () => number;
   delayMs?: () => number;
   failStage?: (pending: PendingStage) => string | undefined;
+  authHoldStage?: (pending: PendingStage) => boolean;
 }
 
 export function dryRunSession(request: StartSessionRequest, options: DryRunSessionOptions): Session {
@@ -17,10 +19,18 @@ export function dryRunSession(request: StartSessionRequest, options: DryRunSessi
     delayMs: options.delayMs ?? (() => randomStageDelay()),
     ui: request.sink,
     failStage: options.failStage,
+    authHoldStage: options.authHoldStage,
   });
+  let rechecks = 0;
   paced.start();
   return {
     engine: paced.engine,
+    recheckAuth: async () => {
+      rechecks += 1;
+      if (rechecks < 2) return { ok: false, error: "claude exited with 1: OAuth session expired - please run /login (simulated)" };
+      paced.engine.releaseAuthHold();
+      return { ok: true, error: undefined };
+    },
     tick: () => paced.tick(),
     stop: () => undefined,
   };
@@ -62,6 +72,8 @@ export async function realSession(request: StartSessionRequest, options: RealSes
       read: (id, from) => run.logs.read(id, from),
       lastOutputAt: (itemNumber) => run.logs.lastOutputAt(itemNumber),
     },
+    recheckAuth: () => run.recheckAuth(),
+    authProviders: () => agentsInUse(run.config).map((agent) => agent.provider.name),
     tick: () => run.tick(),
     stop: () => run.stop(),
   };

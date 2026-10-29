@@ -26,7 +26,7 @@ import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 const TICK_MS = 250;
 
 const USAGE = [
-  "usage: sandcastle ui [fixture.json | parent-issue] [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>]",
+  "usage: sandcastle ui [fixture.json | parent-issue] [owner/repo] [--cap=N] [--parallel=N | --sequential] [--global-cap=N] [--port=N] [--dry] [--interval=N] [--idle-timeout=N] [--skip-gc] [--skip-verify] [--fail=<item>:<stage>] [--auth-hold=<item>:<stage>]",
   "  <fixture.json>     paced dry run — no docker, no gh writes, no tokens",
   "  (no argument)      idle Project Server — real mode, pick the parent in the browser",
   "  <parent-issue>     real run against the hub (add --dry for a paced simulation of that parent)",
@@ -36,6 +36,7 @@ const USAGE = [
   "  --global-cap=N     workers across every parent (default --cap, or the saved global cap)",
   "  --port=N           ui port (default SANDCASTLE_UI_PORT, then ui.port in the project config, then 7777)",
   "  --fail=17:review   dry mode only — fail that item's stage once, so park/retry is demoable",
+  "  --auth-hold=17:develop  dry mode only — that stage hits a simulated auth Hold; the first re-check fails, the second passes",
 ].join("\n");
 
 const project = bootProject();
@@ -49,13 +50,14 @@ function isStageName(value: string): value is StageName {
   return chainNames.includes(value);
 }
 
-function injectedFailures(): Set<string> {
+function injectedStages(flag: "fail" | "auth-hold"): Set<string> {
   const keys = new Set<string>();
   for (const arg of args) {
-    if (!arg.startsWith("--fail=")) continue;
-    const [itemPart, stagePart] = arg.slice("--fail=".length).split(":");
+    const prefix = `--${flag}=`;
+    if (!arg.startsWith(prefix)) continue;
+    const [itemPart, stagePart] = arg.slice(prefix.length).split(":");
     if (!itemPart || !stagePart || !/^\d+$/.test(itemPart) || !isStageName(stagePart)) {
-      fail(`--fail must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
+      fail(`--${flag} must be <item-number>:<${chainNames.join("|")}>, got "${arg}"`);
     }
     keys.add(`${itemPart}:${stagePart}`);
   }
@@ -91,9 +93,11 @@ const pollIntervalSeconds = flagNumber(args, "interval", 45);
 const idleTimeoutSeconds = optionalFlagNumber(args, "idle-timeout");
 const skipGc = args.includes("--skip-gc");
 const skipVerify = args.includes("--skip-verify");
-const pendingFailures = injectedFailures();
+const pendingFailures = injectedStages("fail");
+const pendingAuthHolds = injectedStages("auth-hold");
 
 if (pendingFailures.size > 0 && mode !== "dry") fail("--fail only applies to a dry run (add --dry or pass a fixture)");
+if (pendingAuthHolds.size > 0 && mode !== "dry") fail("--auth-hold only applies to a dry run (add --dry or pass a fixture)");
 
 async function readFixture(path: string): Promise<RunSnapshot> {
   const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -129,6 +133,10 @@ function failStage(pending: PendingStage): string | undefined {
   return `injected failure — the ui was started with --fail=${key}`;
 }
 
+function authHoldStage(pending: PendingStage): boolean {
+  return pendingAuthHolds.delete(`${pending.itemNumber}:${pending.stage}`);
+}
+
 function envNumber(raw: string | undefined): number | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
   const parsed = Number(raw);
@@ -161,7 +169,7 @@ const host =
     : undefined;
 
 function startSession(request: StartSessionRequest) {
-  if (!host) return dryRunSession(request, { now: () => Date.now(), failStage });
+  if (!host) return dryRunSession(request, { now: () => Date.now(), failStage, authHoldStage });
   return realSession(request, {
     host,
     pollIntervalSeconds,
