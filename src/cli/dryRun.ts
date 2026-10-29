@@ -2,7 +2,7 @@ import { bootProject } from "../project/boot.js";
 import { readFile } from "node:fs/promises";
 import { dryRun } from "../engine/dryRunner.js";
 import { stageNames } from "../engine/stageChain.js";
-import { fetchRunSnapshot, isRunSnapshot, type RunSnapshot } from "../gh/snapshot.js";
+import { createRunReader, isRunSnapshot, type RunSnapshot } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 
 const project = bootProject();
@@ -24,7 +24,7 @@ if (!Number.isInteger(workerCap) || workerCap < 1) {
 
 async function loadSnapshot(fixtureOrIssue: string): Promise<RunSnapshot> {
   if (/^\d+$/.test(fixtureOrIssue)) {
-    return fetchRunSnapshot(repoArg ?? project.hubRepo, Number(fixtureOrIssue));
+    return createRunReader(repoArg ?? project.hubRepo).fetchRunSnapshot(Number(fixtureOrIssue));
   }
   const raw = await readFile(fixtureOrIssue, "utf8");
   const parsed: unknown = JSON.parse(raw);

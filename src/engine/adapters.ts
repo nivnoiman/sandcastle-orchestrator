@@ -1,3 +1,4 @@
+import type { PullRequestSeam, TrackerWriter } from "../tracker/types.js";
 import type { TargetRepo } from "../model/runModel.js";
 import { BUILTIN_AGENT_STAGES, type BuiltinAgentStage } from "../project/stagesConfig.js";
 
@@ -116,15 +117,8 @@ export interface MergedPullRequest {
   url: string;
 }
 
-export interface GhClient {
-  setStageLabel(itemNumber: number, label: StageLabel): void;
-  addLabel(itemNumber: number, label: string): void;
-  removeLabel(itemNumber: number, label: string): void;
-  swapLabels(itemNumber: number, removeLabel: string, addLabel: string): void;
-  comment(itemNumber: number, body: string): void;
-  mergePullRequest(itemNumber: number): MergedPullRequest;
-  closeIssue(itemNumber: number, mergedPullRequestUrl: string): void;
-}
+/** What the engine needs of the Tracker: item writes plus the pull-request merge. */
+export type GhClient = TrackerWriter & Pick<PullRequestSeam, "mergePullRequest">;
 
 export interface UiSink {
   warn(itemNumber: number, message: string): void;

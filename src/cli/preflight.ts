@@ -1,5 +1,5 @@
 import { bootProject } from "../project/boot.js";
-import { fetchRunSnapshot } from "../gh/snapshot.js";
+import { createRunReader } from "../tracker/index.js";
 import { loadRunModel } from "../model/runModel.js";
 import { NodeCommandRunner } from "../real/commandRunner.js";
 import { loadOrchestratorConfig, resolveLayout } from "../real/env.js";
@@ -37,7 +37,7 @@ const config = (() => {
   }
 })();
 
-const snapshot = await fetchRunSnapshot(hubRepo, Number(parentArg));
+const snapshot = await createRunReader(hubRepo).fetchRunSnapshot(Number(parentArg));
 const result = loadRunModel(snapshot);
 if (!result.ok) {
   console.error(`#${parentArg} does not satisfy the publish contract:\n  - ${result.errors.join("\n  - ")}`);
