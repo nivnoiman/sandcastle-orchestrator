@@ -25,6 +25,23 @@ const SINGLE_REPO = {
 
 afterEach(() => setActiveProject(TEST_PROJECT));
 
+describe("tracker", () => {
+  it("defaults to github and requires hubRepo there", () => {
+    expect(parseProjectConfig(SINGLE_REPO, CONFIG_PATH).tracker).toBe("github");
+    expect(() => parseProjectConfig({ repos: SINGLE_REPO.repos }, CONFIG_PATH)).toThrow(/hubRepo is required/);
+    expect(() => parseProjectConfig({ ...SINGLE_REPO, tracker: "jira" }, CONFIG_PATH)).toThrow(/tracker must be/);
+  });
+
+  it("local needs no hubRepo or repo github slugs", () => {
+    const project = parseProjectConfig({ tracker: "local", repos: { myapp: { checks: "pnpm test" } } }, CONFIG_PATH);
+    expect(project.tracker).toBe("local");
+    expect(project.hubRepo).toBe("local/myapp");
+    expect(project.name).toBe("myapp");
+    expect(project.repos["myapp"]?.github).toBe("local/myapp");
+    expect(project.repos["myapp"]?.path).toBe(PROJECT_ROOT);
+  });
+});
+
 describe("parseProjectConfig", () => {
   it("defaults a single-repo project to the project root, dev as base and the hub's name", () => {
     const project = parseProjectConfig(SINGLE_REPO, CONFIG_PATH);

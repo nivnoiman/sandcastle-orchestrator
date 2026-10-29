@@ -10,7 +10,7 @@ if (!issueArg || !/^\d+$/.test(issueArg)) {
 }
 
 const repo = repoArg ?? project.hubRepo;
-const snapshot = await createRunReader(repo).fetchRunSnapshot(Number(issueArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(Number(issueArg));
 const result = loadRunModel(snapshot);
 
 if (!result.ok) {

@@ -3,6 +3,8 @@ import type { AttemptLogStore } from "./attemptLog.js";
 import type { CommandRunner } from "./commandRunner.js";
 import type { OrchestratorConfig } from "./env.js";
 import type { FileSystemPort } from "./fileSystem.js";
+import { activeProject } from "../project/projectConfig.js";
+import { LocalTrackerClient, localIssueStore, type TrackerClient } from "../tracker/index.js";
 import { RealGhClient } from "./ghClient.js";
 import { RealGitOps } from "./gitOps.js";
 import type { SandcastleLayout } from "./paths.js";
@@ -26,7 +28,7 @@ export interface RealAdaptersDeps {
 
 export interface RealAdapterBundle {
   adapters: Adapters;
-  gh: RealGhClient;
+  gh: TrackerClient;
   git: RealGitOps;
   sandbox: DockerSandboxRunner;
   attach(engine: StageCompletionSink): void;
@@ -39,6 +41,24 @@ export function consoleUi(log: (message: string) => void): UiSink {
   };
 }
 
+function createTrackerClient(deps: RealAdaptersDeps, log: (message: string) => void, ui: UiSink): TrackerClient {
+  const locate = (itemNumber: number) => deps.context.locate(itemNumber);
+  const project = activeProject();
+  if (project.tracker === "local") {
+    return new LocalTrackerClient({
+      runner: deps.runner,
+      fs: deps.fs,
+      layout: deps.layout,
+      store: localIssueStore(project),
+      locate,
+      itemOfBranch: (repo, branch) =>
+        deps.context.runModel().items.find((item) => item.repo === repo && locate(item.number).branch === branch)?.number,
+      log,
+    });
+  }
+  return new RealGhClient({ runner: deps.runner, hubRepo: deps.config.hubRepo, locate, log, warn: ui.warn });
+}
+
 export function createRealAdapters(deps: RealAdaptersDeps): RealAdapterBundle {
   const log = deps.log ?? ((message: string) => console.log(message));
   const ui = deps.ui ?? consoleUi(log);
@@ -49,13 +69,7 @@ export function createRealAdapters(deps: RealAdaptersDeps): RealAdapterBundle {
     engine.handleStageCompletion(completion);
   };
 
-  const gh = new RealGhClient({
-    runner: deps.runner,
-    hubRepo: deps.config.hubRepo,
-    locate: (itemNumber) => deps.context.locate(itemNumber),
-    log,
-    warn: ui.warn,
-  });
+  const gh = createTrackerClient(deps, log, ui);
 
   const git = new RealGitOps({ runner: deps.runner, fs: deps.fs, layout: deps.layout, log });
 

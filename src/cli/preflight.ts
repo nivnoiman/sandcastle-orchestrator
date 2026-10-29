@@ -37,7 +37,7 @@ const config = (() => {
   }
 })();
 
-const snapshot = await createRunReader(hubRepo).fetchRunSnapshot(Number(parentArg));
+const snapshot = await createRunReader(project, repoArg).fetchRunSnapshot(Number(parentArg));
 const result = loadRunModel(snapshot);
 if (!result.ok) {
   console.error(`#${parentArg} does not satisfy the publish contract:\n  - ${result.errors.join("\n  - ")}`);

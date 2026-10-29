@@ -59,8 +59,12 @@ export interface UiConfig {
   port: number;
 }
 
+export type TrackerKind = "github" | "local";
+export const DEFAULT_TRACKER: TrackerKind = "github";
+
 export interface ProjectConfig {
   name: string;
+  tracker: TrackerKind;
   configPath: string;
   projectRoot: string;
   hubRepo: string;
@@ -134,11 +138,14 @@ export function claudeProjectSlug(path: string): string {
   return resolve(path).replace(/[^A-Za-z0-9]/g, "-");
 }
 
-function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: string): RepoConfig {
+function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: string, tracker: TrackerKind): RepoConfig {
   const where = `repos.${name}`;
   if (!REPO_NAME.test(name)) throw new Error(`${where}: repo names are lower-case kebab (they become repo:<name> labels)`);
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  const github = slug(requiredString(raw, "github", where), `${where}.github`);
+  const github =
+    tracker === "local" && raw["github"] === undefined
+      ? localRepoSlug(name)
+      : slug(requiredString(raw, "github", where), `${where}.github`);
   const rawPath = optionalString(raw, "path", where) ?? (github === hubRepo ? "." : join("..", name));
   return {
     github,
@@ -183,6 +190,17 @@ function assertPlaceholders(
       throw new Error(`${where} has unknown placeholder ${match} — use {{port}}, {{mongoUri}}, {{mongoDb}} or {{url:<repo>}}`);
     }
   }
+}
+
+/** The stand-in "owner/name" of a repo (or hub) that has no GitHub home under the local tracker. */
+export function localRepoSlug(name: string): string {
+  return `local/${name}`;
+}
+
+function parseTracker(raw: unknown): TrackerKind {
+  if (raw === undefined) return DEFAULT_TRACKER;
+  if (raw === "github" || raw === "local") return raw;
+  throw new Error(`tracker must be "github" or "local", got ${JSON.stringify(raw)}`);
 }
 
 function parseVerify(raw: unknown, repos: Record<string, RepoConfig>): VerifyStrategy {
@@ -238,13 +256,15 @@ function parseUi(raw: unknown): UiConfig {
 export function parseProjectConfig(raw: unknown, configPath: string): ProjectConfig {
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
   const projectRoot = projectRootOf(configPath);
-  const hubRepo = slug(requiredString(raw, "hubRepo", "config"), "hubRepo");
+  const tracker = parseTracker(raw["tracker"]);
+  const explicitName = optionalString(raw, "name", "config");
+  const rawHubRepo = tracker === "local" ? optionalString(raw, "hubRepo", "config") : requiredString(raw, "hubRepo", "config");
+  const hubRepo = rawHubRepo === undefined ? localRepoSlug(explicitName ?? repoNameOfDir(projectRoot)) : slug(rawHubRepo, "hubRepo");
   if (!isObject(raw["repos"]) || Object.keys(raw["repos"]).length === 0) {
     throw new Error("repos must name at least one repo");
   }
   const repos: Record<string, RepoConfig> = {};
-  for (const [name, value] of Object.entries(raw["repos"])) repos[name] = parseRepo(name, value, projectRoot, hubRepo);
-  const explicitName = optionalString(raw, "name", "config");
+  for (const [name, value] of Object.entries(raw["repos"])) repos[name] = parseRepo(name, value, projectRoot, hubRepo, tracker);
   const name = explicitName ?? hubRepo.split("/")[1]!;
   if (!REPO_NAME.test(name)) {
     const hint = explicitName === undefined ? ' (derived from hubRepo — set "name" to a lower-case kebab name)' : "";
@@ -255,6 +275,7 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
   assertNoStageAgents(raw["agents"], stages);
   return {
     name,
+    tracker,
     configPath,
     projectRoot,
     hubRepo,
@@ -268,6 +289,10 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
     agents: parseAgents(raw["agents"]),
     stages,
   };
+}
+
+function repoNameOfDir(projectRoot: string): string {
+  return basename(projectRoot).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function assertNoStageAgents(rawAgents: unknown, stages: readonly StageSpec[]): void {
