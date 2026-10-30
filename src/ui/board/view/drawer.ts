@@ -53,7 +53,6 @@ function closeButton(): string {
   return button({ label: "", icon: "x", cls: "ghost icon", ariaLabel: "Close", data: { "data-act": "drawer-close" } });
 }
 
-/** `opus`, or `codex · gpt-5.5` off claude; empty when the model is unknown — never a guess. */
 function agentLabel(agent: UiAgent | undefined): string {
   if (!agent?.model) return "";
   return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
