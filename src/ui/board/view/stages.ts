@@ -13,6 +13,8 @@ const KIND_LABEL: Record<StageRow["kind"], string> = {
   command: "command",
 };
 
+const CUSTOM_MODEL = "__custom__";
+
 function defaultLabel(view: StagesView): string {
   const { provider, model } = view.defaultAgent;
   return model ? `${provider} · ${model}` : provider;
@@ -26,13 +28,18 @@ function agentControls(row: DraftRow, drawer: StagesDrawer, view: StagesView): s
   const providerOptions = [`<option value=""${row.provider === "" ? " selected" : ""}>default (${esc(defaultLabel(view))})</option>`]
     .concat(view.providers.map((provider) => `<option${attrs({ value: provider, selected: provider === row.provider })}>${esc(provider)}</option>`))
     .join("");
-  const listId = `models-${row.key}`;
   const known = row.provider === "" ? [] : (view.models[row.provider as keyof StagesView["models"]] ?? []);
+  const custom = row.customModel || (row.model !== "" && !known.includes(row.model));
+  const picked = custom ? CUSTOM_MODEL : row.model;
+  const modelOptions = [`<option value=""${picked === "" ? " selected" : ""}>${row.provider === "" ? "model — pick a provider first" : "provider default"}</option>`]
+    .concat(known.map((model) => `<option${attrs({ value: model, selected: model === picked })}>${esc(model)}</option>`))
+    .concat(row.provider === "" ? [] : [`<option${attrs({ value: CUSTOM_MODEL, selected: custom })}>Custom…</option>`])
+    .join("");
   const data = { "data-key": row.key };
   return `<div class="stage-agent">
       <select${attrs({ "aria-label": `${row.name || "new"} provider`, disabled: drawer.busy, "data-act": "stage-provider", "data-focus": `stage-provider-${row.key}`, ...data })}>${providerOptions}</select>
-      <input${attrs({ type: "text", list: listId, value: row.model, placeholder: row.provider === "" ? "model — pick a provider first" : "model (empty = provider default)", disabled: row.provider === "" || drawer.busy, "aria-label": `${row.name || "new"} model`, "data-act": "stage-model", "data-focus": `stage-model-${row.key}`, autocomplete: "off", spellcheck: false, ...data })} />
-      <datalist id="${esc(listId)}">${known.map((model) => `<option value="${esc(model)}"></option>`).join("")}</datalist>
+      <select${attrs({ "aria-label": `${row.name || "new"} model`, disabled: row.provider === "" || drawer.busy, "data-act": "stage-model-pick", "data-focus": `stage-model-pick-${row.key}`, ...data })}>${modelOptions}</select>
+      ${custom ? `<input${attrs({ type: "text", value: row.model, placeholder: "model name, e.g. gpt-5.5", disabled: drawer.busy, class: "stage-model-custom", "aria-label": `${row.name || "new"} custom model`, "data-act": "stage-model", "data-focus": `stage-model-${row.key}`, autocomplete: "off", spellcheck: false, ...data })} />` : ""}
     </div>`;
 }
 
@@ -51,9 +58,13 @@ function promptButton(row: DraftRow, drawer: StagesDrawer, view: StagesView): st
     </div>`;
 }
 
-function commandField(row: DraftRow, drawer: StagesDrawer): string {
+function commandField(row: DraftRow, drawer: StagesDrawer, view: StagesView): string {
   if (row.runMap) return `<div class="stage-note"><span class="muted">per repo:</span> <code>${esc(Object.keys(row.runMap).join(", "))}</code> <span class="muted">— edit in config.json</span></div>`;
-  return `<input${attrs({ type: "text", value: row.run, placeholder: "shell command, e.g. npm run e2e", disabled: drawer.busy, "aria-label": `${row.name || "new"} command`, "data-act": "stage-run", "data-key": row.key, "data-focus": `stage-run-${row.key}`, autocomplete: "off", spellcheck: false })} />`;
+  const picker =
+    view.commands.length === 0
+      ? ""
+      : `<select${attrs({ "aria-label": `${row.name || "new"} existing commands`, disabled: drawer.busy, "data-act": "stage-run-pick", "data-key": row.key })}><option value="">Pick a command this project already runs…</option>${view.commands.map((entry) => `<option${attrs({ value: entry.command })}>${esc(`${entry.source} — ${entry.command}`)}</option>`).join("")}</select>`;
+  return `${picker}<input${attrs({ type: "text", value: row.run, placeholder: "shell command, e.g. npm run e2e", disabled: drawer.busy, "aria-label": `${row.name || "new"} command`, "data-act": "stage-run", "data-key": row.key, "data-focus": `stage-run-${row.key}`, autocomplete: "off", spellcheck: false })} />`;
 }
 
 function moveButtons(row: DraftRow, index: number, count: number, drawer: StagesDrawer): string {
@@ -70,7 +81,7 @@ function rowMarkup(row: DraftRow, index: number, drawer: StagesDrawer, view: Sta
     row.kind === "verify"
       ? `<div class="stage-note"><span class="muted">runs the project's checks; no agent</span></div>`
       : row.kind === "command"
-        ? commandField(row, drawer)
+        ? commandField(row, drawer, view)
         : `${agentControls(row, drawer, view)}${row.kind === "agent" ? promptButton(row, drawer, view) : ""}`;
   const movable = !isLocked(row) && !drawer.busy;
   return `<li${attrs({ class: `stage-row${drawer.dragKey === row.key ? " dragging" : ""}`, "data-key": row.key, "data-index": index })}>

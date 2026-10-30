@@ -56,6 +56,8 @@ describe("stagesViewOf", () => {
     expect(view.stages[2]).toMatchObject({ promptText: "Audit {{issue}}.", promptPath: ".sandcastle/prompts/security.md" });
     expect(view.missingBuiltins).toEqual(["simplify"]);
     expect(view.models.codex).toEqual(["gpt-5.5", "gpt-5.5-codex"]);
+    expect(view.models.claude).toEqual(["haiku", "opus", "sonnet"]);
+    expect(view.commands).toEqual([{ source: "app checks", command: "npm test" }]);
     expect(view.appliesTo).toBe("new runs");
   });
 });

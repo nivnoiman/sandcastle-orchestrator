@@ -1162,8 +1162,22 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       const row = stageRow(ui.drawer.draft, element.dataset["key"]);
       if (row) {
         row.provider = value;
-        if (value === "") row.model = "";
+        row.model = "";
+        row.customModel = false;
       }
+      return render();
+    }
+    if (action === "stage-model-pick" && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row) {
+        row.customModel = value === "__custom__";
+        row.model = row.customModel ? "" : value;
+      }
+      return render();
+    }
+    if (action === "stage-run-pick" && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row && value !== "") row.run = value;
       return render();
     }
     if (action === "stage-add-builtin" && ui.drawer?.kind === "stages") {

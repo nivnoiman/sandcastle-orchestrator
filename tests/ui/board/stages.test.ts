@@ -16,7 +16,8 @@ const VIEW: StagesView = {
   ],
   defaultAgent: { provider: "claude", model: undefined },
   providers: ["claude", "codex", "cursor"],
-  models: { claude: ["opus"], codex: ["gpt-5.5"], cursor: [] },
+  models: { claude: ["opus", "sonnet"], codex: ["gpt-5.5"], cursor: [] },
+  commands: [{ source: "web checks", command: "npm test" }],
   placeholders: ["issue", "branch"],
   missingBuiltins: ["simplify"],
   promptsDir: ".sandcastle/prompts",
@@ -112,7 +113,9 @@ describe("stages drawer", () => {
     expect(html).toContain("Applies to new runs only");
     expect(html).toContain('<span class="flow-step">security</span>');
     expect(html).toContain('data-act="stage-provider"');
-    expect(html).toContain('<option value="gpt-5.5">');
+    expect(html).toContain("<option value=\"gpt-5.5\" selected>gpt-5.5</option>");
+    expect(html).toContain('data-act="stage-model-pick"');
+    expect(html).toContain("Custom…");
     expect(html).toContain("default (claude)");
     expect(html).toContain("Edit prompt…");
     expect(html).toContain("Audit {{issue}}");
@@ -130,6 +133,21 @@ describe("stages drawer", () => {
     const edited = drawer();
     edited.draft.rows[3]!.run = "npm run other";
     expect(render(edited)).not.toMatch(/disabled[^>]*data-act="stages-save"|data-act="stages-save"[^>]*disabled/);
+  });
+
+  it("shows a text box only when the model picker is on Custom… or the model is not a known one", () => {
+    const known = drawer();
+    expect(render(known).match(/class="stage-model-custom"/g)).toBeNull();
+    known.draft.rows[1]!.model = "gpt-6-preview";
+    known.draft.rows[0]!.provider = "claude";
+    known.draft.rows[0]!.customModel = true;
+    expect(render(known).match(/class="stage-model-custom"/g)?.length).toBe(2);
+  });
+
+  it("lets a command stage pick a command the project already runs", () => {
+    const html = render(drawer());
+    expect(html).toContain('data-act="stage-run-pick"');
+    expect(html).toContain("web checks — npm test");
   });
 
   it("offers drag grips only on movable rows", () => {

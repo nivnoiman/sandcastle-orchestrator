@@ -10,6 +10,8 @@ export interface DraftRow {
   isNew: boolean;
   provider: string;
   model: string;
+  /** The model picker is on "Custom…" and shows a text box. */
+  customModel: boolean;
   prompt: string;
   promptPath: string | undefined;
   run: string;
@@ -33,6 +35,7 @@ function rowOfView(row: StageRow, key: string): DraftRow {
     isNew: false,
     provider: row.agent?.provider ?? "",
     model: row.agent?.model ?? "",
+    customModel: false,
     prompt: row.promptText ?? "",
     promptPath: row.promptPath,
     run: typeof row.run === "string" ? row.run : "",
@@ -47,7 +50,7 @@ export function draftOf(view: StagesView): StagesDraft {
 function blankRow(draft: StagesDraft, kind: DraftRow["kind"], name: string): DraftRow {
   const key = `r${draft.nextKey}`;
   draft.nextKey += 1;
-  return { key, kind, name, isNew: true, provider: "", model: "", prompt: "", promptPath: undefined, run: "", runMap: undefined };
+  return { key, kind, name, isNew: true, provider: "", model: "", customModel: false, prompt: "", promptPath: undefined, run: "", runMap: undefined };
 }
 
 /** New rows go just before the verify gate. */
