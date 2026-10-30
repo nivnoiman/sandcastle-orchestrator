@@ -10,6 +10,8 @@ import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
 import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
+import { draftEdits, draftOf } from "./stagesDraft.js";
+import type { StagesView } from "../../project/stagesEditor.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
 import { renderMain, renderSide } from "./view/main.js";
@@ -599,6 +601,65 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
+  async function loadStages(project: BoardProject, path: { method: "GET" | "POST"; url: string }): Promise<void> {
+    const drawer = ui.drawer;
+    if (drawer?.kind !== "stages") return;
+    drawer.busy = true;
+    drawer.error = undefined;
+    render();
+    try {
+      const api = apiOf(project);
+      const payload = path.method === "GET" ? await api.get(path.url) : await api.send("POST", path.url);
+      applyStagesView(payload["result"] as StagesView, undefined);
+    } catch (cause) {
+      if (ui.drawer?.kind === "stages") ui.drawer.error = messageOf(cause);
+    }
+    if (ui.drawer?.kind === "stages") ui.drawer.busy = false;
+    render();
+  }
+
+  function applyStagesView(view: StagesView, notice: string | undefined): void {
+    if (ui.drawer?.kind !== "stages") return;
+    ui.drawer.view = view;
+    ui.drawer.draft = draftOf(view);
+    ui.drawer.notice = notice;
+  }
+
+  async function openStages(project: BoardProject): Promise<void> {
+    stopDrawerPolling();
+    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: {}, busy: false, error: undefined, notice: undefined };
+    render();
+    focusDrawer();
+    await loadStages(project, { method: "GET", url: "/api/stages" });
+  }
+
+  async function refreshStages(project: BoardProject): Promise<void> {
+    await loadStages(project, { method: "POST", url: "/api/stages/reload" });
+    if (ui.drawer?.kind === "stages" && !ui.drawer.error) {
+      ui.drawer.notice = "Re-read from disk. New runs use this.";
+      render();
+    }
+  }
+
+  async function saveStages(project: BoardProject): Promise<void> {
+    const drawer = ui.drawer;
+    if (drawer?.kind !== "stages" || drawer.busy || !drawer.view) return;
+    const edits = draftEdits(drawer.view, drawer.draft);
+    if (edits.length === 0) return;
+    drawer.busy = true;
+    drawer.error = undefined;
+    render();
+    try {
+      const payload = await apiOf(project).send("PUT", "/api/stages/agents", { edits });
+      applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
+      localLine(project, "note", `stages saved: ${edits.map((edit) => edit.name).join(", ")} — applies to new runs`);
+    } catch (cause) {
+      if (ui.drawer?.kind === "stages") ui.drawer.error = messageOf(cause);
+    }
+    if (ui.drawer?.kind === "stages") ui.drawer.busy = false;
+    render();
+  }
+
   async function submitNewParent(project: BoardProject, drawer: Extract<NonNullable<typeof ui.drawer>, { kind: "add" }>): Promise<void> {
     try {
       const payload = await apiOf(project).send("POST", "/api/parents/local", { title: drawer.title, body: drawer.text });
@@ -1008,6 +1069,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return;
     }
     if (action === "open-reset") return void openReset(project);
+    if (action === "open-stages") return void openStages(project);
+    if (action === "stages-save") return void saveStages(project);
+    if (action === "stages-refresh") return void refreshStages(project);
     if (action === "reset-apply") return void applyReset(project);
     if (action === "add-submit-btn") return void submitAdd(project);
     if (action === "select-attempt") {
@@ -1027,6 +1091,14 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const value = (element as HTMLInputElement | HTMLSelectElement).value;
     if (action === "parent-select") {
       ui.selectedParent = value;
+      return render();
+    }
+    if (action === "stage-provider" && ui.drawer?.kind === "stages") {
+      const draft = ui.drawer.draft[element.dataset["stage"] ?? ""];
+      if (draft) {
+        draft.provider = value;
+        if (value === "") draft.model = "";
+      }
       return render();
     }
     if (action === "raw-toggle") {
@@ -1069,6 +1141,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       render();
     } else if (action === "add-text" && ui.drawer?.kind === "add") {
       ui.drawer.text = value;
+      render();
+    } else if (action === "stage-model" && ui.drawer?.kind === "stages") {
+      const draft = ui.drawer.draft[element.dataset["stage"] ?? ""];
+      if (draft) draft.model = value;
       render();
     } else if (action === "add-title" && ui.drawer?.kind === "add") {
       ui.drawer.title = value;

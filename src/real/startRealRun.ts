@@ -68,7 +68,10 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
   const { model, log } = options;
   const lease = host.acquire();
   const { plane } = lease;
-  const { runner, fs, layout, config, verifyMutex } = plane;
+  const { runner, fs, layout, verifyMutex } = plane;
+  // The shared plane's config is read once; stages and agents are per run, so a stage-editor save reaches only runs started after it.
+  const project = activeProject();
+  const config: OrchestratorConfig = { ...plane.config, agents: project.agents, stages: project.stages };
   let engineRef: Engine | undefined;
   const slots = plane.broker.slotsFor({ refill: () => engineRef?.refill() });
 
@@ -102,6 +105,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     const engine = new Engine(model, bundle.adapters, {
       workerCap: options.workerCap,
       reworkLimit: config.reworkLimit,
+      stages: config.stages,
       slots,
       hold: plane.hold,
     });

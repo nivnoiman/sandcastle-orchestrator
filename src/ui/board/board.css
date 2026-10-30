@@ -631,3 +631,17 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .card.flash, .toast, .drawer { animation: none; } }
 .rail-link { white-space: nowrap; }
+
+/* Stage editor drawer */
+.stages-form { gap: 12px; }
+.stage-applies { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--surface-2); font-size: 12.5px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; }
+.flow-step { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-strong); }
+.flow-arrow { color: var(--ink-2); }
+.stage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.stage-row { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; }
+.stage-head { display: flex; align-items: center; gap: 8px; }
+.stage-agent { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.stage-note { font-size: 12.5px; }
+.stage-error { margin: 0; color: var(--park-ink); font-size: 12.5px; }
+.stage-notice { margin: 0; font-size: 12.5px; color: var(--ink-2); }
