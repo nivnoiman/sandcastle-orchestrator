@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildAttention } from "../../../src/ui/board/attention.js";
-import { transcriptTurns } from "../../../src/ui/board/transcript.js";
+import { collapseTurns, transcriptTurns } from "../../../src/ui/board/transcript.js";
 import { renderDialog, switchTargets } from "../../../src/ui/board/view/chrome.js";
-import { renderDrawer } from "../../../src/ui/board/view/drawer.js";
+import { renderDrawer, renderLog, rowTime } from "../../../src/ui/board/view/drawer.js";
+import { esc } from "../../../src/ui/board/format.js";
 import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
@@ -138,6 +139,43 @@ describe("switcher and transcript", () => {
     const turns = transcriptTurns(text);
     expect(turns.map((turn) => turn.kind)).toEqual(["meta", "", "meta", "meta"]);
     expect(turns[1]?.text).toContain("→ Bash");
+  });
+});
+
+describe("log timestamps and collapse", () => {
+  const sys = (at: string | undefined, subtype = "thinking_tokens") => JSON.stringify({ type: "system", subtype, ...(at ? { sc_ts: at } : {}) });
+  const t = (time: string) => `2026-01-01T${time}.000Z`;
+
+  it("reads event time from sc_ts", () => {
+    expect(transcriptTurns(sys(t("12:01:03")))[0]?.at).toBe(Date.parse(t("12:01:03")));
+    expect(transcriptTurns(sys(undefined))[0]?.at).toBeUndefined();
+  });
+
+  it("merges consecutive identical turns into a ranged row", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:01:03")), sys(t("12:01:20")), sys(t("12:01:41"))].join("\n")));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.count).toBe(3);
+    expect(rowTime(rows[0]!)).toBe("12:01:03 - 12:01:41 (38s)");
+  });
+
+  it("does not merge non-consecutive repeats", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:00:00")), sys(t("12:00:01"), "init"), sys(t("12:00:02"))].join("\n")));
+    expect(rows.map((row) => row.count)).toEqual([1, 1, 1]);
+  });
+
+  it("keeps single rows plain and tolerates missing timestamps", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:00:00"), "init"), sys(undefined), sys(undefined)].join("\n")));
+    expect(rowTime(rows[0]!)).toBe("12:00:00");
+    expect(rows[1]?.count).toBe(2);
+    expect(rowTime(rows[1]!)).toBe("");
+  });
+
+  it("renders collapsed rows but leaves raw untouched", () => {
+    const text = [sys(t("12:01:03")), sys(t("12:01:41"))].join("\n");
+    const html = renderLog(text, false);
+    expect(html).toContain("12:01:03 - 12:01:41 (38s)");
+    expect(html).toContain("×2");
+    expect(renderLog(text, true)).toBe(`<pre class="raw">${esc(text)}</pre>`);
   });
 });
 

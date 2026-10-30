@@ -19,6 +19,15 @@ function store(): { store: AttemptLogStore; fs: MemoryFileSystem } {
 }
 
 describe("attempt logs", () => {
+  it("stamps receive time into complete JSON lines only", () => {
+    const { store: logs, fs } = store();
+    const writer = logs.begin(104, "develop");
+    writer.write('{"type":"system"}\nplain\n{"type":"par');
+    expect(fs.readText(writer.record.file)).toBe(
+      `{"sc_ts":"${new Date(1_757_000_001_000).toISOString()}","type":"system"}\nplain\n{"type":"par`,
+    );
+  });
+
   it("writes one file per attempt under the parent, numbered per stage", () => {
     const { store: logs, fs } = store();
     logs.begin(104, "develop").write("first");
@@ -35,7 +44,7 @@ describe("attempt logs", () => {
   });
 
   it("appends chunks as they stream and reports the attempt as running until it finishes", () => {
-    const { store: logs } = store();
+    const { store: logs, fs } = store();
     const writer = logs.begin(104, "develop");
     writer.write('{"type":"system"}\n');
     writer.write('{"type":"result"}\n');
@@ -44,7 +53,7 @@ describe("attempt logs", () => {
     writer.finish("success");
     const record = logs.list(104)[0]!;
     expect(record.outcome).toBe("success");
-    expect(record.bytes).toBe(36);
+    expect(record.bytes).toBe(fs.readText(record.file)!.length);
     expect(logs.read(record.id).running).toBe(false);
   });
 

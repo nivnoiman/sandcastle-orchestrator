@@ -3,6 +3,35 @@ export type TurnKind = "" | "meta" | "tool" | "result" | "err";
 export interface Turn {
   kind: TurnKind;
   text: string;
+  /** Source event time, epoch ms; absent when the line carries none. */
+  at?: number;
+}
+
+export interface LogRow extends Turn {
+  /** Last event time of a collapsed run of identical turns. */
+  until?: number;
+  count: number;
+}
+
+function eventTime(event: Json): number | undefined {
+  const raw = event["sc_ts"] ?? event["timestamp"];
+  const at = typeof raw === "string" ? Date.parse(raw) : typeof raw === "number" ? raw : NaN;
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/** Merges consecutive turns with the same kind and text into one row spanning their times. */
+export function collapseTurns(turns: Turn[]): LogRow[] {
+  const rows: LogRow[] = [];
+  for (const turn of turns) {
+    const last = rows[rows.length - 1];
+    if (last && last.kind === turn.kind && last.text === turn.text) {
+      last.count += 1;
+      if (turn.at !== undefined) last.until = turn.at;
+      continue;
+    }
+    rows.push({ ...turn, count: 1 });
+  }
+  return rows;
 }
 
 type Json = Record<string, unknown>;
@@ -113,7 +142,9 @@ export function transcriptTurns(text: string): Turn[] {
     }
     if (!isRecord(event)) continue;
     const turn = describeEvent(event);
-    if (turn) turns.push(turn);
+    if (!turn) continue;
+    const at = eventTime(event);
+    turns.push(at === undefined ? turn : { ...turn, at });
   }
   return turns;
 }
