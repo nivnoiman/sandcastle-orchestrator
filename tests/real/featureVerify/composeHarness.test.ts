@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { AttemptLogStore } from "../../../src/real/attemptLog.js";
 import { CommandFailure } from "../../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../../src/real/fakeCommandRunner.js";
 import {
@@ -180,6 +181,29 @@ describe("verify agent", () => {
     const claude = runner.find("claude -p --model sonnet");
     expect(claude?.input).toBe("PROMPT BODY");
     expect(claude?.line).toContain("fvagent");
+  });
+
+  it("records the agent transcript as a feature-verify attempt under the parent number", async () => {
+    const logs = new AttemptLogStore({ fs: fsWith({}), layout: testLayout(), parentNumber: 16 });
+    const { runner, compose } = harness({ deps: { logs } });
+    await compose.up();
+    runner.respond("claude -p --model sonnet", '{"type":"result"}\n');
+    await compose.runAgent("PROMPT");
+
+    const [attempt] = logs.list(16);
+    expect(attempt).toMatchObject({ id: "16-feature-verify-1", stage: "feature-verify", outcome: "success" });
+    expect(logs.read("16-feature-verify-1").chunk).toContain('"type":"result"');
+  });
+
+  it("marks the attempt failed with the reason when the agent dies", async () => {
+    const logs = new AttemptLogStore({ fs: fsWith({}), layout: testLayout(), parentNumber: 16 });
+    const { runner, compose } = harness({ deps: { logs } });
+    await compose.up();
+    runner.fail("claude -p --model sonnet", new Error("idle timeout"));
+    await expect(compose.runAgent("PROMPT")).rejects.toThrow(/idle timeout/);
+
+    expect(logs.list(16)[0]).toMatchObject({ stage: "feature-verify", outcome: "failure" });
+    expect(logs.read("16-feature-verify-1").chunk).toContain("failed: idle timeout");
   });
 
   it("refuses to run before the environment is up", async () => {

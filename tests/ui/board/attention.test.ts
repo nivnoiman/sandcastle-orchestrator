@@ -17,6 +17,16 @@ function everythingWrong() {
   return boardProject("alpha", uiState([run], { hold: { reason: "rate-limit" as never, until: "2026-08-15T10:00:00.000Z" } }), { parents: [READY_PARENT] });
 }
 
+describe("feature-level attention actions", () => {
+  it("opens the feature lifecycle, not the already-open run, for verify-red and polish-reverted", () => {
+    const entries = buildAttention([everythingWrong()], "alpha");
+    for (const kind of ["verify-red", "polish-reverted"]) {
+      const entry = entries.find((candidate) => candidate.kind === kind);
+      expect(entry?.actions).toEqual([expect.objectContaining({ id: "open-feature", runNumber: 10 })]);
+    }
+  });
+});
+
 describe("Needs Attention ordering", () => {
   it("lists the kinds in the fixed order for one project", () => {
     const died = boardProject("beta", undefined, { status: "died" });

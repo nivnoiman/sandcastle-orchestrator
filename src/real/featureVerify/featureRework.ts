@@ -12,7 +12,9 @@ import {
 } from "./runFeatureVerify.js";
 import { messageOf } from "../../messageOf.js";
 
-export const FEATURE_FIX_STAGE = "fvfix";
+import { FEATURE_FIX_STAGE } from "./stages.js";
+
+export { FEATURE_FIX_STAGE };
 
 export interface FeatureFixResult {
   repo: TargetRepo;

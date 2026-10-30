@@ -162,6 +162,7 @@ export function pageRun(number: number, items: UiItem[], overrides: Partial<UiRu
     cap: 1,
     paused: false,
     started: true,
+    lifecycle: [],
     complete: false,
     settled: false,
     running: 0,
