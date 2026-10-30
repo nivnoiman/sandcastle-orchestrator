@@ -189,7 +189,7 @@ export function renderDrawer(ui: BoardUi, project: BoardProject, drawer: DrawerS
     };
   }
   if (drawer.kind === "stages") {
-    return { label: "Stages", head: stagesHead(drawer, project.name, closeButton()), attempts: "", body: stagesBody(drawer) };
+    return { label: "Stages", head: stagesHead(project.name, closeButton()), attempts: "", body: stagesBody(drawer) };
   }
   return {
     label: local ? "New orchestration issue" : "Add orchestration issue",

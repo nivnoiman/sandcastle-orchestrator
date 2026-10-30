@@ -59,6 +59,6 @@ export function stagesBody(drawer: StagesDrawer): string {
     </div>`;
 }
 
-export function stagesHead(drawer: StagesDrawer, projectName: string, closeButton: string): string {
+export function stagesHead(projectName: string, closeButton: string): string {
   return `<div class="d-head"><div class="row"><h2>Stages</h2>${closeButton}</div><div class="d-meta"><span>Stage flow and the agent per stage for ${esc(projectName)}, from <code>.sandcastle/config.json</code>.</span></div></div>`;
 }
