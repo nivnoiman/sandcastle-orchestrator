@@ -1,5 +1,5 @@
 import { PacedDryRun, randomStageDelay } from "../engine/pacedDryRunner.js";
-import { agentsInUse } from "../real/agents/index.js";
+import { agentsInUse, resolveStageAgent } from "../real/agents/index.js";
 import type { PendingStage } from "../engine/fakes.js";
 import type { ControlPlaneHost } from "../real/controlPlane.js";
 import { startParentRun } from "../real/startRealRun.js";
@@ -74,6 +74,14 @@ export async function realSession(request: StartSessionRequest, options: RealSes
     },
     recheckAuth: () => run.recheckAuth(),
     authProviders: () => agentsInUse(run.config).map((agent) => agent.provider.name),
+    agentFor: (stage) => {
+      try {
+        const { provider, model } = resolveStageAgent(run.config, stage);
+        return { provider: provider.name, model };
+      } catch {
+        return undefined;
+      }
+    },
     tick: () => run.tick(),
     stop: () => run.stop(),
   };

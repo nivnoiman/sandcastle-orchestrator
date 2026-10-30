@@ -315,7 +315,12 @@ export class UiController {
       queueSettings: this.queueSettings(),
       runs,
       globalRunning: runs.reduce((sum, run) => sum + run.running, 0),
-      items: uiItems(this.urlOf(), views, (view) => quietFor(view, primary?.session.attempts)),
+      items: uiItems(
+        this.urlOf(),
+        views,
+        (view) => quietFor(view, primary?.session.attempts),
+        (view) => primary?.agentFor(view),
+      ),
       feed: [...this.feed],
     };
   }

@@ -26,6 +26,7 @@ export function uiItem(number: number, phase: UiItem["phase"], extra: Partial<Ui
     reworkRound: 0,
     reworkLimit: 2,
     issueUrl: `https://github.com/acme/hub/issues/${number}`,
+    agent: undefined,
     quiet: undefined,
     ...extra,
   };
