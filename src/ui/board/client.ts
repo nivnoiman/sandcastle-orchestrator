@@ -795,7 +795,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (project) void reportHeld(project, entry.key, hold ? holdReasonOf(entry) : null);
   }
 
-  /** The server pushes only what is not on Hold, so it is told; a failure just means one extra push. */
   async function reportHeld(project: BoardProject, key: string, reason: string | null): Promise<void> {
     await apiOf(project).send("POST", "/api/push/held", { key, reason }).catch(() => undefined);
   }

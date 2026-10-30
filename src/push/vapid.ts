@@ -35,8 +35,7 @@ export function loadOrCreateVapid(dir: string): VapidKeys {
   const temp = `${file}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
   try {
-    // link fails if another process created the file first, so concurrent starts never replace (and orphan) each other's keys
-    linkSync(temp, file);
+    publishWithoutReplacing(temp, file);
     return keys;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
@@ -44,4 +43,8 @@ export function loadOrCreateVapid(dir: string): VapidKeys {
   } finally {
     unlinkSync(temp);
   }
+}
+
+function publishWithoutReplacing(temp: string, file: string): void {
+  linkSync(temp, file);
 }
