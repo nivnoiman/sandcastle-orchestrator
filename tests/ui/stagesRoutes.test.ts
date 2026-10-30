@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,6 +13,9 @@ let server: UiServer | undefined;
 let root: string;
 let configPath: string;
 
+const DEVELOP = { kind: "builtin", name: "develop", provider: null, model: null };
+const SIMPLIFY = { kind: "builtin", name: "simplify", provider: null, model: null };
+const VERIFY = { kind: "verify", name: "verify" };
 const BASE = { tracker: "local", name: "demo", repos: { app: { checks: "npm test" } } };
 
 beforeEach(async () => {
@@ -61,7 +64,7 @@ describe("/api/stages", () => {
   });
 
   it("saves an edit, activates it for new runs and shows it on the next read", async () => {
-    const saved = await call("PUT", "/api/stages/agents", { edits: [{ name: "review", provider: "codex", model: "gpt-5.5" }] });
+    const saved = await call("PUT", "/api/stages", { stages: [DEVELOP, SIMPLIFY, { kind: "builtin", name: "review", provider: "codex", model: "gpt-5.5" }, VERIFY] });
     expect(saved.status).toBe(200);
     expect(activeProject().agents.roles.review).toEqual({ provider: "codex", model: "gpt-5.5" });
     const read = await call("GET", "/api/stages");
@@ -69,10 +72,17 @@ describe("/api/stages", () => {
   });
 
   it("answers 400 with the validation message and changes nothing", async () => {
-    const refused = await call("PUT", "/api/stages/agents", { edits: [{ name: "verify", provider: "codex", model: null }] });
+    const refused = await call("PUT", "/api/stages", { stages: [DEVELOP, { kind: "agent", name: "docs", prompt: "Use {{secret}}" }, VERIFY] });
     expect(refused.status).toBe(400);
-    expect(refused.json.error).toMatch(/no agent to set/);
+    expect(refused.json.error).toMatch(/unknown placeholder/);
     expect(activeProject().agents.roles).toEqual({});
+  });
+
+  it("adds an agent stage with its prompt file and activates it for new runs", async () => {
+    const saved = await call("PUT", "/api/stages", { stages: [DEVELOP, { kind: "agent", name: "docs", prompt: "Update docs for {{title}}", provider: "claude", model: "opus" }, VERIFY] });
+    expect(saved.status).toBe(200);
+    expect(activeProject().stages.map((stage) => stage.name)).toEqual(["develop", "docs", "verify"]);
+    expect(readFileSync(join(root, ".sandcastle", "prompts", "docs.md"), "utf8")).toBe("Update docs for {{title}}");
   });
 
   it("refuses a write without the sandcastle header", async () => {
