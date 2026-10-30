@@ -10,7 +10,7 @@ import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
 import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
-import { addBuiltin, addStage, draftEdits, draftOf, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
+import { addBuiltin, addStage, draftEdits, draftOf, missingBuiltins, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
 import type { StagesView } from "../../project/stagesEditor.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
@@ -1167,7 +1167,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return render();
     }
     if (action === "stage-add-builtin" && ui.drawer?.kind === "stages") {
-      if (value === "simplify" || value === "review") addBuiltin(ui.drawer.draft, value);
+      const name = missingBuiltins(ui.drawer.draft).find((candidate) => candidate === value);
+      if (name) addBuiltin(ui.drawer.draft, name);
       return render();
     }
     if (action === "raw-toggle") {
