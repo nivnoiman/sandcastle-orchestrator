@@ -19,6 +19,7 @@ import {
   type FeatureVerifyStatus,
   type FeedKind,
   type PolishStatus,
+  type UiAgent,
   type UiRun,
 } from "./state.js";
 
@@ -38,6 +39,8 @@ export interface Session {
   attempts?: AttemptReader;
   recheckAuth?: () => Promise<AuthRecheck>;
   authProviders?: () => ProviderName[];
+  /** The agent a chain stage runs; undefined for a stage with no agent. */
+  agentFor?: (stage: string) => UiAgent | undefined;
   tick(): void;
   stop(): void;
 }
@@ -104,6 +107,10 @@ export class ParentRunSlot {
     this.notePolish(note);
   }
 
+  agentFor(view: ItemView): UiAgent | undefined {
+    return view.stage === undefined ? undefined : this.session.agentFor?.(view.stage);
+  }
+
   view(urlOf: IssueUrlOf, quietFor?: QuietFor): UiRun {
     const views = this.engine.view();
     return {
@@ -119,7 +126,12 @@ export class ParentRunSlot {
       featureVerify: this.featureVerify(),
       polish: this.polish(),
       phaseCounts: phaseCounts(views),
-      items: uiItems(urlOf, views, (item) => quietFor?.(item, this.session.attempts)),
+      items: uiItems(
+        urlOf,
+        views,
+        (item) => quietFor?.(item, this.session.attempts),
+        (item) => this.agentFor(item),
+      ),
     };
   }
 

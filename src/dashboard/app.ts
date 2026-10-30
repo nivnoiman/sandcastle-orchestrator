@@ -5,6 +5,7 @@ import { messageOf } from "../messageOf.js";
 import type { InstanceRegistry } from "../registry/index.js";
 import { boardPage, mountBoardAssets } from "../ui/board/assets.js";
 import { guardOrigin, SANDCASTLE_HEADER, UI_HOST } from "../ui/server.js";
+import { mountPushRoutes, type PushRouteDeps } from "../push/routes.js";
 import { createCatalog } from "./catalog.js";
 import { projectProxy } from "./proxy.js";
 
@@ -13,6 +14,8 @@ export interface DashboardDeps {
   /** Starts a stopped Known Project by id (`sandcastle ui` in its directory). */
   startProject: (id: string) => Promise<unknown>;
   isAlive?: (pid: number) => boolean;
+  /** Lets the Dashboard page register for web push; absent, the page keeps in-tab alerts only. */
+  push?: Omit<PushRouteDeps, "pusher">;
 }
 
 const PROJECT_POLL_MS = 3000;
@@ -82,6 +85,7 @@ export function createDashboardApp(deps: DashboardDeps): Express {
   app.all("/p/:id/*rest", projectProxy(registry));
 
   app.use(express.json());
+  if (deps.push) mountPushRoutes(app, deps.push);
 
   app.get("/dashboard/api/projects", (_request, response) => {
     response.json({ ok: true, result: catalog.sources() });

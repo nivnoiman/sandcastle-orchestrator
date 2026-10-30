@@ -1,7 +1,7 @@
-import type { UiItem, UiRun } from "../../state.js";
+import type { UiAgent, UiItem, UiRun } from "../../state.js";
 import { esc } from "../format.js";
 import { isLocalProject, webUrl, type BoardProject } from "../model.js";
-import { transcriptTurns } from "../transcript.js";
+import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import { prLabel } from "./run.js";
@@ -53,6 +53,11 @@ function closeButton(): string {
   return button({ label: "", icon: "x", cls: "ghost icon", ariaLabel: "Close", data: { "data-act": "drawer-close" } });
 }
 
+function agentLabel(agent: UiAgent | undefined): string {
+  if (!agent?.model) return "";
+  return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
+}
+
 function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "item" }>): string {
   const found = findItem(project, drawer.itemNumber);
   if (!found) {
@@ -66,11 +71,13 @@ function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "i
     webUrl(item.issueUrl) ? `<a class="btn" href="${esc(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("ext")}Open issue</a>` : "",
     webUrl(item.pullRequestUrl) ? `<a class="btn" href="${esc(item.pullRequestUrl)}" target="_blank" rel="noreferrer">${icon("pr")}${esc(prLabel(item.pullRequestUrl ?? ""))}</a>` : "",
   ].join("");
+  const model = agentLabel(item.agent);
   const reason = item.parkReason ? `<div class="d-reason"><b>Parked:</b> ${esc(item.parkReason)}</div>` : "";
   return `<div class="d-head">
       <div class="row"><h2>${issueLink(webUrl(item.issueUrl), `#${item.number}`)}${esc(item.title)}</h2>${closeButton()}</div>
       <div class="d-meta">
         ${tag(`${item.phase}${item.stage ? ` · ${item.stage}` : ""}`, PHASE_TONE[item.phase])}
+        ${model ? `<span class="d-model mono" title="Agent model of the ${esc(item.stage ?? "latest")} stage">${esc(model)}</span>` : ""}
         <span>${icon("pin")}${esc(item.repo)}</span>
         <span class="mono">${icon("branch")}${esc(item.branch)}</span>
         ${item.reworkRound > 0 ? `<span>Rework ${item.reworkRound}/${item.reworkLimit}</span>` : ""}
@@ -94,11 +101,35 @@ function attemptsMarkup(drawer: Extract<DrawerState, { kind: "item" }>): string 
       <div class="att-track">${tabs || `<span class="muted">${drawer.loaded ? "No attempt has been recorded for this item yet." : "Loading…"}</span>`}</div>`;
 }
 
+function clock(at: number): string {
+  return new Date(at).toISOString().slice(11, 19);
+}
+
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** UTC time, or "from - to (duration)" for a collapsed row; empty without a source time. */
+export function rowTime(row: LogRow): string {
+  if (row.at === undefined) return "";
+  if (row.until === undefined || row.until === row.at) return clock(row.at);
+  return `${clock(row.at)} - ${clock(row.until)} (${duration(row.until - row.at)})`;
+}
+
+function rowMarkup(row: LogRow): string {
+  const time = rowTime(row);
+  const stamp = time ? `<span class="ts" title="UTC">${esc(time)}</span>` : "";
+  const repeat = row.count > 1 ? `<span class="rep">×${row.count}</span>` : "";
+  return `<div class="turn ${row.kind}">${stamp}${repeat}${esc(row.text)}</div>`;
+}
+
 export function renderLog(text: string, raw: boolean): string {
   if (raw) return `<pre class="raw">${esc(text)}</pre>`;
-  return transcriptTurns(text)
-    .map((turn) => `<div class="turn ${turn.kind}">${esc(turn.text)}</div>`)
-    .join("");
+  return collapseTurns(transcriptTurns(text)).map(rowMarkup).join("");
 }
 
 function resetBody(drawer: Extract<DrawerState, { kind: "reset" }>): string {

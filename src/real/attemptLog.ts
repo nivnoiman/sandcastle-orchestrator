@@ -4,6 +4,18 @@ import type { SandcastleLayout } from "./paths.js";
 
 export const ATTEMPT_ID = /^(\d+)-([a-z][a-z0-9-]*)-(\d+)$/;
 export const LOG_READ_LIMIT = 512 * 1024;
+/** Field stamped onto each complete JSON event line as it is received (split lines stay bare); transcripts carry no times of their own. */
+export const EVENT_TIME_FIELD = "sc_ts";
+
+/** Splices the receive time into a complete JSON object line; other lines pass through. */
+export function stampEventLine(line: string, at: string): string {
+  const trimmed = line.trimStart();
+  if (!trimmed.startsWith("{") || !trimmed.trimEnd().endsWith("}")) return line;
+  const indent = line.length - trimmed.length;
+  const rest = trimmed.slice(1);
+  const separator = rest.trimStart().startsWith("}") ? "" : ",";
+  return `${line.slice(0, indent)}{"${EVENT_TIME_FIELD}":"${at}"${separator}${rest}`;
+}
 
 export interface AttemptRecord {
   id: string;
@@ -103,13 +115,20 @@ export class AttemptLogStore {
       file,
     };
     this.records.set(id, record);
+    let atLineStart = true;
     return {
       record,
       write: (chunk) => {
         if (chunk.length === 0) return;
-        this.deps.fs.appendText(file, chunk);
+        const at = this.timestamp();
+        const stamped = chunk
+          .split("\n")
+          .map((line, index) => (index === 0 && !atLineStart ? line : stampEventLine(line, at)))
+          .join("\n");
+        atLineStart = chunk.endsWith("\n");
+        this.deps.fs.appendText(file, stamped);
         this.lastOutput.set(itemNumber, this.clock().getTime());
-        record.bytes += Buffer.byteLength(chunk, "utf8");
+        record.bytes += Buffer.byteLength(stamped, "utf8");
       },
       finish: (outcome) => {
         record.outcome = outcome;

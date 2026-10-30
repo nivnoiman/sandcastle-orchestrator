@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildAttention } from "../../../src/ui/board/attention.js";
-import { transcriptTurns } from "../../../src/ui/board/transcript.js";
+import { collapseTurns, transcriptTurns } from "../../../src/ui/board/transcript.js";
 import { renderDialog, switchTargets } from "../../../src/ui/board/view/chrome.js";
-import { renderDrawer } from "../../../src/ui/board/view/drawer.js";
+import { renderDrawer, renderLog, rowTime } from "../../../src/ui/board/view/drawer.js";
+import { esc } from "../../../src/ui/board/format.js";
 import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
 import type { BoardProject } from "../../../src/ui/board/model.js";
+import type { UiItem } from "../../../src/ui/state.js";
 import { boardProject, NOW, uiItem, uiRun, uiState } from "./fixtures.js";
 
 function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
@@ -141,6 +143,43 @@ describe("switcher and transcript", () => {
   });
 });
 
+describe("log timestamps and collapse", () => {
+  const sys = (at: string | undefined, subtype = "thinking_tokens") => JSON.stringify({ type: "system", subtype, ...(at ? { sc_ts: at } : {}) });
+  const t = (time: string) => `2026-01-01T${time}.000Z`;
+
+  it("reads event time from sc_ts", () => {
+    expect(transcriptTurns(sys(t("12:01:03")))[0]?.at).toBe(Date.parse(t("12:01:03")));
+    expect(transcriptTurns(sys(undefined))[0]?.at).toBeUndefined();
+  });
+
+  it("merges consecutive identical turns into a ranged row", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:01:03")), sys(t("12:01:20")), sys(t("12:01:41"))].join("\n")));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.count).toBe(3);
+    expect(rowTime(rows[0]!)).toBe("12:01:03 - 12:01:41 (38s)");
+  });
+
+  it("does not merge non-consecutive repeats", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:00:00")), sys(t("12:00:01"), "init"), sys(t("12:00:02"))].join("\n")));
+    expect(rows.map((row) => row.count)).toEqual([1, 1, 1]);
+  });
+
+  it("keeps single rows plain and tolerates missing timestamps", () => {
+    const rows = collapseTurns(transcriptTurns([sys(t("12:00:00"), "init"), sys(undefined), sys(undefined)].join("\n")));
+    expect(rowTime(rows[0]!)).toBe("12:00:00");
+    expect(rows[1]?.count).toBe(2);
+    expect(rowTime(rows[1]!)).toBe("");
+  });
+
+  it("renders collapsed rows but leaves raw untouched", () => {
+    const text = [sys(t("12:01:03")), sys(t("12:01:41"))].join("\n");
+    const html = renderLog(text, false);
+    expect(html).toContain("12:01:03 - 12:01:41 (38s)");
+    expect(html).toContain("×2");
+    expect(renderLog(text, true)).toBe(`<pre class="raw">${esc(text)}</pre>`);
+  });
+});
+
 describe("drawer blocked-by", () => {
   const drawerFor = (project: BoardProject, itemNumber: number) =>
     renderDrawer(ui([project]), project, { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
@@ -166,6 +205,27 @@ describe("drawer blocked-by", () => {
     const html = drawerFor(boardProject("p", uiState([run])), 3);
     expect(html).toContain("#99");
     expect(html).not.toContain('data-n="99"');
+  });
+});
+
+describe("drawer model chip", () => {
+  const headFor = (agent: UiItem["agent"]) => {
+    const project = boardProject("p", uiState([uiRun(1, [uiItem(3, "running", { stage: "develop", agent })])]));
+    return renderDrawer(ui([project]), project, { kind: "item", projectId: "p", itemNumber: 3, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+  };
+
+  it("shows a claude model bare", () => {
+    expect(headFor({ provider: "claude", model: "opus" })).toContain('class="d-model mono" title="Agent model of the develop stage">opus<');
+  });
+
+  it("prefixes the provider off claude, escaped", () => {
+    expect(headFor({ provider: "codex", model: "gpt-5.5" })).toContain(">codex · gpt-5.5<");
+    expect(headFor({ provider: "cursor", model: "<x>" })).toContain("cursor · &lt;x&gt;");
+  });
+
+  it("shows nothing when the model is unknown", () => {
+    expect(headFor(undefined)).not.toContain("d-model");
+    expect(headFor({ provider: "codex", model: undefined })).not.toContain("d-model");
   });
 });
 

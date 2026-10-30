@@ -20,7 +20,8 @@ import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
 import type { RunMode } from "../ui/state.js";
 import { messageOf } from "../messageOf.js";
-import { createInstanceRegistry } from "../registry/index.js";
+import { setupPush } from "../push/index.js";
+import { createInstanceRegistry, projectId } from "../registry/index.js";
 import { fail, flagNumber, optionalFlagNumber } from "./args.js";
 import { isParentHandle, parentFromArgs } from "./parentArg.js";
 
@@ -232,9 +233,18 @@ const controller = new UiController({
 const registry = createInstanceRegistry();
 const instance = { dir: project.projectRoot, name: project.name, mode, tracker: project.tracker, idle, pid: process.pid };
 
-const server = await startUiServer(controller, port, undefined, instance).catch((cause: unknown) => {
+const push = setupPush((message) => console.error(`[push][warn] ${message}`));
+const pusher = push?.pusherFor({ projectId: projectId(project.projectRoot), projectName: project.name });
+const server = await startUiServer(
+  controller,
+  port,
+  undefined,
+  instance,
+  push ? { store: push.store, publicKey: push.publicKey, ...(pusher ? { pusher } : {}) } : undefined,
+).catch((cause: unknown) => {
   return fail(messageOf(cause));
 });
+if (pusher) controller.subscribe((event) => event.kind === "state" && void pusher.update(event.state));
 
 try {
   registry.register({ dir: project.projectRoot, name: project.name, pid: process.pid, port: server.port, mode });
