@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { isAgentRole, MODEL_NAME, PROVIDER_NAMES, type AgentChoice, type ProviderName } from "./agentsConfig.js";
@@ -10,10 +10,8 @@ import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, type StageSpec } from 
 export interface StageRow {
   name: string;
   kind: StageSpec["kind"];
-  /** The provider/model can be set on this row (agent stages; verify and command stages run no agent). */
   hasAgent: boolean;
   agent: { provider: ProviderName; model: string | undefined } | undefined;
-  /** Command stages: the shell command, or the repos it runs for. */
   run?: string | string[];
 }
 
@@ -21,10 +19,8 @@ export interface StagesView {
   stages: StageRow[];
   defaultAgent: AgentChoice;
   providers: readonly ProviderName[];
-  /** Models already named in this project's config, per provider, to pick from. */
   models: Record<ProviderName, string[]>;
   placeholders: readonly string[];
-  /** Always "new runs": a saved edit never changes a run in flight. */
   appliesTo: "new runs";
 }
 
@@ -136,11 +132,7 @@ function atomicWrite(path: string, text: string): void {
     writeFileSync(temp, text);
     renameSync(temp, path);
   } catch (cause) {
-    try {
-      unlinkSync(temp);
-    } catch {
-      // temp may not exist
-    }
+    rmSync(temp, { force: true });
     throw new Error(`cannot write ${path} — ${messageOf(cause)}`, { cause });
   }
 }

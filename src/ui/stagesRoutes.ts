@@ -5,7 +5,6 @@ import { parseAgentEdits, saveAgentEdits, stagesViewOf } from "../project/stages
 
 export interface StagesRouteDeps {
   configPath: string;
-  /** Makes `project` what new runs are built from; in-flight runs keep their own chain. */
   activate(project: ProjectConfig): void;
 }
 
