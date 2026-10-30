@@ -33,9 +33,7 @@ export async function runVerifyAgent(
       syncBackCredential(deps, container, login);
     }
   } catch (cause) {
-    writer?.write(`
-[feature-verify] failed: ${messageOf(cause)}
-`);
+    writer?.write(`\n[feature-verify] failed: ${messageOf(cause)}\n`);
     throw cause;
   } finally {
     writer?.finish(outcome);
