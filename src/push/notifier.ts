@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { messageOf } from "../messageOf.js";
 import { buildAttention, type AttentionEntry } from "../ui/board/attention.js";
 import { alertText, alertable, holdReasonOf } from "../ui/board/humanAlerts.js";
 import type { BoardProject } from "../ui/board/model.js";
@@ -111,7 +112,11 @@ export class AttentionPusher {
     } catch (cause) {
       const status = statusOf(cause);
       if (status === 404 || status === 410) {
-        this.deps.store.remove(subscription.endpoint);
+        try {
+          this.deps.store.remove(subscription.endpoint);
+        } catch (removeCause) {
+          this.deps.onError?.(`could not drop expired push subscription: ${messageOf(removeCause)}`);
+        }
         return;
       }
       this.deps.onError?.(`web push failed${status ? ` (${status})` : ""}`);

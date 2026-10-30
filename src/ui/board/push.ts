@@ -26,7 +26,7 @@ export async function ensurePushSubscription(): Promise<boolean> {
     const subscription =
       (await registration.pushManager.getSubscription()) ??
       (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
-    await projectApi("").send("POST", "/push/subscribe",{ subscription: subscription.toJSON() });
+    await projectApi("").send("POST", "/push/subscribe", { subscription: subscription.toJSON() });
     return true;
   } catch {
     return false;

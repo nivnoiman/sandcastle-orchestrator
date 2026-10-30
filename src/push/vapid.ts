@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import webpush from "web-push";
 
@@ -34,6 +34,14 @@ export function loadOrCreateVapid(dir: string): VapidKeys {
   const keys: VapidKeys = { ...webpush.generateVAPIDKeys(), subject: VAPID_SUBJECT };
   const temp = `${file}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temp, file);
-  return keys;
+  try {
+    // link fails if another process created the file first, so concurrent starts never replace (and orphan) each other's keys
+    linkSync(temp, file);
+    return keys;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
+    return loadOrCreateVapid(dir);
+  } finally {
+    unlinkSync(temp);
+  }
 }
