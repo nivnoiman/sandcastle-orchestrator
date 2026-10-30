@@ -86,4 +86,10 @@ describe("/api/stages", () => {
     expect(reloaded.json.result?.stages.map((row) => row.name)).toEqual(["develop", "verify"]);
     expect(activeProject().stages.map((stage) => stage.name)).toEqual(["develop", "verify"]);
   });
+
+  it("reload leaves everything but agents and stages as the running server booted with", async () => {
+    writeFileSync(configPath, JSON.stringify({ ...BASE, integrationBase: "elsewhere", stages: ["develop"] }));
+    await call("POST", "/api/stages/reload");
+    expect(activeProject().integrationBase).toBe("dev");
+  });
 });

@@ -27,8 +27,8 @@ function agentControls(row: StageRow, drawer: StagesDrawer, view: StagesView): s
   const listId = `models-${row.name}`;
   const known = draft.provider === "" ? [] : (view.models[draft.provider as keyof StagesView["models"]] ?? []);
   return `<div class="stage-agent">
-      <select${attrs({ "aria-label": `${row.name} provider`, "data-act": "stage-provider", "data-stage": row.name, "data-focus": `stage-provider-${row.name}` })}>${providerOptions}</select>
-      <input${attrs({ type: "text", list: listId, value: draft.model, placeholder: draft.provider === "" ? "model — pick a provider first" : "model (empty = provider default)", disabled: draft.provider === "", "aria-label": `${row.name} model`, "data-act": "stage-model", "data-stage": row.name, "data-focus": `stage-model-${row.name}`, autocomplete: "off", spellcheck: false })} />
+      <select${attrs({ "aria-label": `${row.name} provider`, disabled: drawer.busy, "data-act": "stage-provider", "data-stage": row.name, "data-focus": `stage-provider-${row.name}` })}>${providerOptions}</select>
+      <input${attrs({ type: "text", list: listId, value: draft.model, placeholder: draft.provider === "" ? "model — pick a provider first" : "model (empty = provider default)", disabled: draft.provider === "" || drawer.busy, "aria-label": `${row.name} model`, "data-act": "stage-model", "data-stage": row.name, "data-focus": `stage-model-${row.name}`, autocomplete: "off", spellcheck: false })} />
       <datalist id="${esc(listId)}">${known.map((model) => `<option value="${esc(model)}"></option>`).join("")}</datalist>
     </div>`;
 }

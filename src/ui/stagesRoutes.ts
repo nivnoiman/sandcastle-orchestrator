@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { messageOf } from "../messageOf.js";
-import { readProjectConfig, setActiveProject, type ProjectConfig } from "../project/projectConfig.js";
+import { activeProject, readProjectConfig, setActiveProject, type ProjectConfig } from "../project/projectConfig.js";
 import { parseAgentEdits, saveAgentEdits, stagesViewOf } from "../project/stagesEditor.js";
 
 export interface StagesRouteDeps {
@@ -9,7 +9,7 @@ export interface StagesRouteDeps {
 }
 
 export function defaultStagesRouteDeps(configPath: string): StagesRouteDeps {
-  return { configPath, activate: setActiveProject };
+  return { configPath, activate: (project) => setActiveProject({ ...activeProject(), agents: project.agents, stages: project.stages }) };
 }
 
 function reply(response: Response, run: () => unknown): void {
