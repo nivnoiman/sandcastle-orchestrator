@@ -69,8 +69,8 @@ export function addBuiltin(draft: StagesDraft, name: BuiltinAgentStage): void {
 const OPTIONAL_BUILTINS: readonly BuiltinAgentStage[] = ["simplify", "review"];
 
 /** Built-ins that can be put back: `develop` is never removed, so it is never missing. */
-export function missingBuiltins(draft: StagesDraft, all: readonly BuiltinAgentStage[] = OPTIONAL_BUILTINS): BuiltinAgentStage[] {
-  return all.filter((name) => !draft.rows.some((row) => row.name === name));
+export function missingBuiltins(draft: StagesDraft): BuiltinAgentStage[] {
+  return OPTIONAL_BUILTINS.filter((name) => !draft.rows.some((row) => row.name === name));
 }
 
 export function removeRow(draft: StagesDraft, key: string): void {
