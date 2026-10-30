@@ -78,8 +78,7 @@ function stepRow(step: UiLifecycleStep): string {
   return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase])}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${step.reason ? `<span class="why">${esc(step.reason)}</span>` : ""}</li>`;
 }
 
-/** The feature's own lifecycle (Feature Verify, fix rounds, Polish); its attempts are the parent number's in the attempt log. */
-function featureHead(project: BoardProject, run: UiRun): string {
+function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
   const { featureVerify: verify, polish } = run;
   const failure = verify.phase === "red" ? verify.reason : undefined;
   const reverted = polish.phase === "reverted" ? polish.reason ?? "polish changes were reverted" : undefined;
@@ -110,7 +109,7 @@ function featureHead(project: BoardProject, run: UiRun): string {
 function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "item" }>): string {
   const found = findItem(project, drawer.itemNumber);
   const feature = found ? undefined : findFeature(project, drawer.itemNumber);
-  if (feature) return featureHead(project, feature);
+  if (feature) return featureLifecycleDrawer(project, feature);
   if (!found) {
     return `<div class="d-head"><div class="row"><h2>#${drawer.itemNumber}</h2>${closeButton()}</div><div class="d-meta"><span>This item is no longer in the run.</span></div></div>`;
   }
