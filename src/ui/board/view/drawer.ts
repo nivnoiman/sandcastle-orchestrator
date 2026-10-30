@@ -54,7 +54,7 @@ function closeButton(): string {
 }
 
 /** `opus`, or `codex · gpt-5.5` off claude; empty when the model is unknown — never a guess. */
-export function agentLabel(agent: UiAgent | undefined): string {
+function agentLabel(agent: UiAgent | undefined): string {
   if (!agent?.model) return "";
   return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
 }
