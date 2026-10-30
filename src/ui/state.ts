@@ -178,7 +178,7 @@ export function uiLifecycle(
         label: "Feature fix",
         stage: FEATURE_FIX_STAGE,
         phase: fixing ? "running" : "done",
-        reason: `fix round ${fixing ? featureVerify.rework.round : fixRounds}/${featureVerify.rework.limit}`,
+        reason: `fix round ${fixRounds}/${featureVerify.rework.limit}`,
         agent: agentFor("feature-fix"),
       });
     }

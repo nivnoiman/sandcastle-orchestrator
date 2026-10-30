@@ -11,7 +11,6 @@ import {
   type FeatureVerifyStatus,
 } from "./runFeatureVerify.js";
 import { messageOf } from "../../messageOf.js";
-
 import { FEATURE_FIX_STAGE } from "./stages.js";
 
 export { FEATURE_FIX_STAGE };
