@@ -29,6 +29,10 @@ function customHarness(items = [testItem(17, "web")], resume?: ResumeEvidence[])
 }
 
 describe("a configured stage chain", () => {
+  it("exposes the chain the run was built with", () => {
+    expect(customHarness().engine.chain()).toBe(CUSTOM_CHAIN);
+  });
+
   it("runs custom agent and command stages in order, under their own labels", () => {
     const { adapters, engine, complete } = customHarness();
     engine.start();

@@ -16,7 +16,7 @@ const ROW_ICON: Record<AttentionEntry["kind"], string> = {
   "server-died": "alert",
 };
 
-const ACTION_ICON: Partial<Record<AttentionAction["id"], string>> = { requeue: "retry", log: "log", restart: "retry", cancel: "x", hold: "pause" };
+const ACTION_ICON: Partial<Record<AttentionAction["id"], string>> = { requeue: "retry", log: "log", "open-feature": "log", restart: "retry", cancel: "x", hold: "pause" };
 
 function actionButton(entry: AttentionEntry, action: AttentionAction, primary: boolean): string {
   const cls = `btn sm ${primary ? "primary" : ""} ${action.id === "cancel" ? "danger" : ""}`.trim();

@@ -6,6 +6,7 @@ import { integrationBase, type TrackerKind } from "../../project/projectConfig.j
 import { landAgentWork, type IntegrationHarness } from "../integrationHarness.js";
 import { buildPolishPrompt } from "../promptBuilder.js";
 import { messageOf } from "../../messageOf.js";
+import { POLISH_STAGE } from "../featureVerify/stages.js";
 
 export type PolishPhase = "idle" | "running" | "green" | "reverted" | "skipped";
 
@@ -108,7 +109,7 @@ async function polishTarget(deps: PolishDeps, target: PolishTarget): Promise<Pol
   const outcome = await landAgentWork({
     harness: deps.harness,
     repo: target.repo,
-    stage: "polish",
+    stage: POLISH_STAGE,
     prompt: (workspace) =>
       buildPolishPrompt({
         feature: deps.model.feature,

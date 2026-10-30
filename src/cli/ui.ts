@@ -15,6 +15,7 @@ import { defaultLayout } from "../real/paths.js";
 import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
 import { parentList, UiController, type NewLocalParent, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
 import { resolveUiPort, startUiServer } from "../ui/server.js";
+import { defaultStagesRouteDeps } from "../ui/stagesRoutes.js";
 import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js";
 import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
@@ -241,6 +242,7 @@ const server = await startUiServer(
   undefined,
   instance,
   push ? { store: push.store, publicKey: push.publicKey, ...(pusher ? { pusher } : {}) } : undefined,
+  defaultStagesRouteDeps(project.configPath),
 ).catch((cause: unknown) => {
   return fail(messageOf(cause));
 });

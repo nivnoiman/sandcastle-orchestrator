@@ -290,7 +290,7 @@ export class UiController {
     if (!runs.some((run) => run.hold?.reason === "auth")) this.authRecheckError = undefined;
     return {
       version: 2,
-      stages: uiStageChain(activeStageChain()),
+      stages: uiStageChain(engine?.chain() ?? activeStageChain()),
       mode: this.deps.mode,
       tracker: this.deps.tracker ?? "github",
       hubRepo: this.deps.hubRepo,

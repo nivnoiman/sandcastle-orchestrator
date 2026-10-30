@@ -2,7 +2,7 @@ import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
 import { createRunReader, ensureLocalRemote, localIssueStore } from "../tracker/index.js";
 import type { RunModel } from "../model/runModel.js";
-import { activeProject, integrationBase } from "../project/projectConfig.js";
+import { activeProject, integrationBase, type ProjectConfig } from "../project/projectConfig.js";
 import { WatchLoop } from "../watch/pollDriver.js";
 import { createRealAdapters } from "./adapters.js";
 import { AttemptLogStore } from "./attemptLog.js";
@@ -53,6 +53,10 @@ export interface RealRun {
   stop(): void;
 }
 
+function withProjectAtRunStart(shared: OrchestratorConfig, project: ProjectConfig): OrchestratorConfig {
+  return { ...shared, agents: project.agents, stages: project.stages };
+}
+
 export function startRealRun(options: RealRunOptions): Promise<RealRun> {
   const host = controlPlaneHost({
     hubRepo: options.hubRepo,
@@ -68,7 +72,8 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
   const { model, log } = options;
   const lease = host.acquire();
   const { plane } = lease;
-  const { runner, fs, layout, config, verifyMutex } = plane;
+  const { runner, fs, layout, verifyMutex } = plane;
+  const config = withProjectAtRunStart(plane.config, activeProject());
   let engineRef: Engine | undefined;
   const slots = plane.broker.slotsFor({ refill: () => engineRef?.refill() });
 
@@ -102,6 +107,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     const engine = new Engine(model, bundle.adapters, {
       workerCap: options.workerCap,
       reworkLimit: config.reworkLimit,
+      stages: config.stages,
       slots,
       hold: plane.hold,
     });
@@ -178,6 +184,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
             config,
             git: bundle.git,
             parentNumber: model.parentNumber,
+            logs,
             feature: model.feature,
             integrationBranch: model.integrationBranch,
             involvedRepos: involvedRepos(verifyModel),

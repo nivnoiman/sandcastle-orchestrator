@@ -12,6 +12,7 @@ import {
   idlePolish,
   phaseCounts,
   polishLabel,
+  uiLifecycle,
   uiHold,
   uiItems,
   uiParent,
@@ -125,6 +126,7 @@ export class ParentRunSlot {
       hold: uiHold(this.engine),
       featureVerify: this.featureVerify(),
       polish: this.polish(),
+      lifecycle: uiLifecycle(this.featureVerify(), this.polish(), (role) => this.session.agentFor?.(role)),
       phaseCounts: phaseCounts(views),
       items: uiItems(
         urlOf,

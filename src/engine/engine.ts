@@ -422,6 +422,11 @@ export class Engine {
     return this.runningCount;
   }
 
+  /** The stage chain this run was built with; a later config edit does not change it. */
+  chain(): readonly StageSpec[] {
+    return this.stages;
+  }
+
   phases(): ReadonlyMap<number, ItemPhase> {
     return new Map([...this.states].map(([number, state]) => [number, state.phase]));
   }

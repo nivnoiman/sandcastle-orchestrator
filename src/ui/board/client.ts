@@ -10,6 +10,8 @@ import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
 import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
+import { addBuiltin, addStage, draftEdits, draftOf, missingBuiltins, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
+import type { StagesView } from "../../project/stagesEditor.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
 import { renderMain, renderSide } from "./view/main.js";
@@ -599,6 +601,128 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
+  async function loadStages(project: BoardProject, path: { method: "GET" | "POST"; url: string }): Promise<void> {
+    const drawer = ui.drawer;
+    if (drawer?.kind !== "stages") return;
+    drawer.busy = true;
+    drawer.error = undefined;
+    render();
+    try {
+      const api = apiOf(project);
+      const payload = path.method === "GET" ? await api.get(path.url) : await api.send("POST", path.url);
+      if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, undefined);
+    } catch (cause) {
+      drawer.error = messageOf(cause);
+    }
+    drawer.busy = false;
+    render();
+  }
+
+  function applyStagesView(view: StagesView, notice: string | undefined): void {
+    if (ui.drawer?.kind !== "stages") return;
+    ui.drawer.view = view;
+    ui.drawer.draft = draftOf(view);
+    ui.drawer.editing = undefined;
+    ui.drawer.notice = notice;
+  }
+
+  async function openStages(project: BoardProject): Promise<void> {
+    stopDrawerPolling();
+    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: { rows: [], nextKey: 0 }, busy: false, error: undefined, notice: undefined, editing: undefined, dragKey: undefined };
+    render();
+    focusDrawer();
+    await loadStages(project, { method: "GET", url: "/api/stages" });
+  }
+
+  async function refreshStages(project: BoardProject): Promise<void> {
+    await loadStages(project, { method: "POST", url: "/api/stages/reload" });
+    if (ui.drawer?.kind === "stages" && !ui.drawer.error) {
+      ui.drawer.notice = "Re-read from disk. New runs use this.";
+      render();
+    }
+  }
+
+  async function saveStages(project: BoardProject): Promise<void> {
+    const drawer = ui.drawer;
+    if (drawer?.kind !== "stages" || drawer.busy || !drawer.view) return;
+    const edits = draftEdits(drawer.draft);
+    drawer.busy = true;
+    drawer.error = undefined;
+    render();
+    try {
+      const payload = await apiOf(project).send("PUT", "/api/stages", { stages: edits });
+      if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
+      localLine(project, "note", `stages saved: ${edits.map((edit) => edit.name).join(", ")} — applies to new runs`);
+    } catch (cause) {
+      drawer.error = messageOf(cause);
+    }
+    drawer.busy = false;
+    render();
+  }
+
+  function stagesDrawer(): Extract<NonNullable<typeof ui.drawer>, { kind: "stages" }> | undefined {
+    return ui.drawer?.kind === "stages" ? ui.drawer : undefined;
+  }
+
+  function stageRow(draft: StagesDraft, key: string | undefined): StagesDraft["rows"][number] | undefined {
+    return draft.rows.find((row) => row.key === key);
+  }
+
+  function discardStages(): void {
+    const drawer = stagesDrawer();
+    if (!drawer?.view) return;
+    drawer.draft = draftOf(drawer.view);
+    drawer.editing = undefined;
+    drawer.error = undefined;
+    drawer.notice = undefined;
+    render();
+  }
+
+  function stageClick(action: string, element: HTMLElement): void {
+    const drawer = stagesDrawer();
+    if (!drawer || drawer.busy) return;
+    const key = element.dataset["key"];
+    const index = drawer.draft.rows.findIndex((row) => row.key === key);
+    drawer.notice = undefined;
+    if (action === "stage-add") addStage(drawer.draft, element.dataset["kind"] === "command" ? "command" : "agent");
+    else if (action === "stage-up" && key) moveRow(drawer.draft, key, index - 1);
+    else if (action === "stage-down" && key) moveRow(drawer.draft, key, index + 1);
+    else if (action === "stage-remove" && key) removeRow(drawer.draft, key);
+    else if (action === "stage-prompt-open") drawer.editing = key;
+    else if (action === "stage-prompt-close") drawer.editing = undefined;
+    else return;
+    render();
+  }
+
+  function onDragStart(event: DragEvent): void {
+    const grip = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-drag=stage]") : null;
+    const drawer = stagesDrawer();
+    if (!grip || !drawer || !event.dataTransfer) return;
+    drawer.dragKey = grip.dataset["key"];
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", drawer.dragKey ?? "");
+  }
+
+  function onDragOver(event: DragEvent): void {
+    if (stagesDrawer()?.dragKey === undefined) return;
+    if (event.target instanceof Element && event.target.closest(".stage-row")) event.preventDefault();
+  }
+
+  function onDrop(event: DragEvent): void {
+    const drawer = stagesDrawer();
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".stage-row") : null;
+    if (!drawer?.dragKey || !target) return;
+    event.preventDefault();
+    moveRow(drawer.draft, drawer.dragKey, Number(target.dataset["index"]));
+    drawer.dragKey = undefined;
+    render();
+  }
+
+  function onDragEnd(): void {
+    const drawer = stagesDrawer();
+    if (drawer) drawer.dragKey = undefined;
+  }
+
   async function submitNewParent(project: BoardProject, drawer: Extract<NonNullable<typeof ui.drawer>, { kind: "add" }>): Promise<void> {
     try {
       const payload = await apiOf(project).send("POST", "/api/parents/local", { title: drawer.title, body: drawer.text });
@@ -902,6 +1026,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/cancel`));
     } else if (act_ === "att-open-run") {
       openRun(project.id, runNumber);
+    } else if (act_ === "att-open-feature" && runNumber) {
+      setCurrent(project.id, runNumber);
+      openItem(project, runNumber);
     } else if (act_ === "att-feed") {
       setCurrent(project.id);
       if (!ui.feedOpen) {
@@ -971,6 +1098,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return render();
     }
     if (action === "open-item" && itemNumber) return openItem(project, itemNumber);
+    if (action === "open-feature" && runNumber) return openItem(project, runNumber);
     if (action === "jump" && itemNumber) return jumpTo(element, itemNumber);
     if (action === "retry" && itemNumber) return void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/retry`));
     if (action === "cancel" && itemNumber) return void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/cancel`));
@@ -1008,6 +1136,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return;
     }
     if (action === "open-reset") return void openReset(project);
+    if (action === "open-stages") return void openStages(project);
+    if (action === "stages-save") return void saveStages(project);
+    if (action === "stages-refresh") return void refreshStages(project);
+    if (action === "stages-discard") return void discardStages();
+    if (ui.drawer?.kind === "stages" && action.startsWith("stage-")) return void stageClick(action, element);
     if (action === "reset-apply") return void applyReset(project);
     if (action === "add-submit-btn") return void submitAdd(project);
     if (action === "select-attempt") {
@@ -1027,6 +1160,33 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const value = (element as HTMLInputElement | HTMLSelectElement).value;
     if (action === "parent-select") {
       ui.selectedParent = value;
+      return render();
+    }
+    if (action === "stage-provider" && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row) {
+        row.provider = value;
+        row.model = "";
+        row.customModel = false;
+      }
+      return render();
+    }
+    if (action === "stage-model-pick" && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row) {
+        row.customModel = value === "__custom__";
+        row.model = row.customModel ? "" : value;
+      }
+      return render();
+    }
+    if (action === "stage-run-pick" && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row && value !== "") row.run = value;
+      return render();
+    }
+    if (action === "stage-add-builtin" && ui.drawer?.kind === "stages") {
+      const name = missingBuiltins(ui.drawer.draft).find((candidate) => candidate === value);
+      if (name) addBuiltin(ui.drawer.draft, name);
       return render();
     }
     if (action === "raw-toggle") {
@@ -1070,6 +1230,14 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     } else if (action === "add-text" && ui.drawer?.kind === "add") {
       ui.drawer.text = value;
       render();
+    } else if (action.startsWith("stage-") && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (!row) return;
+      if (action === "stage-model") row.model = value;
+      else if (action === "stage-name") row.name = value;
+      else if (action === "stage-run") row.run = value;
+      else if (action === "stage-prompt-text") row.prompt = value;
+      render();
     } else if (action === "add-title" && ui.drawer?.kind === "add") {
       ui.drawer.title = value;
       render();
@@ -1111,6 +1279,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return;
     }
     if (event.key === "Escape" && ui.drawer) {
+      const stages = stagesDrawer();
+      if (stages?.editing !== undefined) {
+        stages.editing = undefined;
+        render();
+        return;
+      }
       closeDrawer();
       return;
     }
@@ -1127,6 +1301,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   root.addEventListener("change", onChange);
   root.addEventListener("input", onInput);
   root.addEventListener("submit", onSubmit);
+  root.addEventListener("dragstart", onDragStart);
+  root.addEventListener("dragover", onDragOver);
+  root.addEventListener("drop", onDrop);
+  root.addEventListener("dragend", onDragEnd);
   document.addEventListener("keydown", onKeydown);
   document.addEventListener("visibilitychange", pollVisible);
 
@@ -1185,6 +1363,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       root.removeEventListener("change", onChange);
       root.removeEventListener("input", onInput);
       root.removeEventListener("submit", onSubmit);
+      root.removeEventListener("dragstart", onDragStart);
+      root.removeEventListener("dragover", onDragOver);
+      root.removeEventListener("drop", onDrop);
+      root.removeEventListener("dragend", onDragEnd);
     },
   };
 }

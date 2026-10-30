@@ -5,6 +5,7 @@ import type { ItemPhase, ItemView, StallSummary } from "../engine/engine.js";
 import type { RunModel } from "../model/runModel.js";
 import type { TrackerKind } from "../project/projectConfig.js";
 import { hubIssueUrl } from "../real/ghClient.js";
+import { FEATURE_FIX_STAGE, FEATURE_VERIFY_STAGE, POLISH_STAGE } from "../real/featureVerify/stages.js";
 import { idleFeatureVerify, type FeatureVerifyStatus } from "../real/featureVerify/runFeatureVerify.js";
 import { idlePolish, type PolishStatus } from "../real/polish/runPolish.js";
 import type { QuietInfo } from "./quiet.js";
@@ -63,6 +64,19 @@ export interface UiHold {
   probe?: UiAuthProbe;
 }
 
+export type LifecycleStepId = "verify" | "fix" | "polish";
+
+/** One feature-level Run Lifecycle step; its attempts live under the parent number and `stage` in the attempt log. */
+export interface UiLifecycleStep {
+  id: LifecycleStepId;
+  label: string;
+  /** Attempt-log stage: `/api/items/<parent>/attempts` lists this step's agent runs. */
+  stage: string;
+  phase: "idle" | "waiting" | "running" | "done" | "red" | "reverted" | "skipped";
+  reason: string | undefined;
+  agent: UiAgent | undefined;
+}
+
 export interface UiRun {
   parent: UiParent;
   cap: number;
@@ -75,6 +89,7 @@ export interface UiRun {
   hold: UiHold | undefined;
   featureVerify: FeatureVerifyStatus;
   polish: PolishStatus;
+  lifecycle: UiLifecycleStep[];
   phaseCounts: Record<ItemPhase, number>;
   items: UiItem[];
 }
@@ -134,6 +149,42 @@ export function featureVerifyLabel(status: FeatureVerifyStatus): string {
   if (status.phase === "red") return `feature verify: red — ${status.reason ?? counts}`;
   if (status.phase === "skipped") return "feature verify: skipped";
   return "feature verify: idle";
+}
+
+/** Feature Verify, its fix rounds and Polish as steps; the fix step shows only once a round was sent back. */
+export function uiLifecycle(
+  featureVerify: FeatureVerifyStatus,
+  polish: PolishStatus,
+  agentFor: (role: string) => UiAgent | undefined = () => undefined,
+): UiLifecycleStep[] {
+  const fixing = featureVerify.phase === "fixing";
+  const verifyPhase = ({
+    idle: "idle",
+    waiting: "waiting",
+    running: "running",
+    fixing: "red",
+    green: "done",
+    red: "red",
+    skipped: "skipped",
+  } as const satisfies Record<FeatureVerifyStatus["phase"], UiLifecycleStep["phase"]>)[featureVerify.phase];
+  const steps: UiLifecycleStep[] = [
+    { id: "verify", label: "Feature Verify", stage: FEATURE_VERIFY_STAGE, phase: verifyPhase, reason: featureVerify.reason, agent: agentFor("feature-verify") },
+  ];
+  if (featureVerify.rework) {
+    const fixRounds = fixing ? featureVerify.rework.round : featureVerify.rework.round - 1;
+    if (fixing || fixRounds > 0) {
+      steps.push({
+        id: "fix",
+        label: "Feature fix",
+        stage: FEATURE_FIX_STAGE,
+        phase: fixing ? "running" : "done",
+        reason: `fix round ${fixRounds}/${featureVerify.rework.limit}`,
+        agent: agentFor("feature-fix"),
+      });
+    }
+  }
+  steps.push({ id: "polish", label: "Polish", stage: POLISH_STAGE, phase: polish.phase === "green" ? "done" : polish.phase, reason: polish.reason, agent: agentFor("polish") });
+  return steps;
 }
 
 export function polishLabel(status: PolishStatus): string {

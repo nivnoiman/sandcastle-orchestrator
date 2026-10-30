@@ -10,6 +10,7 @@ import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
 import { outputTail } from "../sandboxRunner.js";
 import { runVerifyAgent } from "./verifyAgent.js";
 import { resolveAgent } from "../agents/index.js";
+import type { AttemptLogStore } from "../attemptLog.js";
 import {
   claimVerifyWorktree,
   COMPOSE_OUTPUT_TAIL,
@@ -35,6 +36,7 @@ export interface CommandHarnessDeps {
   config: OrchestratorConfig;
   git: VerifyWorktrees;
   parentNumber: number;
+  logs?: AttemptLogStore | undefined;
   integrationBranch: string;
   involvedRepos: readonly TargetRepo[];
   log: (message: string) => void;
