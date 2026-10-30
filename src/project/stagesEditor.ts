@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { messageOf } from "../messageOf.js";
@@ -130,7 +131,7 @@ export function withAgentEdits(rawConfig: Json, edits: readonly AgentEdit[]): Js
 }
 
 function atomicWrite(path: string, text: string): void {
-  const temp = join(dirname(path), `.${Date.now()}.config.tmp`);
+  const temp = join(dirname(path), `.${randomUUID()}.config.tmp`);
   try {
     writeFileSync(temp, text);
     renameSync(temp, path);
@@ -150,7 +151,14 @@ function atomicWrite(path: string, text: string): void {
  */
 export function saveAgentEdits(configPath: string, edits: readonly AgentEdit[]): ProjectConfig {
   const original = readFileSync(configPath, "utf8");
-  const next = withAgentEdits(JSON.parse(original) as Json, edits);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(original);
+  } catch (cause) {
+    throw new Error(`${configPath} is not valid JSON — ${messageOf(cause)}`, { cause });
+  }
+  if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
+  const next = withAgentEdits(raw, edits);
   const project = parseProjectConfig(next, configPath);
   if (readFileSync(configPath, "utf8") !== original) throw new Error("config.json changed on disk while saving — refresh and try again");
   atomicWrite(configPath, `${JSON.stringify(next, null, 2)}\n`);

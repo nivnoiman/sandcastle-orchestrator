@@ -610,11 +610,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     try {
       const api = apiOf(project);
       const payload = path.method === "GET" ? await api.get(path.url) : await api.send("POST", path.url);
-      applyStagesView(payload["result"] as StagesView, undefined);
+      if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, undefined);
     } catch (cause) {
-      if (ui.drawer?.kind === "stages") ui.drawer.error = messageOf(cause);
+      drawer.error = messageOf(cause);
     }
-    if (ui.drawer?.kind === "stages") ui.drawer.busy = false;
+    drawer.busy = false;
     render();
   }
 
@@ -651,12 +651,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
     try {
       const payload = await apiOf(project).send("PUT", "/api/stages/agents", { edits });
-      applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
+      if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
       localLine(project, "note", `stages saved: ${edits.map((edit) => edit.name).join(", ")} — applies to new runs`);
     } catch (cause) {
-      if (ui.drawer?.kind === "stages") ui.drawer.error = messageOf(cause);
+      drawer.error = messageOf(cause);
     }
-    if (ui.drawer?.kind === "stages") ui.drawer.busy = false;
+    drawer.busy = false;
     render();
   }
 
