@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { MODEL_NAME, PROVIDER_NAMES, type AgentChoice, type ProviderName } from "./agentsConfig.js";
 import { parseProjectConfig, projectRootOf, type ProjectConfig } from "./projectConfig.js";
@@ -182,13 +182,16 @@ function choiceJson(provider: ProviderName, model: string | null): string | Json
 interface PromptWrite {
   path: string;
   text: string;
+  /** True when the config did not already point at this file: ours to create, never to overwrite. */
+  created: boolean;
 }
 
 /** Existing prompt files keep their path; a new one goes under `.sandcastle/prompts/<name>.md`. */
-function promptPathFor(name: string, rawStages: unknown): string {
+function promptPathFor(name: string, rawStages: unknown): { prompt: string; created: boolean } {
   const existing = Array.isArray(rawStages) ? rawStages.find((entry) => isObject(entry) && entry["name"] === name) : undefined;
   const current = isObject(existing) ? existing["prompt"] : undefined;
-  return typeof current === "string" && current.trim().length > 0 ? current : `${PROMPTS_DIR}/${name}.md`;
+  if (typeof current === "string" && current.trim().length > 0) return { prompt: current, created: false };
+  return { prompt: `${PROMPTS_DIR}/${name}.md`, created: true };
 }
 
 /** The raw config for the edited chain, plus the prompt files it needs written. Built-in agents go to `agents.<role>`. */
@@ -204,8 +207,8 @@ export function withStageEdits(rawConfig: Json, edits: readonly StageEdit[], pro
       return edit.name;
     }
     if (edit.kind === "command") return { name: edit.name, kind: "command", run: edit.run };
-    const prompt = promptPathFor(edit.name, rawConfig["stages"]);
-    prompts.push({ path: resolve(projectRoot, prompt), text: edit.prompt });
+    const { prompt, created } = promptPathFor(edit.name, rawConfig["stages"]);
+    prompts.push({ path: resolve(projectRoot, prompt), text: edit.prompt, created });
     return {
       name: edit.name,
       kind: "agent",
@@ -233,7 +236,7 @@ function atomicWrite(path: string, text: string): void {
 
 function assertInsideProject(path: string, projectRoot: string): void {
   const inside = relative(projectRoot, path);
-  if (inside.startsWith("..") || isAbsolute(inside)) {
+  if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
     throw new Error(`prompt file ${path} is outside the project — edit it by hand, or rename the stage so it gets its own file under ${PROMPTS_DIR}`);
   }
 }
@@ -254,10 +257,19 @@ export function saveStageEdits(configPath: string, edits: readonly StageEdit[]):
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
   const projectRoot = projectRootOf(configPath);
   const { config, prompts } = withStageEdits(raw, edits, projectRoot);
-  const pending = new Map(prompts.map((prompt) => [prompt.path, prompt.text]));
+  const pending = new Map<string, string>();
+  for (const prompt of prompts) {
+    if (pending.has(prompt.path)) throw new Error(`two stages share the prompt file ${prompt.path} — give each its own file in config.json`);
+    pending.set(prompt.path, prompt.text);
+  }
   const project = parseProjectConfig(config, configPath, (path) => pending.get(path) ?? readFileSync(path, "utf8"));
   const changed = prompts.filter((prompt) => readPromptText(prompt.path) !== prompt.text);
-  for (const prompt of changed) assertInsideProject(prompt.path, projectRoot);
+  for (const prompt of changed) {
+    assertInsideProject(prompt.path, projectRoot);
+    if (prompt.created && existsSync(prompt.path)) {
+      throw new Error(`${prompt.path} already exists and no stage uses it — pick another stage name, or point a stage at it in config.json`);
+    }
+  }
   if (readFileSync(configPath, "utf8") !== original) throw new Error("config.json changed on disk while saving — refresh and try again");
   for (const prompt of changed) atomicWrite(prompt.path, prompt.text);
   atomicWrite(configPath, `${JSON.stringify(config, null, 2)}\n`);

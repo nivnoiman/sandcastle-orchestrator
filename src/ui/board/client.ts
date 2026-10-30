@@ -1275,6 +1275,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return;
     }
     if (event.key === "Escape" && ui.drawer) {
+      const stages = stagesDrawer();
+      if (stages?.editing !== undefined) {
+        stages.editing = undefined;
+        render();
+        return;
+      }
       closeDrawer();
       return;
     }
@@ -1353,6 +1359,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       root.removeEventListener("change", onChange);
       root.removeEventListener("input", onInput);
       root.removeEventListener("submit", onSubmit);
+      root.removeEventListener("dragstart", onDragStart);
+      root.removeEventListener("dragover", onDragOver);
+      root.removeEventListener("drop", onDrop);
+      root.removeEventListener("dragend", onDragEnd);
     },
   };
 }
