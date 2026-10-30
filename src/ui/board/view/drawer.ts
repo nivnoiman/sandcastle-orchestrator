@@ -1,7 +1,7 @@
 import type { UiItem, UiRun } from "../../state.js";
 import { esc } from "../format.js";
 import { isLocalProject, webUrl, type BoardProject } from "../model.js";
-import { transcriptTurns } from "../transcript.js";
+import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import { prLabel } from "./run.js";
@@ -94,11 +94,35 @@ function attemptsMarkup(drawer: Extract<DrawerState, { kind: "item" }>): string 
       <div class="att-track">${tabs || `<span class="muted">${drawer.loaded ? "No attempt has been recorded for this item yet." : "Loading…"}</span>`}</div>`;
 }
 
+function clock(at: number): string {
+  return new Date(at).toISOString().slice(11, 19);
+}
+
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** UTC time, or "from - to (duration)" for a collapsed row; empty without a source time. */
+export function rowTime(row: LogRow): string {
+  if (row.at === undefined) return "";
+  if (row.until === undefined || row.until === row.at) return clock(row.at);
+  return `${clock(row.at)} - ${clock(row.until)} (${duration(row.until - row.at)})`;
+}
+
+function rowMarkup(row: LogRow): string {
+  const time = rowTime(row);
+  const stamp = time ? `<span class="ts" title="UTC">${esc(time)}</span>` : "";
+  const repeat = row.count > 1 ? `<span class="rep">×${row.count}</span>` : "";
+  return `<div class="turn ${row.kind}">${stamp}${repeat}${esc(row.text)}</div>`;
+}
+
 export function renderLog(text: string, raw: boolean): string {
   if (raw) return `<pre class="raw">${esc(text)}</pre>`;
-  return transcriptTurns(text)
-    .map((turn) => `<div class="turn ${turn.kind}">${esc(turn.text)}</div>`)
-    .join("");
+  return collapseTurns(transcriptTurns(text)).map(rowMarkup).join("");
 }
 
 function resetBody(drawer: Extract<DrawerState, { kind: "reset" }>): string {

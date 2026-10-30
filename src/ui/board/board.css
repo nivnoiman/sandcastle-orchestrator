@@ -436,6 +436,8 @@ button.d-blocker:hover { border-color: var(--ink-3); background: var(--surface-2
 .log .turn.tool { color: var(--merge); }
 .log .turn.result { color: var(--done-ink); }
 .log .turn.err { color: var(--park-ink); }
+.log .turn .ts { display: block; color: var(--ink-3); font-size: 10.5px; }
+.log .turn .rep { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 8px; background: var(--line); color: var(--ink-2, var(--ink-3)); font-size: 10.5px; }
 .log .logfoot { padding-top: 10px; color: var(--ink-3); font-family: var(--font); font-size: 12px; }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
