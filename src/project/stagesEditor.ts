@@ -9,6 +9,13 @@ import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, VERIFY_STAGE, type Bui
 export const PROMPTS_DIR = ".sandcastle/prompts";
 export const PROMPT_MAX_CHARS = 65536;
 
+/** Names the provider CLIs accept, offered next to the ones this project already uses; any other model name can still be typed. */
+const COMMON_MODELS: Record<ProviderName, readonly string[]> = {
+  claude: ["opus", "sonnet", "haiku"],
+  codex: ["gpt-5.5", "gpt-5.5-codex"],
+  cursor: [],
+};
+
 /** One chain row as the Board View shows it. `agent` is what the config says; unset = `agents.default`. */
 export interface StageRow {
   name: string;
@@ -27,11 +34,18 @@ export interface StagesView {
   defaultAgent: AgentChoice;
   providers: readonly ProviderName[];
   models: Record<ProviderName, string[]>;
+  /** Commands this project already runs, to pick for a command stage. */
+  commands: ExistingCommand[];
   placeholders: readonly string[];
   /** Built-in stages that are not in the chain, offered by "Add built-in". */
   missingBuiltins: BuiltinAgentStage[];
   promptsDir: string;
   appliesTo: "new runs";
+}
+
+export interface ExistingCommand {
+  source: string;
+  command: string;
 }
 
 interface AgentFields {
@@ -76,7 +90,7 @@ function rowOf(stage: StageSpec, project: ProjectConfig): StageRow {
 }
 
 function modelsInUse(project: ProjectConfig): Record<ProviderName, string[]> {
-  const models = Object.fromEntries(PROVIDER_NAMES.map((name) => [name, new Set<string>()])) as Record<ProviderName, Set<string>>;
+  const models = Object.fromEntries(PROVIDER_NAMES.map((name) => [name, new Set<string>(COMMON_MODELS[name])])) as Record<ProviderName, Set<string>>;
   const choices = [
     project.agents.default,
     ...Object.values(project.agents.roles),
@@ -86,6 +100,24 @@ function modelsInUse(project: ProjectConfig): Record<ProviderName, string[]> {
   return Object.fromEntries(PROVIDER_NAMES.map((name) => [name, [...models[name]].sort()])) as Record<ProviderName, string[]>;
 }
 
+function existingCommands(project: ProjectConfig): ExistingCommand[] {
+  const found: ExistingCommand[] = [];
+  for (const [repo, config] of Object.entries(project.repos)) {
+    found.push({ source: `${repo} checks`, command: config.checks });
+    if (config.bootstrap.trim() !== "") found.push({ source: `${repo} bootstrap`, command: config.bootstrap });
+  }
+  if (project.verify.strategy === "command") {
+    for (const [repo, command] of Object.entries(project.verify.commands)) found.push({ source: `verify ${repo}`, command });
+  }
+  for (const stage of project.stages) {
+    if (stage.kind !== "command") continue;
+    if (typeof stage.run === "string") found.push({ source: `stage ${stage.name}`, command: stage.run });
+    else for (const [repo, command] of Object.entries(stage.run)) found.push({ source: `stage ${stage.name} (${repo})`, command });
+  }
+  const seen = new Set<string>();
+  return found.filter((entry) => !seen.has(entry.command) && seen.add(entry.command));
+}
+
 export function stagesViewOf(project: ProjectConfig): StagesView {
   const present = new Set(project.stages.map((stage) => stage.name));
   return {
@@ -93,6 +125,7 @@ export function stagesViewOf(project: ProjectConfig): StagesView {
     defaultAgent: project.agents.default,
     providers: PROVIDER_NAMES,
     models: modelsInUse(project),
+    commands: existingCommands(project),
     placeholders: STAGE_PROMPT_PLACEHOLDERS,
     missingBuiltins: BUILTIN_AGENT_STAGES.filter((name) => !present.has(name)),
     promptsDir: PROMPTS_DIR,
