@@ -659,3 +659,8 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 .modal h3 { margin: 0; font-size: 15px; }
 .modal-help { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
 .modal textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12.5px; }
+.d-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.d-step { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; }
+.d-step .t { font-weight: 600; min-width: 96px; }
+.d-step .d-model { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-size: 11.5px; }
+.d-step .why { color: var(--ink-2); }

@@ -1,4 +1,4 @@
-import type { UiAgent, UiItem, UiRun } from "../../state.js";
+import type { UiAgent, UiItem, UiLifecycleStep, UiRun } from "../../state.js";
 import { esc } from "../format.js";
 import { isLocalProject, webUrl, type BoardProject } from "../model.js";
 import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
@@ -25,6 +25,20 @@ export function findItem(project: BoardProject, itemNumber: number): { item: UiI
   const item = state.items.find((candidate) => candidate.number === itemNumber);
   return item ? { item, run: undefined } : undefined;
 }
+
+export function findFeature(project: BoardProject, parentNumber: number): UiRun | undefined {
+  return project.state?.runs.find((run) => run.parent.number === parentNumber);
+}
+
+const STEP_TONE: Record<UiLifecycleStep["phase"], string> = {
+  running: "run",
+  waiting: "wait",
+  done: "done",
+  red: "park",
+  reverted: "wait",
+  skipped: "",
+  idle: "",
+};
 
 const PHASE_TONE: Record<UiItem["phase"], string> = {
   running: "run",
@@ -59,8 +73,43 @@ function agentLabel(agent: UiAgent | undefined): string {
   return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
 }
 
+function stepRow(step: UiLifecycleStep): string {
+  const model = agentLabel(step.agent);
+  return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase])}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${step.reason ? `<span class="why">${esc(step.reason)}</span>` : ""}</li>`;
+}
+
+function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
+  const { featureVerify: verify, polish } = run;
+  const failure = verify.phase === "red" ? verify.reason : undefined;
+  const reverted = polish.phase === "reverted" ? polish.reason ?? "polish changes were reverted" : undefined;
+  const waiting = verify.phase === "waiting" ? "Waiting for another parent's Feature Verify to release the verify environment." : "";
+  const open = verify.phase === "idle" ? run.items.filter((item) => item.phase !== "done").map((item) => item.number) : [];
+  const counts = verify.phase === "idle" || verify.phase === "skipped" ? "" : `<span>${verify.counts.pass} pass · ${verify.counts.fail} fail · ${verify.counts.requiresStg} requires-STG</span>`;
+  const links = [...verify.pullRequests, ...polish.pullRequests]
+    .filter((url) => webUrl(url))
+    .map((url) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noreferrer">${icon("pr")}${esc(prLabel(url))}</a>`)
+    .join("");
+  return `<div class="d-head">
+      <div class="row"><h2>${issueLink(webUrl(run.parent.url), `#${run.parent.number}`)}Feature lifecycle · ${esc(run.parent.feature)}</h2>${closeButton()}</div>
+      <div class="d-meta">
+        <span class="mono">${icon("branch")}${esc(run.parent.integrationBranch)}</span>
+        ${counts}
+        ${verify.rework ? `<span>Fix round ${verify.rework.round}/${verify.rework.limit}</span>` : ""}
+        <span>Run #${run.parent.number}</span>
+      </div>
+      <ul class="d-steps">${run.lifecycle.map(stepRow).join("")}</ul>
+      ${failure ? `<div class="d-reason"><b>Feature Verify red:</b> ${esc(failure)}</div>` : ""}
+      ${reverted ? `<div class="d-reason"><b>Polish reverted:</b> ${esc(reverted)}</div>` : ""}
+      ${waiting ? `<div class="d-blocked">${esc(waiting)}</div>` : ""}
+      ${blockedBy(project, open)}
+      <div class="d-acts">${links}</div>
+    </div>`;
+}
+
 function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "item" }>): string {
   const found = findItem(project, drawer.itemNumber);
+  const feature = found ? undefined : findFeature(project, drawer.itemNumber);
+  if (feature) return featureLifecycleDrawer(project, feature);
   if (!found) {
     return `<div class="d-head"><div class="row"><h2>#${drawer.itemNumber}</h2>${closeButton()}</div><div class="d-meta"><span>This item is no longer in the run.</span></div></div>`;
   }

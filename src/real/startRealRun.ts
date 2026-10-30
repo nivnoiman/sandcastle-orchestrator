@@ -184,6 +184,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
             config,
             git: bundle.git,
             parentNumber: model.parentNumber,
+            logs,
             feature: model.feature,
             integrationBranch: model.integrationBranch,
             involvedRepos: involvedRepos(verifyModel),

@@ -1,4 +1,4 @@
-import type { UiFeedLine, UiItem, UiRun, UiState } from "../ui/state.js";
+import { uiLifecycle, type UiFeedLine, type UiItem, type UiRun, type UiState } from "../ui/state.js";
 
 export interface OpsItem {
   number: number;
@@ -46,6 +46,7 @@ function legacyRun(state: UiState): UiRun | undefined {
     hold: state.hold,
     featureVerify: state.featureVerify,
     polish: state.polish,
+    lifecycle: uiLifecycle(state.featureVerify, state.polish),
     phaseCounts: state.phaseCounts,
     items: state.items,
   };

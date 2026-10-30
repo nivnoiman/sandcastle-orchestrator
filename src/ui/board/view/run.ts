@@ -176,8 +176,13 @@ function prLinks(urls: readonly string[]): string {
   return `<div class="pr-links">${urls.map(prLink).join("")}</div>`;
 }
 
-function gateCards(run: UiRun, mode: BoardProject["mode"]): string {
-  const { featureVerify: verify, polish } = runGates(run, mode);
+function stepsButton(project: BoardProject, run: UiRun): string {
+  return button({ label: "Steps & log", icon: "log", cls: "sm", data: { "data-act": "open-feature", "data-proj": project.id, "data-run": run.parent.number } });
+}
+
+function gateCards(project: BoardProject, run: UiRun): string {
+  const { featureVerify: verify, polish } = runGates(run, project.mode);
+  const steps = (phase: string): string => (phase === "idle" || phase === "skipped" ? "" : stepsButton(project, run));
   const verifyTone = { running: "run", fixing: "wait", waiting: "wait", green: "done", red: "park", skipped: "", idle: "" }[verify.phase];
   const polishTone = { running: "run", green: "done", reverted: "wait", skipped: "", idle: "" }[polish.phase];
   const round = verify.rework ? `<div class="gd">Fix round ${verify.rework.round}/${verify.rework.limit}</div>` : "";
@@ -188,8 +193,8 @@ function gateCards(run: UiRun, mode: BoardProject["mode"]): string {
   const verifyText = verify.reason ?? (verify.phase === "idle" ? `Starts when all ${run.items.length} items merge into ${run.parent.integrationBranch}.` : "");
   const polishText = polish.reason ?? (polish.phase === "idle" ? "Runs after Feature Verify is green." : "");
   return `<div class="gates">
-    <div class="gate ${verify.phase}"><div class="gh">Feature Verify${tag(verify.phase, verifyTone)}</div>${scenarios}${round}${verifyText ? `<div class="gd">${esc(verifyText)}</div>` : ""}${prLinks(verify.pullRequests)}</div>
-    <div class="gate ${polish.phase}"><div class="gh">Polish${tag(polish.phase, polishTone)}</div>${polishText ? `<div class="gd">${esc(polishText)}</div>` : ""}${prLinks(polish.pullRequests)}</div>
+    <div class="gate ${verify.phase}"><div class="gh">Feature Verify${tag(verify.phase, verifyTone)}</div>${scenarios}${round}${verifyText ? `<div class="gd">${esc(verifyText)}</div>` : ""}${prLinks(verify.pullRequests)}${steps(verify.phase)}</div>
+    <div class="gate ${polish.phase}"><div class="gh">Polish${tag(polish.phase, polishTone)}</div>${polishText ? `<div class="gd">${esc(polishText)}</div>` : ""}${prLinks(polish.pullRequests)}${steps(polish.phase)}</div>
   </div>`;
 }
 
@@ -264,7 +269,7 @@ export function renderRunPanel(ui: BoardUi, project: BoardProject, run: UiRun): 
     <ol class="lifecycle" aria-label="Run Lifecycle">${steps.map(stepMarkup).join("")}</ol>
     ${progress(run)}
     ${banners(run, ui.nowMs)}
-    ${gateCards(run, project.mode)}
+    ${gateCards(project, run)}
     ${pipeline(ui, project, run)}
   </div>`;
 }

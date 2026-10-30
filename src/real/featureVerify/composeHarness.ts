@@ -28,6 +28,7 @@ import { outputTail } from "../sandboxRunner.js";
 import { runVerifyAgent } from "./verifyAgent.js";
 import { composeServiceEnv, credentialKeys, localMongoUri, MONGO_ALIAS, serviceBaseUrl } from "./composeEnv.js";
 import { messageOf } from "../../messageOf.js";
+import type { AttemptLogStore } from "../attemptLog.js";
 
 export const REPORT_FILE = "report.md";
 export const CONTAINER_REPORT_PATH = `${SANDBOX_WORKDIR}/${REPORT_FILE}`;
@@ -73,6 +74,7 @@ export interface ComposeHarnessDeps {
   config: OrchestratorConfig;
   git: VerifyWorktrees;
   parentNumber: number;
+  logs?: AttemptLogStore | undefined;
   feature: string;
   integrationBranch: string;
   involvedRepos: readonly TargetRepo[];

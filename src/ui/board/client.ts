@@ -1026,6 +1026,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/cancel`));
     } else if (act_ === "att-open-run") {
       openRun(project.id, runNumber);
+    } else if (act_ === "att-open-feature" && runNumber) {
+      setCurrent(project.id, runNumber);
+      openItem(project, runNumber);
     } else if (act_ === "att-feed") {
       setCurrent(project.id);
       if (!ui.feedOpen) {
@@ -1095,6 +1098,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return render();
     }
     if (action === "open-item" && itemNumber) return openItem(project, itemNumber);
+    if (action === "open-feature" && runNumber) return openItem(project, runNumber);
     if (action === "jump" && itemNumber) return jumpTo(element, itemNumber);
     if (action === "retry" && itemNumber) return void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/retry`));
     if (action === "cancel" && itemNumber) return void act(project, (api) => api.send("POST", `/api/items/${itemNumber}/cancel`));

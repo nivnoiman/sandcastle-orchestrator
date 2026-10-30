@@ -30,7 +30,7 @@ export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
 export type AttentionTone = "red" | "amber" | "purple" | "info";
 
-export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-link" | "feed" | "restart" | "recheck-auth";
+export type AttentionActionId = "requeue" | "hold" | "comment" | "log" | "cancel" | "open-run" | "open-feature" | "open-link" | "feed" | "restart" | "recheck-auth";
 
 /** A finished local Run: the branch to take in, and the command that does it. */
 export interface MergeHint {
@@ -116,6 +116,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
   const number = run.parent.number;
   const entries: AttentionEntry[] = [];
   const openRun: AttentionAction = { id: "open-run", label: "Open run", runNumber: number };
+  const openFeature = (label: string): AttentionAction => ({ id: "open-feature", label, runNumber: number });
 
   for (const item of run.items) {
     if (item.phase === "parked") {
@@ -175,7 +176,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
         title: `Feature Verify red on #${number}${rounds}`,
         detail: reason ?? `${counts.pass} pass, ${counts.fail} fail, ${counts.requiresStg} requires-STG`,
         runNumber: number,
-        actions: [openRun],
+        actions: [openFeature("Open verify")],
       }),
     );
   }
@@ -202,7 +203,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
         title: `Polish reverted on #${number}`,
         detail: run.polish.reason ?? "polish changes were reverted",
         runNumber: number,
-        actions: [openRun],
+        actions: [openFeature("Open polish")],
       }),
     );
   }

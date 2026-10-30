@@ -77,6 +77,7 @@ function parentRun(number: number, overrides: Partial<UiRun> = {}): UiRun {
     hold: undefined,
     featureVerify: idleFeatureVerify(),
     polish: idlePolish(),
+    lifecycle: [],
     phaseCounts: phaseCounts(items),
     items,
     ...overrides,

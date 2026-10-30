@@ -3,7 +3,7 @@ import { Engine } from "../../src/engine/engine.js";
 import { RecordingAdapters } from "../../src/engine/fakes.js";
 import { idleFeatureVerify, type FeatureVerifyStatus } from "../../src/real/featureVerify/runFeatureVerify.js";
 import { UiController, type Session } from "../../src/ui/controller.js";
-import { featureVerifyLabel } from "../../src/ui/state.js";
+import { featureVerifyLabel, idlePolish, uiLifecycle } from "../../src/ui/state.js";
 import { snapshot, testItem, testModel } from "../fixtures.js";
 
 function boot() {
@@ -94,5 +94,25 @@ describe("featureVerifyLabel", () => {
     expect(featureVerifyLabel({ ...idleFeatureVerify("waiting"), rework: { round: 1, limit: 3 } })).toBe(
       "feature verify: waiting for another parent's verify (fix round 1/3)",
     );
+  });
+});
+
+describe("feature lifecycle steps", () => {
+  const agentFor = (role: string) => ({ provider: "claude" as const, model: `m-${role}` });
+
+  it("shows verify and polish with their agents; no fix step before a round", () => {
+    const steps = uiLifecycle(idleFeatureVerify("running"), idlePolish(), agentFor);
+    expect(steps.map((step) => [step.id, step.stage, step.phase, step.agent?.model])).toEqual([
+      ["verify", "feature-verify", "running", "m-feature-verify"],
+      ["polish", "polish", "idle", "m-polish"],
+    ]);
+  });
+
+  it("adds a running fix step while a round is out, a done one after it", () => {
+    const fixing = uiLifecycle({ ...idleFeatureVerify("fixing"), rework: { round: 1, limit: 3 } }, idlePolish(), agentFor);
+    expect(fixing.map((step) => [step.id, step.phase])).toEqual([["verify", "red"], ["fix", "running"], ["polish", "idle"]]);
+    const after = uiLifecycle({ ...idleFeatureVerify("red"), reason: "r", rework: { round: 2, limit: 3 } }, idlePolish(), agentFor);
+    expect(after.find((step) => step.id === "fix")).toMatchObject({ phase: "done", stage: "fvfix", reason: "fix round 1/3" });
+    expect(after[0]).toMatchObject({ phase: "red", reason: "r" });
   });
 });

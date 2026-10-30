@@ -38,6 +38,7 @@ export function uiRun(parent: number, items: UiItem[], extra: Partial<UiRun> = {
     cap: 2,
     paused: false,
     started: true,
+    lifecycle: [],
     complete: false,
     settled: false,
     running: items.filter((item) => item.phase === "running").length,

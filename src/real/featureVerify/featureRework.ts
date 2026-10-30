@@ -11,8 +11,9 @@ import {
   type FeatureVerifyStatus,
 } from "./runFeatureVerify.js";
 import { messageOf } from "../../messageOf.js";
+import { FEATURE_FIX_STAGE } from "./stages.js";
 
-export const FEATURE_FIX_STAGE = "fvfix";
+export { FEATURE_FIX_STAGE };
 
 export interface FeatureFixResult {
   repo: TargetRepo;

@@ -8,7 +8,8 @@ import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
 import type { BoardProject } from "../../../src/ui/board/model.js";
-import type { UiItem } from "../../../src/ui/state.js";
+import { idleFeatureVerify } from "../../../src/real/featureVerify/runFeatureVerify.js";
+import { idlePolish, uiLifecycle, type UiItem } from "../../../src/ui/state.js";
 import { boardProject, NOW, uiItem, uiRun, uiState } from "./fixtures.js";
 
 function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
@@ -338,5 +339,68 @@ describe("auth hold banner", () => {
   it("marks the Project card in the rail", () => {
     const projects = [boardProject("alpha", authState())];
     expect(renderRail(ui(projects), buildAttention(projects, "alpha"))).toContain("held - agent login expired");
+  });
+});
+
+describe("feature lifecycle drawer", () => {
+  const parent = 10;
+  const project = (extra: Parameters<typeof uiRun>[2] = {}) =>
+    boardProject(
+      "p",
+      uiState([
+        uiRun(parent, [uiItem(3, "done")], {
+          featureVerify: { phase: "red", counts: { pass: 185, fail: 5, requiresStg: 2 }, reason: "fix round 1/3 landed nothing <b>", pullRequests: [], rework: { round: 2, limit: 3 } },
+          lifecycle: uiLifecycle(
+            { phase: "red", counts: { pass: 185, fail: 5, requiresStg: 2 }, reason: "fix round 1/3 landed nothing <b>", pullRequests: [], rework: { round: 2, limit: 3 } },
+            idlePolish(),
+            (role) => (role === "feature-verify" ? { provider: "claude", model: "opus" } : undefined),
+          ),
+          ...extra,
+        }),
+      ]),
+    );
+  const drawer = (p: BoardProject) =>
+    renderDrawer(
+      ui([p]),
+      p,
+      {
+        kind: "item",
+        projectId: "p",
+        itemNumber: parent,
+        attempts: [{ id: "10-feature-verify-1", stage: "feature-verify", attempt: 1, outcome: undefined, live: true, bytes: 5, startedAt: "t" }],
+        attemptId: "10-feature-verify-1",
+        raw: false,
+        loaded: true,
+      },
+      '{"sc_ts":"2026-08-15T09:00:01.000Z","type":"assistant","message":{"content":[{"type":"text","text":"checking scenarios"}]}}',
+    );
+
+  it("shows the feature's steps with model, outcome and counts for the parent number", () => {
+    const parts = drawer(project());
+    expect(parts.head).toContain("Feature lifecycle");
+    expect(parts.head).toContain("Feature Verify");
+    expect(parts.head).toContain("Feature fix");
+    expect(parts.head).toContain(">opus<");
+    expect(parts.head).toContain("185 pass · 5 fail · 2 requires-STG");
+    expect(parts.head).toContain("Fix round 2/3");
+    expect(parts.head).toContain("landed nothing &lt;b&gt;");
+  });
+
+  it("reuses the attempt tabs and the timestamped log", () => {
+    const parts = drawer(project());
+    expect(parts.attempts).toContain("feature-verify #1 · live");
+    expect(parts.body).toContain("09:00:01");
+    expect(parts.body).toContain("checking scenarios");
+  });
+
+  it("lists the open items as blockers while Feature Verify has not started", () => {
+    const idle = project({ featureVerify: idleFeatureVerify(), items: [uiItem(3, "running")] });
+    expect(drawer(idle).head).toContain("Blocked by");
+  });
+
+  it("offers Steps & log on a started gate card", () => {
+    const html = renderMain(ui([project()]), []);
+    expect(html).toContain('data-act="open-feature"');
+    expect(html).toContain('data-run="10"');
   });
 });
