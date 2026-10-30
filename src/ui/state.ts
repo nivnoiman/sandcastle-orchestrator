@@ -19,8 +19,16 @@ export function uiStageChain(chain: readonly StageSpec[]): string[] {
   return ["queued", ...stageNames(chain), "merged"];
 }
 
+/** The agent a stage runs; `model` is unset when the provider picks its own default. */
+export interface UiAgent {
+  provider: ProviderName;
+  model: string | undefined;
+}
+
 export interface UiItem extends ItemView {
   issueUrl: string;
+  /** The agent of the item's current (or latest) stage; unset when unknown (dry run, gate stage). */
+  agent: UiAgent | undefined;
   /** Set while the item's agent is Quiet; Stall stays run-only. */
   quiet: QuietInfo | undefined;
 }
@@ -160,8 +168,9 @@ export function uiItems(
   urlOf: IssueUrlOf,
   views: readonly ItemView[],
   quietFor: (view: ItemView) => QuietInfo | undefined = () => undefined,
+  agentFor: (view: ItemView) => UiAgent | undefined = () => undefined,
 ): UiItem[] {
-  return views.map((view) => ({ ...view, issueUrl: urlOf(view.number), quiet: quietFor(view) }));
+  return views.map((view) => ({ ...view, issueUrl: urlOf(view.number), agent: agentFor(view), quiet: quietFor(view) }));
 }
 
 function zeroPhaseCounts(): Record<ItemPhase, number> {

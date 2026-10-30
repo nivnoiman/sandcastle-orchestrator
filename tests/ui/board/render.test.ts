@@ -8,6 +8,7 @@ import { renderMain } from "../../../src/ui/board/view/main.js";
 import { renderRail } from "../../../src/ui/board/view/rail.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
 import type { BoardProject } from "../../../src/ui/board/model.js";
+import type { UiItem } from "../../../src/ui/state.js";
 import { boardProject, NOW, uiItem, uiRun, uiState } from "./fixtures.js";
 
 function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
@@ -204,6 +205,27 @@ describe("drawer blocked-by", () => {
     const html = drawerFor(boardProject("p", uiState([run])), 3);
     expect(html).toContain("#99");
     expect(html).not.toContain('data-n="99"');
+  });
+});
+
+describe("drawer model chip", () => {
+  const headFor = (agent: UiItem["agent"]) => {
+    const project = boardProject("p", uiState([uiRun(1, [uiItem(3, "running", { stage: "develop", agent })])]));
+    return renderDrawer(ui([project]), project, { kind: "item", projectId: "p", itemNumber: 3, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+  };
+
+  it("shows a claude model bare", () => {
+    expect(headFor({ provider: "claude", model: "opus" })).toContain('class="d-model mono" title="Agent model of the develop stage">opus<');
+  });
+
+  it("prefixes the provider off claude, escaped", () => {
+    expect(headFor({ provider: "codex", model: "gpt-5.5" })).toContain(">codex · gpt-5.5<");
+    expect(headFor({ provider: "cursor", model: "<x>" })).toContain("cursor · &lt;x&gt;");
+  });
+
+  it("shows nothing when the model is unknown", () => {
+    expect(headFor(undefined)).not.toContain("d-model");
+    expect(headFor({ provider: "codex", model: undefined })).not.toContain("d-model");
   });
 });
 
