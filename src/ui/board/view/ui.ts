@@ -2,6 +2,8 @@ import type { AttentionEntry } from "../attention.js";
 import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
+import type { StagesView } from "../../../project/stagesEditor.js";
+import type { StagesDraft } from "../stagesDraft.js";
 
 export type Theme = "auto" | "light" | "dark";
 export type BoardScope = "project" | "dashboard";
@@ -25,6 +27,7 @@ export type DrawerState =
       loaded: boolean;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
+  | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined }
   | { kind: "add"; projectId: string; title: string; text: string; busy: boolean; result: string | undefined };
 
 export interface SwitcherState {

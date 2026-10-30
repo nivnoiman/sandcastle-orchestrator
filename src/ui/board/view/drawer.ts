@@ -5,6 +5,7 @@ import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import { prLabel } from "./run.js";
+import { stagesBody, stagesHead } from "./stages.js";
 import type { BoardUi, DrawerState } from "./ui.js";
 
 export interface DrawerParts {
@@ -186,6 +187,9 @@ export function renderDrawer(ui: BoardUi, project: BoardProject, drawer: DrawerS
       attempts: "",
       body: resetBody(drawer),
     };
+  }
+  if (drawer.kind === "stages") {
+    return { label: "Stages", head: stagesHead(project.name, closeButton()), attempts: "", body: stagesBody(drawer) };
   }
   return {
     label: local ? "New orchestration issue" : "Add orchestration issue",
