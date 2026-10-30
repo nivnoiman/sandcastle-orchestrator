@@ -28,6 +28,14 @@ describe("attempt logs", () => {
     );
   });
 
+  it("does not stamp a continuation of a split line", () => {
+    const { store: logs, fs } = store();
+    const writer = logs.begin(104, "develop");
+    writer.write('{"a":{"b":');
+    writer.write('{"c":1}}\n');
+    expect(fs.readText(writer.record.file)).toBe('{"a":{"b":{"c":1}}\n');
+  });
+
   it("writes one file per attempt under the parent, numbered per stage", () => {
     const { store: logs, fs } = store();
     logs.begin(104, "develop").write("first");

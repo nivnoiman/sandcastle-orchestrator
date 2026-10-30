@@ -115,12 +115,17 @@ export class AttemptLogStore {
       file,
     };
     this.records.set(id, record);
+    let atLineStart = true;
     return {
       record,
       write: (chunk) => {
         if (chunk.length === 0) return;
         const at = this.timestamp();
-        const stamped = chunk.split("\n").map((line) => stampEventLine(line, at)).join("\n");
+        const stamped = chunk
+          .split("\n")
+          .map((line, index) => (index === 0 && !atLineStart ? line : stampEventLine(line, at)))
+          .join("\n");
+        atLineStart = chunk.endsWith("\n");
         this.deps.fs.appendText(file, stamped);
         this.lastOutput.set(itemNumber, this.clock().getTime());
         record.bytes += Buffer.byteLength(stamped, "utf8");

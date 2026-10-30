@@ -16,7 +16,7 @@ export interface LogRow extends Turn {
 function eventTime(event: Json): number | undefined {
   const raw = event["sc_ts"] ?? event["timestamp"];
   const at = typeof raw === "string" ? Date.parse(raw) : typeof raw === "number" ? raw : NaN;
-  return Number.isFinite(at) ? at : undefined;
+  return Number.isFinite(new Date(at).getTime()) ? at : undefined;
 }
 
 /** Merges consecutive turns with the same kind and text into one row spanning their times. */
