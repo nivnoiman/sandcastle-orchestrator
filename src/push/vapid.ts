@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import webpush from "web-push";
 
@@ -34,11 +34,6 @@ export function loadOrCreateVapid(dir: string): VapidKeys {
   const keys: VapidKeys = { ...webpush.generateVAPIDKeys(), subject: VAPID_SUBJECT };
   const temp = `${file}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
-  try {
-    chmodSync(temp, 0o600);
-  } catch {
-    // windows has no posix modes; the file sits in the user's profile
-  }
   renameSync(temp, file);
   return keys;
 }

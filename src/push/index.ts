@@ -4,9 +4,6 @@ import { AttentionPusher, webPushSender } from "./notifier.js";
 import { SubscriptionStore } from "./subscriptions.js";
 import { loadOrCreateVapid } from "./vapid.js";
 
-export { AttentionPusher } from "./notifier.js";
-export { mountPushRoutes, type PushRouteDeps } from "./routes.js";
-
 export interface PushSetup {
   store: SubscriptionStore;
   publicKey: string;

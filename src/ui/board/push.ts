@@ -1,4 +1,4 @@
-const WRITE_HEADERS = { "content-type": "application/json", "x-sandcastle": "1" };
+import { projectApi } from "./api.js";
 
 export function pushSupported(): boolean {
   return typeof navigator !== "undefined" && "serviceWorker" in navigator && typeof PushManager !== "undefined" && typeof Notification !== "undefined";
@@ -8,11 +8,6 @@ function keyBytes(base64Url: string): Uint8Array<ArrayBuffer> {
   const padded = (base64Url + "=".repeat((4 - (base64Url.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(padded);
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
-}
-
-async function postJson(path: string, body: unknown): Promise<void> {
-  const response = await fetch(path, { method: "POST", headers: WRITE_HEADERS, body: JSON.stringify(body) });
-  if (!response.ok) throw new Error(`${path} failed (${response.status})`);
 }
 
 /**
@@ -31,7 +26,7 @@ export async function ensurePushSubscription(): Promise<boolean> {
     const subscription =
       (await registration.pushManager.getSubscription()) ??
       (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
-    await postJson("/push/subscribe", { subscription: subscription.toJSON() });
+    await projectApi("").send("POST", "/push/subscribe",{ subscription: subscription.toJSON() });
     return true;
   } catch {
     return false;
