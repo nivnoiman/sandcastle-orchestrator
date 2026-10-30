@@ -11,6 +11,7 @@ import {
   writeDashboardRecord,
 } from "../dashboard/server.js";
 import { messageOf } from "../messageOf.js";
+import { setupPush } from "../push/index.js";
 import { isTcpPort } from "../project/projectConfig.js";
 import { createInstanceRegistry, defaultRegistryDir, projectId } from "../registry/index.js";
 import { fail } from "./args.js";
@@ -126,7 +127,11 @@ if (args.includes("--detach")) {
 }
 
 if (!existsSync(SANDCASTLE_BIN)) fail(`${SANDCASTLE_BIN} is missing`);
-const server = await startDashboardServer({ registry, startProject: createProjectLauncher({ registry }) }, port).catch((cause: unknown) =>
+const push = setupPush((message) => console.error(`[push][warn] ${message}`));
+const server = await startDashboardServer(
+  { registry, startProject: createProjectLauncher({ registry }), ...(push ? { push: { store: push.store, publicKey: push.publicKey } } : {}) },
+  port,
+).catch((cause: unknown) =>
   fail(`dashboard could not listen on 127.0.0.1:${port} — ${messageOf(cause)}`),
 );
 writeDashboardRecord(recordFile, { pid: process.pid, port: server.port, startedAt: new Date().toISOString() });

@@ -2,6 +2,7 @@ import type { UiFeedLine, UiState } from "../state.js";
 import type { AttemptChunk, AttemptRecord } from "../../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../../real/reset.js";
 import { buildAttention, type AttentionEntry } from "./attention.js";
+import { ensurePushSubscription } from "./push.js";
 import { alertText, holdReasonOf, isHeld, newlyNeedingAttention, pageTitle, parseHeld, type HeldMap } from "./humanAlerts.js";
 import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
@@ -133,6 +134,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   const connections = new Map<string, Connection>();
   let toastSeq = 0;
   let heldMap: HeldMap = parseHeld(readStorage(HELD_KEY));
+  let pushActive = false;
+  const requestedItem = Number(search.get("item")) || undefined;
+  let itemOpened = false;
+  const heldSynced = new Set<string>();
   const announcedKeysByProject = new Map<string, Set<string>>();
   let renderQueued = false;
   const logState = { attempt: undefined as string | undefined, offset: 0, text: "" };
@@ -241,7 +246,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   }
 
   function desktopNotify(entry: AttentionEntry, text: { title: string; body: string }): void {
-    if (notifyPermission() !== "granted") return;
+    if (pushActive || notifyPermission() !== "granted") return;
     try {
       const note = new Notification(text.title, { body: text.body.slice(0, 200), tag: entry.key });
       note.onclick = () => {
@@ -320,6 +325,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (ui.selectedParent === "" && state.preselectedParent) ui.selectedParent = String(state.preselectedParent);
     const requested = requestedRun && state.runs.some((run) => run.parent.number === requestedRun) ? requestedRun : undefined;
     if (requested && ui.selectedRuns[project.id] === undefined) ui.selectedRuns[project.id] = requested;
+    syncHeld(project);
+    if (requestedItem && !itemOpened && project.id === currentProject(ui)?.id) {
+      itemOpened = true;
+      openItem(project, requestedItem);
+    }
     if (ui.selectedRuns[project.id] === undefined) {
       const stored = Number(readStorage(`sandcastle.run.${project.id}`)) || undefined;
       if (stored !== undefined) ui.selectedRuns[project.id] = stored;
@@ -781,6 +791,21 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (hold) heldMap[entry.key] = holdReasonOf(entry);
     else delete heldMap[entry.key];
     writeStorage(HELD_KEY, Object.keys(heldMap).length ? JSON.stringify(heldMap) : undefined);
+    const project = projectById(entry.projectId);
+    if (project) void reportHeld(project, entry.key, hold ? holdReasonOf(entry) : null);
+  }
+
+  /** The server pushes only what is not on Hold, so it is told; a failure just means one extra push. */
+  async function reportHeld(project: BoardProject, key: string, reason: string | null): Promise<void> {
+    await apiOf(project).send("POST", "/api/push/held", { key, reason }).catch(() => undefined);
+  }
+
+  function syncHeld(project: BoardProject): void {
+    if (heldSynced.has(project.id)) return;
+    heldSynced.add(project.id);
+    for (const [key, reason] of Object.entries(heldMap)) {
+      if (key.startsWith(`${project.id}:`)) void reportHeld(project, key, reason);
+    }
   }
 
   async function confirmDialog(): Promise<void> {
@@ -846,6 +871,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       await Notification.requestPermission();
     } catch {
     }
+    pushActive = await ensurePushSubscription();
     ui.notifyPermission = notifyPermission();
     render();
   }
@@ -1141,6 +1167,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   if (typeof options.projects === "function" && refreshMs) {
     timers.push(setInterval(() => void loadSources().catch((cause: unknown) => toast("error", messageOf(cause))), refreshMs));
   }
+  void ensurePushSubscription().then((active) => {
+    pushActive = active;
+  });
   void loadSources().catch((cause: unknown) => toast("error", messageOf(cause)));
   renderNow();
 
