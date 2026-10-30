@@ -10,7 +10,6 @@ export interface DraftRow {
   isNew: boolean;
   provider: string;
   model: string;
-  /** The model picker is on "Custom…" and shows a text box. */
   customModel: boolean;
   prompt: string;
   promptPath: string | undefined;
@@ -53,20 +52,19 @@ function blankRow(draft: StagesDraft, kind: DraftRow["kind"], name: string): Dra
   return { key, kind, name, isNew: true, provider: "", model: "", customModel: false, prompt: "", promptPath: undefined, run: "", runMap: undefined };
 }
 
-/** New rows go just before the verify gate. */
-function insertBeforeVerify(draft: StagesDraft, row: DraftRow): void {
+function insertBeforeVerifyGate(draft: StagesDraft, row: DraftRow): void {
   const verifyAt = draft.rows.findIndex((candidate) => candidate.kind === "verify");
   draft.rows.splice(verifyAt === -1 ? draft.rows.length : verifyAt, 0, row);
 }
 
 export function addStage(draft: StagesDraft, kind: "agent" | "command"): DraftRow {
   const row = blankRow(draft, kind, "");
-  insertBeforeVerify(draft, row);
+  insertBeforeVerifyGate(draft, row);
   return row;
 }
 
 export function addBuiltin(draft: StagesDraft, name: BuiltinAgentStage): void {
-  insertBeforeVerify(draft, { ...blankRow(draft, "builtin", name), isNew: false });
+  insertBeforeVerifyGate(draft, { ...blankRow(draft, "builtin", name), isNew: false });
 }
 
 const OPTIONAL_BUILTINS: readonly BuiltinAgentStage[] = ["simplify", "review"];

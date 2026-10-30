@@ -9,8 +9,7 @@ import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, VERIFY_STAGE, type Bui
 export const PROMPTS_DIR = ".sandcastle/prompts";
 export const PROMPT_MAX_CHARS = 65536;
 
-/** Names the provider CLIs accept, offered next to the ones this project already uses; any other model name can still be typed. */
-const COMMON_MODELS: Record<ProviderName, readonly string[]> = {
+const SUGGESTED_MODELS: Record<ProviderName, readonly string[]> = {
   claude: ["opus", "sonnet", "haiku"],
   codex: ["gpt-5.5", "gpt-5.5-codex"],
   cursor: [],
@@ -22,9 +21,7 @@ export interface StageRow {
   kind: StageSpec["kind"];
   hasAgent: boolean;
   agent: { provider: ProviderName; model: string | undefined } | undefined;
-  /** Command stages: one command for every repo, or a command per repo. */
   run?: string | Record<string, string>;
-  /** Custom agent stages: the prompt file's text and where it lives (relative to the project root). */
   promptText?: string;
   promptPath?: string;
 }
@@ -34,10 +31,8 @@ export interface StagesView {
   defaultAgent: AgentChoice;
   providers: readonly ProviderName[];
   models: Record<ProviderName, string[]>;
-  /** Commands this project already runs, to pick for a command stage. */
   commands: ExistingCommand[];
   placeholders: readonly string[];
-  /** Built-in stages that are not in the chain, offered by "Add built-in". */
   missingBuiltins: BuiltinAgentStage[];
   promptsDir: string;
   appliesTo: "new runs";
@@ -90,7 +85,7 @@ function rowOf(stage: StageSpec, project: ProjectConfig): StageRow {
 }
 
 function modelsInUse(project: ProjectConfig): Record<ProviderName, string[]> {
-  const models = Object.fromEntries(PROVIDER_NAMES.map((name) => [name, new Set<string>(COMMON_MODELS[name])])) as Record<ProviderName, Set<string>>;
+  const models = Object.fromEntries(PROVIDER_NAMES.map((name) => [name, new Set<string>(SUGGESTED_MODELS[name])])) as Record<ProviderName, Set<string>>;
   const choices = [
     project.agents.default,
     ...Object.values(project.agents.roles),
@@ -182,16 +177,14 @@ function choiceJson(provider: ProviderName, model: string | null): string | Json
 interface PromptWrite {
   path: string;
   text: string;
-  /** True when the config did not already point at this file: ours to create, never to overwrite. */
-  created: boolean;
+  newlyConfigured: boolean;
 }
 
-/** Existing prompt files keep their path; a new one goes under `.sandcastle/prompts/<name>.md`. */
-function promptPathFor(name: string, rawStages: unknown): { prompt: string; created: boolean } {
+function promptPathKeepingExisting(name: string, rawStages: unknown): { prompt: string; newlyConfigured: boolean } {
   const existing = Array.isArray(rawStages) ? rawStages.find((entry) => isObject(entry) && entry["name"] === name) : undefined;
   const current = isObject(existing) ? existing["prompt"] : undefined;
-  if (typeof current === "string" && current.trim().length > 0) return { prompt: current, created: false };
-  return { prompt: `${PROMPTS_DIR}/${name}.md`, created: true };
+  if (typeof current === "string" && current.trim().length > 0) return { prompt: current, newlyConfigured: false };
+  return { prompt: `${PROMPTS_DIR}/${name}.md`, newlyConfigured: true };
 }
 
 /** The raw config for the edited chain, plus the prompt files it needs written. Built-in agents go to `agents.<role>`. */
@@ -207,8 +200,8 @@ export function withStageEdits(rawConfig: Json, edits: readonly StageEdit[], pro
       return edit.name;
     }
     if (edit.kind === "command") return { name: edit.name, kind: "command", run: edit.run };
-    const { prompt, created } = promptPathFor(edit.name, rawConfig["stages"]);
-    prompts.push({ path: resolve(projectRoot, prompt), text: edit.prompt, created });
+    const { prompt, newlyConfigured } = promptPathKeepingExisting(edit.name, rawConfig["stages"]);
+    prompts.push({ path: resolve(projectRoot, prompt), text: edit.prompt, newlyConfigured });
     return {
       name: edit.name,
       kind: "agent",
@@ -266,7 +259,7 @@ export function saveStageEdits(configPath: string, edits: readonly StageEdit[]):
   const changed = prompts.filter((prompt) => readPromptText(prompt.path) !== prompt.text);
   for (const prompt of changed) {
     assertInsideProject(prompt.path, projectRoot);
-    if (prompt.created && existsSync(prompt.path)) {
+    if (prompt.newlyConfigured && existsSync(prompt.path)) {
       throw new Error(`${prompt.path} already exists and no stage uses it — pick another stage name, or point a stage at it in config.json`);
     }
   }
