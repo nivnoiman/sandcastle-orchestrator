@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { messageOf } from "../messageOf.js";
 import { activeProject, readProjectConfig, setActiveProject, type ProjectConfig } from "../project/projectConfig.js";
-import { parseAgentEdits, saveAgentEdits, stagesViewOf } from "../project/stagesEditor.js";
+import { parseStageEdits, saveStageEdits, stagesViewOf } from "../project/stagesEditor.js";
 
 export interface StagesRouteDeps {
   configPath: string;
@@ -22,8 +22,8 @@ function reply(response: Response, run: () => unknown): void {
 
 function editsOf(request: Request): unknown {
   const body: unknown = request.body;
-  if (typeof body !== "object" || body === null) throw new Error('expected a JSON body with "edits"');
-  return (body as Record<string, unknown>)["edits"];
+  if (typeof body !== "object" || body === null) throw new Error('expected a JSON body with "stages"');
+  return (body as Record<string, unknown>)["stages"];
 }
 
 /**
@@ -43,9 +43,9 @@ export function mountStagesRoutes(app: Express, deps: StagesRouteDeps): void {
     });
   });
 
-  app.put("/api/stages/agents", (request, response) => {
+  app.put("/api/stages", (request, response) => {
     reply(response, () => {
-      const project = saveAgentEdits(deps.configPath, parseAgentEdits(editsOf(request)));
+      const project = saveStageEdits(deps.configPath, parseStageEdits(editsOf(request)));
       deps.activate(project);
       return stagesViewOf(project);
     });

@@ -10,7 +10,7 @@ import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
 import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
-import { draftEdits, draftOf } from "./stagesDraft.js";
+import { addBuiltin, addStage, draftEdits, draftOf, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
 import type { StagesView } from "../../project/stagesEditor.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
@@ -622,12 +622,13 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (ui.drawer?.kind !== "stages") return;
     ui.drawer.view = view;
     ui.drawer.draft = draftOf(view);
+    ui.drawer.editing = undefined;
     ui.drawer.notice = notice;
   }
 
   async function openStages(project: BoardProject): Promise<void> {
     stopDrawerPolling();
-    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: {}, busy: false, error: undefined, notice: undefined };
+    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: { rows: [], nextKey: 0 }, busy: false, error: undefined, notice: undefined, editing: undefined, dragKey: undefined };
     render();
     focusDrawer();
     await loadStages(project, { method: "GET", url: "/api/stages" });
@@ -644,13 +645,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   async function saveStages(project: BoardProject): Promise<void> {
     const drawer = ui.drawer;
     if (drawer?.kind !== "stages" || drawer.busy || !drawer.view) return;
-    const edits = draftEdits(drawer.view, drawer.draft);
-    if (edits.length === 0) return;
+    const edits = draftEdits(drawer.draft);
     drawer.busy = true;
     drawer.error = undefined;
     render();
     try {
-      const payload = await apiOf(project).send("PUT", "/api/stages/agents", { edits });
+      const payload = await apiOf(project).send("PUT", "/api/stages", { stages: edits });
       if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
       localLine(project, "note", `stages saved: ${edits.map((edit) => edit.name).join(", ")} — applies to new runs`);
     } catch (cause) {
@@ -658,6 +658,69 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
     drawer.busy = false;
     render();
+  }
+
+  function stagesDrawer(): Extract<NonNullable<typeof ui.drawer>, { kind: "stages" }> | undefined {
+    return ui.drawer?.kind === "stages" ? ui.drawer : undefined;
+  }
+
+  function stageRow(draft: StagesDraft, key: string | undefined): StagesDraft["rows"][number] | undefined {
+    return draft.rows.find((row) => row.key === key);
+  }
+
+  function discardStages(): void {
+    const drawer = stagesDrawer();
+    if (!drawer?.view) return;
+    drawer.draft = draftOf(drawer.view);
+    drawer.editing = undefined;
+    drawer.error = undefined;
+    drawer.notice = undefined;
+    render();
+  }
+
+  function stageClick(action: string, element: HTMLElement): void {
+    const drawer = stagesDrawer();
+    if (!drawer || drawer.busy) return;
+    const key = element.dataset["key"];
+    const index = drawer.draft.rows.findIndex((row) => row.key === key);
+    drawer.notice = undefined;
+    if (action === "stage-add") addStage(drawer.draft, element.dataset["kind"] === "command" ? "command" : "agent");
+    else if (action === "stage-up" && key) moveRow(drawer.draft, key, index - 1);
+    else if (action === "stage-down" && key) moveRow(drawer.draft, key, index + 1);
+    else if (action === "stage-remove" && key) removeRow(drawer.draft, key);
+    else if (action === "stage-prompt-open") drawer.editing = key;
+    else if (action === "stage-prompt-close") drawer.editing = undefined;
+    else return;
+    render();
+  }
+
+  function onDragStart(event: DragEvent): void {
+    const grip = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-drag=stage]") : null;
+    const drawer = stagesDrawer();
+    if (!grip || !drawer || !event.dataTransfer) return;
+    drawer.dragKey = grip.dataset["key"];
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", drawer.dragKey ?? "");
+  }
+
+  function onDragOver(event: DragEvent): void {
+    if (stagesDrawer()?.dragKey === undefined) return;
+    if (event.target instanceof Element && event.target.closest(".stage-row")) event.preventDefault();
+  }
+
+  function onDrop(event: DragEvent): void {
+    const drawer = stagesDrawer();
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".stage-row") : null;
+    if (!drawer?.dragKey || !target) return;
+    event.preventDefault();
+    moveRow(drawer.draft, drawer.dragKey, Number(target.dataset["index"]));
+    drawer.dragKey = undefined;
+    render();
+  }
+
+  function onDragEnd(): void {
+    const drawer = stagesDrawer();
+    if (drawer) drawer.dragKey = undefined;
   }
 
   async function submitNewParent(project: BoardProject, drawer: Extract<NonNullable<typeof ui.drawer>, { kind: "add" }>): Promise<void> {
@@ -1072,6 +1135,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (action === "open-stages") return void openStages(project);
     if (action === "stages-save") return void saveStages(project);
     if (action === "stages-refresh") return void refreshStages(project);
+    if (action === "stages-discard") return void discardStages();
+    if (ui.drawer?.kind === "stages" && action.startsWith("stage-")) return void stageClick(action, element);
     if (action === "reset-apply") return void applyReset(project);
     if (action === "add-submit-btn") return void submitAdd(project);
     if (action === "select-attempt") {
@@ -1094,11 +1159,15 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       return render();
     }
     if (action === "stage-provider" && ui.drawer?.kind === "stages") {
-      const draft = ui.drawer.draft[element.dataset["stage"] ?? ""];
-      if (draft) {
-        draft.provider = value;
-        if (value === "") draft.model = "";
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (row) {
+        row.provider = value;
+        if (value === "") row.model = "";
       }
+      return render();
+    }
+    if (action === "stage-add-builtin" && ui.drawer?.kind === "stages") {
+      if (value === "simplify" || value === "review") addBuiltin(ui.drawer.draft, value);
       return render();
     }
     if (action === "raw-toggle") {
@@ -1142,9 +1211,13 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     } else if (action === "add-text" && ui.drawer?.kind === "add") {
       ui.drawer.text = value;
       render();
-    } else if (action === "stage-model" && ui.drawer?.kind === "stages") {
-      const draft = ui.drawer.draft[element.dataset["stage"] ?? ""];
-      if (draft) draft.model = value;
+    } else if (action.startsWith("stage-") && ui.drawer?.kind === "stages") {
+      const row = stageRow(ui.drawer.draft, element.dataset["key"]);
+      if (!row) return;
+      if (action === "stage-model") row.model = value;
+      else if (action === "stage-name") row.name = value;
+      else if (action === "stage-run") row.run = value;
+      else if (action === "stage-prompt-text") row.prompt = value;
       render();
     } else if (action === "add-title" && ui.drawer?.kind === "add") {
       ui.drawer.title = value;
@@ -1203,6 +1276,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
   root.addEventListener("change", onChange);
   root.addEventListener("input", onInput);
   root.addEventListener("submit", onSubmit);
+  root.addEventListener("dragstart", onDragStart);
+  root.addEventListener("dragover", onDragOver);
+  root.addEventListener("drop", onDrop);
+  root.addEventListener("dragend", onDragEnd);
   document.addEventListener("keydown", onKeydown);
   document.addEventListener("visibilitychange", pollVisible);
 

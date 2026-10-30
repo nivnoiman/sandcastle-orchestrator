@@ -253,7 +253,7 @@ function parseUi(raw: unknown): UiConfig {
   return { port: port === undefined ? DEFAULT_UI_PORT : tcpPort(port, "ui.port") };
 }
 
-export function parseProjectConfig(raw: unknown, configPath: string): ProjectConfig {
+export function parseProjectConfig(raw: unknown, configPath: string, readText?: (path: string) => string): ProjectConfig {
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
   const projectRoot = projectRootOf(configPath);
   const tracker = parseTracker(raw["tracker"]);
@@ -271,7 +271,7 @@ export function parseProjectConfig(raw: unknown, configPath: string): ProjectCon
     throw new Error(`name must be lower-case kebab, got "${name}"${hint}`);
   }
   const stateDir = optionalString(raw, "stateDir", "config");
-  const stages = parseStages(raw["stages"], { projectRoot, repos: Object.keys(repos) });
+  const stages = parseStages(raw["stages"], { projectRoot, repos: Object.keys(repos), ...(readText ? { readText } : {}) });
   assertNoStageAgents(raw["agents"], stages);
   return {
     name,

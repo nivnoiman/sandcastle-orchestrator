@@ -27,7 +27,7 @@ export type DrawerState =
       loaded: boolean;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
-  | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined }
+  | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined; editing: string | undefined; dragKey: string | undefined }
   | { kind: "add"; projectId: string; title: string; text: string; busy: boolean; result: string | undefined };
 
 export interface SwitcherState {

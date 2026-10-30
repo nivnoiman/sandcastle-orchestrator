@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
-import { isAgentRole, MODEL_NAME, PROVIDER_NAMES, type AgentChoice, type ProviderName } from "./agentsConfig.js";
-import { parseProjectConfig, type ProjectConfig } from "./projectConfig.js";
-import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, type StageSpec } from "./stagesConfig.js";
+import { MODEL_NAME, PROVIDER_NAMES, type AgentChoice, type ProviderName } from "./agentsConfig.js";
+import { parseProjectConfig, projectRootOf, type ProjectConfig } from "./projectConfig.js";
+import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, VERIFY_STAGE, type BuiltinAgentStage, type StageSpec } from "./stagesConfig.js";
+
+export const PROMPTS_DIR = ".sandcastle/prompts";
+export const PROMPT_MAX_CHARS = 65536;
 
 /** One chain row as the Board View shows it. `agent` is what the config says; unset = `agents.default`. */
 export interface StageRow {
@@ -12,7 +15,11 @@ export interface StageRow {
   kind: StageSpec["kind"];
   hasAgent: boolean;
   agent: { provider: ProviderName; model: string | undefined } | undefined;
-  run?: string | string[];
+  /** Command stages: one command for every repo, or a command per repo. */
+  run?: string | Record<string, string>;
+  /** Custom agent stages: the prompt file's text and where it lives (relative to the project root). */
+  promptText?: string;
+  promptPath?: string;
 }
 
 export interface StagesView {
@@ -21,31 +28,50 @@ export interface StagesView {
   providers: readonly ProviderName[];
   models: Record<ProviderName, string[]>;
   placeholders: readonly string[];
+  /** Built-in stages that are not in the chain, offered by "Add built-in". */
+  missingBuiltins: BuiltinAgentStage[];
+  promptsDir: string;
   appliesTo: "new runs";
 }
 
-/** Set (or clear, with `provider: null`) the agent of one stage. */
-export interface AgentEdit {
-  name: string;
+interface AgentFields {
   provider: ProviderName | null;
   model: string | null;
 }
 
+export type StageEdit =
+  | ({ kind: "builtin"; name: BuiltinAgentStage } & AgentFields)
+  | { kind: "verify"; name: typeof VERIFY_STAGE }
+  | ({ kind: "agent"; name: string; prompt: string } & AgentFields)
+  | { kind: "command"; name: string; run: string | Record<string, string> };
+
 type Json = Record<string, unknown>;
 
-function isBuiltinName(name: string): boolean {
-  return (BUILTIN_AGENT_STAGES as readonly string[]).includes(name);
+function isObject(value: unknown): value is Json {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readPromptText(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 function rowOf(stage: StageSpec, project: ProjectConfig): StageRow {
-  if (stage.kind === "builtin") {
-    const choice = project.agents.roles[stage.name];
-    return { name: stage.name, kind: stage.kind, hasAgent: true, agent: choice };
+  if (stage.kind === "builtin") return { name: stage.name, kind: stage.kind, hasAgent: true, agent: project.agents.roles[stage.name] };
+  if (stage.kind === "agent") {
+    return {
+      name: stage.name,
+      kind: stage.kind,
+      hasAgent: true,
+      agent: stage.agent,
+      promptText: readPromptText(stage.promptPath) ?? "",
+      promptPath: relative(project.projectRoot, stage.promptPath).replaceAll("\\", "/"),
+    };
   }
-  if (stage.kind === "agent") return { name: stage.name, kind: stage.kind, hasAgent: true, agent: stage.agent };
-  if (stage.kind === "command") {
-    return { name: stage.name, kind: stage.kind, hasAgent: false, agent: undefined, run: typeof stage.run === "string" ? stage.run : Object.keys(stage.run) };
-  }
+  if (stage.kind === "command") return { name: stage.name, kind: stage.kind, hasAgent: false, agent: undefined, run: stage.run };
   return { name: stage.name, kind: stage.kind, hasAgent: false, agent: undefined };
 }
 
@@ -61,74 +87,109 @@ function modelsInUse(project: ProjectConfig): Record<ProviderName, string[]> {
 }
 
 export function stagesViewOf(project: ProjectConfig): StagesView {
+  const present = new Set(project.stages.map((stage) => stage.name));
   return {
     stages: project.stages.map((stage) => rowOf(stage, project)),
     defaultAgent: project.agents.default,
     providers: PROVIDER_NAMES,
     models: modelsInUse(project),
     placeholders: STAGE_PROMPT_PLACEHOLDERS,
+    missingBuiltins: BUILTIN_AGENT_STAGES.filter((name) => !present.has(name)),
+    promptsDir: PROMPTS_DIR,
     appliesTo: "new runs",
   };
+}
+
+function agentFields(raw: Json, where: string): AgentFields {
+  const { provider, model } = raw;
+  if (provider === null || provider === undefined) return { provider: null, model: null };
+  if (typeof provider !== "string" || !(PROVIDER_NAMES as readonly string[]).includes(provider)) {
+    throw new Error(`${where}.provider must be null or one of ${PROVIDER_NAMES.join(", ")}`);
+  }
+  if (model !== null && model !== undefined && (typeof model !== "string" || !MODEL_NAME.test(model))) {
+    throw new Error(`${where}.model must be a plain model name (letters, digits, . _ -) or null`);
+  }
+  return { provider: provider as ProviderName, model: typeof model === "string" ? model : null };
+}
+
+function parseEdit(raw: unknown, index: number): StageEdit {
+  const where = `stages[${index}]`;
+  if (!isObject(raw)) throw new Error(`${where} must be an object`);
+  const { kind, name } = raw;
+  if (typeof name !== "string") throw new Error(`${where}.name must be a stage name`);
+  if (kind === "verify") return { kind, name: VERIFY_STAGE };
+  if (kind === "builtin") {
+    if (!(BUILTIN_AGENT_STAGES as readonly string[]).includes(name)) throw new Error(`${where}.name "${name}" is not a built-in stage`);
+    return { kind, name: name as BuiltinAgentStage, ...agentFields(raw, where) };
+  }
+  if (kind === "agent") {
+    const prompt = raw["prompt"];
+    if (typeof prompt !== "string" || prompt.trim().length === 0) throw new Error(`${where} (${name}): the prompt must not be empty`);
+    if (prompt.length > PROMPT_MAX_CHARS) throw new Error(`${where} (${name}): the prompt is longer than ${PROMPT_MAX_CHARS} characters`);
+    return { kind, name, prompt, ...agentFields(raw, where) };
+  }
+  if (kind === "command") {
+    const run = raw["run"];
+    if (typeof run !== "string" && !isObject(run)) throw new Error(`${where} (${name}): run must be a command or a map of repo names to commands`);
+    return { kind, name, run: run as string | Record<string, string> };
+  }
+  throw new Error(`${where}.kind must be "builtin", "verify", "agent" or "command"`);
+}
+
+/** The whole ordered chain as the editor sends it; the list replaces `stages`. */
+export function parseStageEdits(raw: unknown): StageEdit[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error("stages must be a non-empty list");
+  return raw.map(parseEdit);
 }
 
 function choiceJson(provider: ProviderName, model: string | null): string | Json {
   return model === null ? provider : { provider, model };
 }
 
-function isObject(value: unknown): value is Json {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+interface PromptWrite {
+  path: string;
+  text: string;
 }
 
-function parseEdit(raw: unknown, index: number): AgentEdit {
-  const where = `edits[${index}]`;
-  if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  const { name, provider, model } = raw;
-  if (typeof name !== "string") throw new Error(`${where}.name must be a stage name`);
-  if (provider !== null && !(typeof provider === "string" && (PROVIDER_NAMES as readonly string[]).includes(provider))) {
-    throw new Error(`${where}.provider must be null or one of ${PROVIDER_NAMES.join(", ")}`);
-  }
-  if (provider === null) return { name, provider: null, model: null };
-  if (model !== null && model !== undefined && (typeof model !== "string" || !MODEL_NAME.test(model))) {
-    throw new Error(`${where}.model must be a plain model name (letters, digits, . _ -) or null`);
-  }
-  return { name, provider: provider as ProviderName, model: typeof model === "string" ? model : null };
+/** Existing prompt files keep their path; a new one goes under `.sandcastle/prompts/<name>.md`. */
+function promptPathFor(name: string, rawStages: unknown): string {
+  const existing = Array.isArray(rawStages) ? rawStages.find((entry) => isObject(entry) && entry["name"] === name) : undefined;
+  const current = isObject(existing) ? existing["prompt"] : undefined;
+  return typeof current === "string" && current.trim().length > 0 ? current : `${PROMPTS_DIR}/${name}.md`;
 }
 
-export function parseAgentEdits(raw: unknown): AgentEdit[] {
-  if (!Array.isArray(raw) || raw.length === 0) throw new Error("edits must be a non-empty list");
-  return raw.map(parseEdit);
-}
-
-/** The raw config with each edit applied: built-in stages go to `agents.<role>`, custom agent stages to their own entry. */
-export function withAgentEdits(rawConfig: Json, edits: readonly AgentEdit[]): Json {
+/** The raw config for the edited chain, plus the prompt files it needs written. Built-in agents go to `agents.<role>`. */
+export function withStageEdits(rawConfig: Json, edits: readonly StageEdit[], projectRoot: string): { config: Json; prompts: PromptWrite[] } {
   const next: Json = structuredClone(rawConfig);
-  const stages = Array.isArray(next["stages"]) ? (next["stages"] as unknown[]) : undefined;
   const agents: Json = isObject(next["agents"]) ? { ...next["agents"] } : {};
-  for (const edit of edits) {
-    if (isBuiltinName(edit.name) && isAgentRole(edit.name)) {
+  const prompts: PromptWrite[] = [];
+  const stages = edits.map((edit): unknown => {
+    if (edit.kind === "verify") return VERIFY_STAGE;
+    if (edit.kind === "builtin") {
       if (edit.provider === null) delete agents[edit.name];
       else agents[edit.name] = choiceJson(edit.provider, edit.model);
-      continue;
+      return edit.name;
     }
-    const entry = stages?.find((candidate) => isObject(candidate) && candidate["name"] === edit.name);
-    if (!isObject(entry) || entry["kind"] !== "agent") {
-      throw new Error(`"${edit.name}" has no agent to set — only develop, simplify, review and custom agent stages run one`);
-    }
-    delete entry["provider"];
-    delete entry["model"];
-    if (edit.provider !== null) {
-      entry["provider"] = edit.provider;
-      if (edit.model !== null) entry["model"] = edit.model;
-    }
-  }
+    if (edit.kind === "command") return { name: edit.name, kind: "command", run: edit.run };
+    const prompt = promptPathFor(edit.name, rawConfig["stages"]);
+    prompts.push({ path: resolve(projectRoot, prompt), text: edit.prompt });
+    return {
+      name: edit.name,
+      kind: "agent",
+      prompt,
+      ...(edit.provider === null ? {} : { provider: edit.provider, ...(edit.model === null ? {} : { model: edit.model }) }),
+    };
+  });
+  next["stages"] = stages;
   if (Object.keys(agents).length > 0) next["agents"] = agents;
   else delete next["agents"];
-  return next;
+  return { config: next, prompts };
 }
 
 function atomicWrite(path: string, text: string): void {
-  const temp = join(dirname(path), `.${randomUUID()}.config.tmp`);
+  const temp = join(dirname(path), `.${randomUUID()}.tmp`);
   try {
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(temp, text);
     renameSync(temp, path);
   } catch (cause) {
@@ -137,11 +198,19 @@ function atomicWrite(path: string, text: string): void {
   }
 }
 
+function assertInsideProject(path: string, projectRoot: string): void {
+  const inside = relative(projectRoot, path);
+  if (inside.startsWith("..") || isAbsolute(inside)) {
+    throw new Error(`prompt file ${path} is outside the project — edit it by hand, or rename the stage so it gets its own file under ${PROMPTS_DIR}`);
+  }
+}
+
 /**
- * Validates with the same parser `validate` and boot use, then replaces the file atomically.
+ * Validates the edited chain with the parser boot and `validate` use (prompt text read from the pending edit, not the disk),
+ * then writes the changed prompt files and replaces `config.json`, each atomically.
  * Refuses when the file changed on disk between our read and the write.
  */
-export function saveAgentEdits(configPath: string, edits: readonly AgentEdit[]): ProjectConfig {
+export function saveStageEdits(configPath: string, edits: readonly StageEdit[]): ProjectConfig {
   const original = readFileSync(configPath, "utf8");
   let raw: unknown;
   try {
@@ -150,9 +219,14 @@ export function saveAgentEdits(configPath: string, edits: readonly AgentEdit[]):
     throw new Error(`${configPath} is not valid JSON — ${messageOf(cause)}`, { cause });
   }
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
-  const next = withAgentEdits(raw, edits);
-  const project = parseProjectConfig(next, configPath);
+  const projectRoot = projectRootOf(configPath);
+  const { config, prompts } = withStageEdits(raw, edits, projectRoot);
+  const pending = new Map(prompts.map((prompt) => [prompt.path, prompt.text]));
+  const project = parseProjectConfig(config, configPath, (path) => pending.get(path) ?? readFileSync(path, "utf8"));
+  const changed = prompts.filter((prompt) => readPromptText(prompt.path) !== prompt.text);
+  for (const prompt of changed) assertInsideProject(prompt.path, projectRoot);
   if (readFileSync(configPath, "utf8") !== original) throw new Error("config.json changed on disk while saving — refresh and try again");
-  atomicWrite(configPath, `${JSON.stringify(next, null, 2)}\n`);
+  for (const prompt of changed) atomicWrite(prompt.path, prompt.text);
+  atomicWrite(configPath, `${JSON.stringify(config, null, 2)}\n`);
   return project;
 }
