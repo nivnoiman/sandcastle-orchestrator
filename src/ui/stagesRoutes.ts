@@ -19,7 +19,8 @@ function envClaudeDefaults(): ClaudeDefaultModels {
   try {
     const { values } = readOrchestratorEnv(nodeFileSystem, resolveLayout(nodeFileSystem));
     return { main: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL, review: values["SANDCASTLE_REVIEW_MODEL"] || DEFAULT_REVIEW_MODEL };
-  } catch {
+  } catch (cause) {
+    console.error(`stages: could not read the orchestrator env — ${messageOf(cause)}`);
     return { main: null, review: null };
   }
 }

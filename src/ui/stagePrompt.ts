@@ -60,10 +60,16 @@ function customPrompt(project: ProjectConfig, name: string, promptPath: string):
     throw new StagePromptError(`the prompt file of "${name}" does not exist`, 404);
   }
   if (!insideRoot(real, root)) throw new StagePromptError(`the prompt file of "${name}" is outside the project — refusing to show it`, 400);
+  let text: string;
+  try {
+    text = readFileSync(real, "utf8");
+  } catch {
+    throw new StagePromptError(`the prompt file of "${name}" could not be read`, 404);
+  }
   return {
     name,
     source: "file",
-    text: readFileSync(real, "utf8"),
+    text,
     path: relative(root, real).replaceAll("\\", "/"),
     note: "The prompt file of this custom stage, as it is on disk now; {{placeholders}} are filled per item. Sandcastle wraps it in the usual run context.",
   };
