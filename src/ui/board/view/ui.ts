@@ -3,7 +3,7 @@ import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
 import type { StagesView } from "../../../project/stagesEditor.js";
-import type { StagePromptView } from "../../../ui/stagePrompt.js";
+import type { StagePromptView } from "../../stagePrompt.js";
 import type { StagesDraft } from "../stagesDraft.js";
 
 export type Theme = "auto" | "light" | "dark";

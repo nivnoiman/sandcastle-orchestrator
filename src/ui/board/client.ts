@@ -661,7 +661,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
-  function stagesDrawer(): Extract<NonNullable<typeof ui.drawer>, { kind: "stages" }> | undefined {
+  type StagesDrawerState = Extract<NonNullable<typeof ui.drawer>, { kind: "stages" }>;
+
+  function stagesDrawer(): StagesDrawerState | undefined {
     return ui.drawer?.kind === "stages" ? ui.drawer : undefined;
   }
 
@@ -698,7 +700,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     render();
   }
 
-  async function viewStagePrompt(drawer: NonNullable<ReturnType<typeof stagesDrawer>>, name: string): Promise<void> {
+  async function viewStagePrompt(drawer: StagesDrawerState, name: string): Promise<void> {
     const project = projectById(drawer.projectId);
     if (!project) return;
     const shown: StagePromptShown = { name, data: undefined, error: undefined };
@@ -713,7 +715,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (ui.drawer === drawer && drawer.promptView === shown) render();
   }
 
-  async function copyPromptText(drawer: NonNullable<ReturnType<typeof stagesDrawer>>): Promise<void> {
+  async function copyPromptText(drawer: StagesDrawerState): Promise<void> {
     const text = drawer.promptView?.data?.text;
     if (text === undefined) return;
     try {

@@ -124,6 +124,7 @@ export function draftProblem(draft: StagesDraft): string | undefined {
 
 /** What a new run would use for this row once the draft is saved. */
 export function draftEffective(view: StagesView, row: DraftRow): EffectiveAgent {
-  const own = row.provider === "" ? undefined : { provider: row.provider as ProviderName, model: row.model.trim() === "" ? undefined : row.model.trim() };
+  const model = row.model.trim();
+  const own = row.provider === "" ? undefined : { provider: row.provider as ProviderName, model: model === "" ? undefined : model };
   return effectiveAgent(own, view.defaultAgent, tierOf(row.name.trim()), view.claudeDefaults);
 }
