@@ -1,5 +1,6 @@
 import type { ProviderName } from "../../project/agentsConfig.js";
 import type { BuiltinAgentStage } from "../../project/stagesConfig.js";
+import { effectiveAgent, tierOf, type EffectiveAgent } from "../../project/stageModels.js";
 import type { StageEdit, StageRow, StagesView } from "../../project/stagesEditor.js";
 
 /** One editable row; `provider` "" means "use the project default". */
@@ -119,4 +120,10 @@ export function draftProblem(draft: StagesDraft): string | undefined {
   const emptyRun = draft.rows.find((row) => row.kind === "command" && !row.runMap && row.run.trim() === "");
   if (emptyRun) return `${emptyRun.name.trim()} has no command to run.`;
   return undefined;
+}
+
+/** What a new run would use for this row once the draft is saved. */
+export function draftEffective(view: StagesView, row: DraftRow): EffectiveAgent {
+  const own = row.provider === "" ? undefined : { provider: row.provider as ProviderName, model: row.model.trim() === "" ? undefined : row.model.trim() };
+  return effectiveAgent(own, view.defaultAgent, tierOf(row.name.trim()), view.claudeDefaults);
 }

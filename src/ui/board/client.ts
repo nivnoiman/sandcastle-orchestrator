@@ -12,13 +12,14 @@ import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
 import { addBuiltin, addStage, draftEdits, draftOf, missingBuiltins, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
 import type { StagesView } from "../../project/stagesEditor.js";
+import type { StagePromptView } from "../stagePrompt.js";
 import { ICON_SPRITE } from "./view/icons.js";
 import { renderDrawer } from "./view/drawer.js";
 import { renderMain, renderSide } from "./view/main.js";
 import { renderRail } from "./view/rail.js";
 import { renderDialog, renderSwitcher, renderToasts, switchTargets } from "./view/chrome.js";
 import { cardId } from "./view/run.js";
-import { currentProject, type BoardScope, type BoardUi, type DialogState, type DrawerState, type NotifyPermission, type Theme } from "./view/ui.js";
+import { currentProject, type BoardScope, type BoardUi, type DialogState, type DrawerState, type NotifyPermission, type StagePromptShown, type Theme } from "./view/ui.js";
 
 const FEED_LIMIT = 200;
 const PARENT_REFRESH_MS = 60_000;
@@ -690,8 +691,37 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     else if (action === "stage-remove" && key) removeRow(drawer.draft, key);
     else if (action === "stage-prompt-open") drawer.editing = key;
     else if (action === "stage-prompt-close") drawer.editing = undefined;
+    else if (action === "stage-prompt-view-close") drawer.promptView = undefined;
+    else if (action === "stage-prompt-copy") return void copyPromptText(drawer);
+    else if (action === "stage-prompt-view") return void viewStagePrompt(drawer, element.dataset["name"] ?? "");
     else return;
     render();
+  }
+
+  async function viewStagePrompt(drawer: NonNullable<ReturnType<typeof stagesDrawer>>, name: string): Promise<void> {
+    const project = projectById(drawer.projectId);
+    if (!project) return;
+    const shown: StagePromptShown = { name, data: undefined, error: undefined };
+    drawer.promptView = shown;
+    render();
+    try {
+      const payload = await apiOf(project).get(`/api/stages/prompt?name=${encodeURIComponent(name)}`);
+      shown.data = payload["result"] as StagePromptView;
+    } catch (cause) {
+      shown.error = messageOf(cause);
+    }
+    if (ui.drawer === drawer && drawer.promptView === shown) render();
+  }
+
+  async function copyPromptText(drawer: NonNullable<ReturnType<typeof stagesDrawer>>): Promise<void> {
+    const text = drawer.promptView?.data?.text;
+    if (text === undefined) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("info", `copied the ${drawer.promptView?.name ?? ""} prompt`);
+    } catch {
+      toast("error", "Could not reach the clipboard — select the prompt text and copy it by hand.");
+    }
   }
 
   function onDragStart(event: DragEvent): void {
@@ -1174,6 +1204,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (action === "stage-model-pick" && ui.drawer?.kind === "stages") {
       const row = stageRow(ui.drawer.draft, element.dataset["key"]);
       if (row) {
+        if (row.provider === "" && value !== "") row.provider = ui.drawer.view?.defaultAgent.provider ?? "";
         row.customModel = value === "__custom__";
         row.model = row.customModel ? "" : value;
       }

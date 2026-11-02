@@ -1,6 +1,7 @@
 import type { StageRow, StagesView } from "../../../project/stagesEditor.js";
+import { describeEffective, effectiveHint, effectiveSourceLabel } from "../../../project/stageModels.js";
 import { esc } from "../format.js";
-import { draftProblem, isDirty, isLocked, missingBuiltins, type DraftRow } from "../stagesDraft.js";
+import { draftEffective, draftProblem, isDirty, isLocked, missingBuiltins, type DraftRow } from "../stagesDraft.js";
 import { attrs, button, tag } from "./html.js";
 import type { DrawerState } from "./ui.js";
 
@@ -25,20 +26,22 @@ function promptPathOf(row: DraftRow, view: StagesView): string {
 }
 
 function agentControls(row: DraftRow, drawer: StagesDrawer, view: StagesView): string {
-  const providerOptions = [`<option value=""${row.provider === "" ? " selected" : ""}>default (${esc(defaultLabel(view))})</option>`]
+  const providerOptions = [`<option value=""${row.provider === "" ? " selected" : ""}>inherit project default (${esc(defaultLabel(view))})</option>`]
     .concat(view.providers.map((provider) => `<option${attrs({ value: provider, selected: provider === row.provider })}>${esc(provider)}</option>`))
     .join("");
-  const known = row.provider === "" ? [] : (view.models[row.provider as keyof StagesView["models"]] ?? []);
+  const effective = draftEffective(view, row);
+  const known = view.models[effective.provider] ?? [];
   const custom = row.customModel || (row.model !== "" && !known.includes(row.model));
   const picked = custom ? CUSTOM_MODEL : row.model;
-  const modelOptions = [`<option value=""${picked === "" ? " selected" : ""}>${row.provider === "" ? "model — pick a provider first" : "provider default"}</option>`]
+  const modelOptions = [`<option value=""${picked === "" ? " selected" : ""}>${row.provider === "" ? "inherit default model" : "provider default model"}</option>`]
     .concat(known.map((model) => `<option${attrs({ value: model, selected: model === picked })}>${esc(model)}</option>`))
-    .concat(row.provider === "" ? [] : [`<option${attrs({ value: CUSTOM_MODEL, selected: custom })}>Custom…</option>`])
+    .concat([`<option${attrs({ value: CUSTOM_MODEL, selected: custom })}>Custom…</option>`])
     .join("");
   const data = { "data-key": row.key };
   return `<div class="stage-agent">
+      <div class="stage-effective" title="${esc(effectiveHint(effective))}"><b class="mono">${esc(describeEffective(effective))}</b> <span class="muted">${esc(effectiveSourceLabel(effective))}</span></div>
       <select${attrs({ "aria-label": `${row.name || "new"} provider`, disabled: drawer.busy, "data-act": "stage-provider", "data-focus": `stage-provider-${row.key}`, ...data })}>${providerOptions}</select>
-      <select${attrs({ "aria-label": `${row.name || "new"} model`, disabled: row.provider === "" || drawer.busy, "data-act": "stage-model-pick", "data-focus": `stage-model-pick-${row.key}`, ...data })}>${modelOptions}</select>
+      <select${attrs({ "aria-label": `${row.name || "new"} model`, disabled: drawer.busy, "data-act": "stage-model-pick", "data-focus": `stage-model-pick-${row.key}`, ...data })}>${modelOptions}</select>
       ${custom ? `<input${attrs({ type: "text", value: row.model, placeholder: "model name, e.g. gpt-5.5", disabled: drawer.busy, class: "stage-model-custom", "aria-label": `${row.name || "new"} custom model`, "data-act": "stage-model", "data-focus": `stage-model-${row.key}`, autocomplete: "off", spellcheck: false, ...data })} />` : ""}
     </div>`;
 }
@@ -56,6 +59,11 @@ function promptButton(row: DraftRow, drawer: StagesDrawer, view: StagesView): st
       ${button({ label: empty ? "Write prompt…" : "Edit prompt…", icon: "log", disabled: drawer.busy, data: { "data-act": "stage-prompt-open", "data-key": row.key } })}
       <span class="muted mono" title="${esc(path)}">${esc(empty ? path : first.slice(0, 70))}</span>
     </div>`;
+}
+
+function viewPromptButton(row: DraftRow, drawer: StagesDrawer): string {
+  if (row.isNew) return "";
+  return button({ label: "View prompt", icon: "log", cls: "ghost", disabled: drawer.busy, title: row.kind === "builtin" ? "The built-in prompt the engine uses (read-only)" : "The prompt file as it is on disk", data: { "data-act": "stage-prompt-view", "data-name": row.name } });
 }
 
 function commandField(row: DraftRow, drawer: StagesDrawer, view: StagesView): string {
@@ -82,7 +90,7 @@ function rowMarkup(row: DraftRow, index: number, drawer: StagesDrawer, view: Sta
       ? `<div class="stage-note"><span class="muted">runs the project's checks; no agent</span></div>`
       : row.kind === "command"
         ? commandField(row, drawer, view)
-        : `${agentControls(row, drawer, view)}${row.kind === "agent" ? promptButton(row, drawer, view) : ""}`;
+        : `${agentControls(row, drawer, view)}${row.kind === "agent" ? promptButton(row, drawer, view) : ""}${viewPromptButton(row, drawer)}`;
   const movable = !isLocked(row) && !drawer.busy;
   return `<li${attrs({ class: `stage-row${drawer.dragKey === row.key ? " dragging" : ""}`, "data-key": row.key, "data-index": index })}>
       <div class="stage-head">
@@ -126,6 +134,25 @@ function promptModal(drawer: StagesDrawer, view: StagesView): string {
     </div>`;
 }
 
+function promptViewModal(drawer: StagesDrawer): string {
+  const shown = drawer.promptView;
+  if (!shown) return "";
+  const { data } = shown;
+  const label = data?.source === "built-in" ? "built-in" : "prompt file";
+  const body = shown.error
+    ? `<p class="stage-error" role="alert">${esc(shown.error)}</p>`
+    : data
+      ? `<ul class="modal-help"><li><b>${label}</b>${data.path ? ` · <code>${esc(data.path)}</code>` : ""} — ${esc(data.note)}</li></ul>
+      <pre class="prompt-view" tabindex="0" aria-label="Prompt text">${esc(data.text)}</pre>`
+      : `<p class="muted">Loading…</p>`;
+  return `<div class="modal-scrim" data-act="stage-prompt-view-close"></div>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="Prompt of ${esc(shown.name)}">
+      <h3>Prompt — ${esc(shown.name)}${data ? ` <span class="tag">${label}</span>` : ""}</h3>
+      ${body}
+      <div class="d-acts">${button({ label: "Copy", icon: "copy", disabled: !data, data: { "data-act": "stage-prompt-copy" } })}${button({ label: "Close", icon: "check", cls: "primary", data: { "data-act": "stage-prompt-view-close" } })}</div>
+    </div>`;
+}
+
 export function stagesBody(drawer: StagesDrawer): string {
   const { view } = drawer;
   if (!view) return `<div class="d-form"><span class="muted">${drawer.error ? esc(drawer.error) : "Loading…"}</span></div>`;
@@ -146,6 +173,7 @@ export function stagesBody(drawer: StagesDrawer): string {
         ${button({ label: "Refresh", icon: "retry", cls: "ghost", title: "Re-read .sandcastle/config.json and use it for new runs — picks up hand edits and drops unsaved changes", disabled: drawer.busy, data: { "data-act": "stages-refresh", "data-proj": drawer.projectId } })}
       </div>
       ${promptModal(drawer, view)}
+      ${promptViewModal(drawer)}
     </div>`;
 }
 
