@@ -14,7 +14,6 @@ export interface StagesRouteDeps {
   claudeDefaults(): ClaudeDefaultModels;
 }
 
-/** The models claude runs with when nothing pins one, as the engine reads them; `null` when the env layers cannot be read. */
 function envClaudeDefaults(): ClaudeDefaultModels {
   try {
     const { values } = readOrchestratorEnv(nodeFileSystem, resolveLayout(nodeFileSystem));
