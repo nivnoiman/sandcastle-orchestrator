@@ -103,3 +103,22 @@ describe("/api/stages", () => {
     expect(activeProject().integrationBase).toBe("dev");
   });
 });
+
+describe("/api/stages effective agent + prompt", () => {
+  it("lists the effective provider on agent rows and none on the gate", async () => {
+    const { json } = await call("GET", "/api/stages");
+    const rows = json.result?.stages as { name: string; effective?: { provider: string; providerFrom: string } }[];
+    expect(rows.find((row) => row.name === "develop")?.effective).toMatchObject({ provider: "claude", providerFrom: "project-default" });
+    expect(rows.find((row) => row.name === "verify")?.effective).toBeUndefined();
+  });
+
+  it("serves a built-in prompt and refuses unknown or traversal names", async () => {
+    const ok = await fetch(`${server?.url}/api/stages/prompt?name=develop`);
+    const body = (await ok.json()) as { ok: boolean; result: { source: string; text: string } };
+    expect(ok.status).toBe(200);
+    expect(body.result.source).toBe("built-in");
+    expect(body.result.text.length).toBeGreaterThan(100);
+    expect((await fetch(`${server?.url}/api/stages/prompt?name=${encodeURIComponent("../../etc/passwd")}`)).status).toBe(404);
+    expect((await fetch(`${server?.url}/api/stages/prompt`)).status).toBe(400);
+  });
+});

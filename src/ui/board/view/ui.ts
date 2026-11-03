@@ -3,6 +3,7 @@ import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
 import type { StagesView } from "../../../project/stagesEditor.js";
+import type { StagePromptView } from "../../stagePrompt.js";
 import type { StagesDraft } from "../stagesDraft.js";
 
 export type Theme = "auto" | "light" | "dark";
@@ -27,7 +28,7 @@ export type DrawerState =
       loaded: boolean;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
-  | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined; editing: string | undefined; dragKey: string | undefined }
+  | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined; editing: string | undefined; dragKey: string | undefined; promptView?: StagePromptShown }
   | { kind: "add"; projectId: string; title: string; text: string; busy: boolean; result: string | undefined };
 
 export interface SwitcherState {
@@ -99,4 +100,11 @@ export function currentRun(ui: Pick<BoardUi, "projects" | "currentId" | "selecte
   const project = currentProject(ui);
   if (!project) return undefined;
   return chooseRun(project.state, ui.selectedRuns[project.id]);
+}
+
+/** The read-only prompt modal of the Stages drawer: loading until `data` or `error` arrives. */
+export interface StagePromptShown {
+  name: string;
+  data: StagePromptView | undefined;
+  error: string | undefined;
 }

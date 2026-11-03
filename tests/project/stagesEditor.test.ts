@@ -45,7 +45,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("stagesViewOf", () => {
   it("lists the chain with agents, prompt text, missing built-ins and the models already in use", () => {
-    const view = stagesViewOf(readProjectConfig(configPath));
+    const view = stagesViewOf(readProjectConfig(configPath), { main: "opus", review: "sonnet" });
     expect(view.stages.map((row) => [row.name, row.hasAgent])).toEqual([
       ["develop", true],
       ["review", true],

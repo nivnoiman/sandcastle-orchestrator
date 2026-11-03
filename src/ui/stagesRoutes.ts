@@ -1,15 +1,31 @@
 import type { Express, Request, Response } from "express";
 import { messageOf } from "../messageOf.js";
 import { activeProject, readProjectConfig, setActiveProject, type ProjectConfig } from "../project/projectConfig.js";
+import { DEFAULT_MODEL, DEFAULT_REVIEW_MODEL, readOrchestratorEnv, resolveLayout } from "../real/env.js";
+import { nodeFileSystem } from "../real/fileSystem.js";
+import type { ClaudeDefaultModels } from "../project/stageModels.js";
+import { StagePromptError, stagePromptOf } from "./stagePrompt.js";
 import { parseStageEdits, saveStageEdits, stagesViewOf } from "../project/stagesEditor.js";
 
 export interface StagesRouteDeps {
   configPath: string;
   activate(project: ProjectConfig): void;
+  /** Read per request, so an edit to .env.orchestrator shows on refresh. */
+  claudeDefaults(): ClaudeDefaultModels;
+}
+
+function envClaudeDefaults(): ClaudeDefaultModels {
+  try {
+    const { values } = readOrchestratorEnv(nodeFileSystem, resolveLayout(nodeFileSystem));
+    return { main: values["SANDCASTLE_MODEL"] || DEFAULT_MODEL, review: values["SANDCASTLE_REVIEW_MODEL"] || DEFAULT_REVIEW_MODEL };
+  } catch (cause) {
+    console.error(`stages: could not read the orchestrator env — ${messageOf(cause)}`);
+    return { main: null, review: null };
+  }
 }
 
 export function defaultStagesRouteDeps(configPath: string): StagesRouteDeps {
-  return { configPath, activate: (project) => setActiveProject({ ...activeProject(), agents: project.agents, stages: project.stages }) };
+  return { configPath, claudeDefaults: envClaudeDefaults, activate: (project) => setActiveProject({ ...activeProject(), agents: project.agents, stages: project.stages }) };
 }
 
 function reply(response: Response, run: () => unknown): void {
@@ -32,14 +48,24 @@ function editsOf(request: Request): unknown {
  */
 export function mountStagesRoutes(app: Express, deps: StagesRouteDeps): void {
   app.get("/api/stages", (_request, response) => {
-    reply(response, () => stagesViewOf(readProjectConfig(deps.configPath)));
+    reply(response, () => stagesViewOf(readProjectConfig(deps.configPath), deps.claudeDefaults()));
+  });
+
+  app.get("/api/stages/prompt", (request, response) => {
+    const name = request.query["name"];
+    try {
+      if (typeof name !== "string") throw new StagePromptError("expected ?name=<stage>", 400);
+      response.json({ ok: true, result: stagePromptOf(readProjectConfig(deps.configPath), name) });
+    } catch (cause) {
+      response.status(cause instanceof StagePromptError ? cause.status : 400).json({ ok: false, error: messageOf(cause) });
+    }
   });
 
   app.post("/api/stages/reload", (_request, response) => {
     reply(response, () => {
       const project = readProjectConfig(deps.configPath);
       deps.activate(project);
-      return stagesViewOf(project);
+      return stagesViewOf(project, deps.claudeDefaults());
     });
   });
 
@@ -47,7 +73,7 @@ export function mountStagesRoutes(app: Express, deps: StagesRouteDeps): void {
     reply(response, () => {
       const project = saveStageEdits(deps.configPath, parseStageEdits(editsOf(request)));
       deps.activate(project);
-      return stagesViewOf(project);
+      return stagesViewOf(project, deps.claudeDefaults());
     });
   });
 }
