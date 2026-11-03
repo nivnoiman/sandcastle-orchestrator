@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { MODEL_NAME, PROVIDER_NAMES, type AgentChoice, type ProviderName } from "./agentsConfig.js";
+import { effectiveAgent, tierOf, type ClaudeDefaultModels, type EffectiveAgent } from "./stageModels.js";
 import { parseProjectConfig, projectRootOf, type ProjectConfig } from "./projectConfig.js";
 import { BUILTIN_AGENT_STAGES, STAGE_PROMPT_PLACEHOLDERS, VERIFY_STAGE, type BuiltinAgentStage, type StageSpec } from "./stagesConfig.js";
 
@@ -21,6 +22,8 @@ export interface StageRow {
   kind: StageSpec["kind"];
   hasAgent: boolean;
   agent: { provider: ProviderName; model: string | undefined } | undefined;
+  /** What a new run uses, resolved the way the engine does; absent for stages that run no agent. */
+  effective?: EffectiveAgent;
   run?: string | Record<string, string>;
   promptText?: string;
   promptPath?: string;
@@ -29,6 +32,7 @@ export interface StageRow {
 export interface StagesView {
   stages: StageRow[];
   defaultAgent: AgentChoice;
+  claudeDefaults: ClaudeDefaultModels;
   providers: readonly ProviderName[];
   models: Record<ProviderName, string[]>;
   commands: ExistingCommand[];
@@ -68,14 +72,18 @@ function readPromptText(path: string): string | undefined {
   }
 }
 
-function rowOf(stage: StageSpec, project: ProjectConfig): StageRow {
-  if (stage.kind === "builtin") return { name: stage.name, kind: stage.kind, hasAgent: true, agent: project.agents.roles[stage.name] };
+function rowOf(stage: StageSpec, project: ProjectConfig, claude: ClaudeDefaultModels): StageRow {
+  if (stage.kind === "builtin") {
+    const agent = project.agents.roles[stage.name];
+    return { name: stage.name, kind: stage.kind, hasAgent: true, agent, effective: effectiveAgent(agent, project.agents.default, tierOf(stage.name), claude) };
+  }
   if (stage.kind === "agent") {
     return {
       name: stage.name,
       kind: stage.kind,
       hasAgent: true,
       agent: stage.agent,
+      effective: effectiveAgent(stage.agent, project.agents.default, tierOf(stage.name), claude),
       promptText: readPromptText(stage.promptPath) ?? "",
       promptPath: relative(project.projectRoot, stage.promptPath).replaceAll("\\", "/"),
     };
@@ -113,11 +121,12 @@ function existingCommands(project: ProjectConfig): ExistingCommand[] {
   return found.filter((entry) => !seen.has(entry.command) && seen.add(entry.command));
 }
 
-export function stagesViewOf(project: ProjectConfig): StagesView {
+export function stagesViewOf(project: ProjectConfig, claudeDefaults: ClaudeDefaultModels): StagesView {
   const present = new Set(project.stages.map((stage) => stage.name));
   return {
-    stages: project.stages.map((stage) => rowOf(stage, project)),
+    stages: project.stages.map((stage) => rowOf(stage, project, claudeDefaults)),
     defaultAgent: project.agents.default,
+    claudeDefaults,
     providers: PROVIDER_NAMES,
     models: modelsInUse(project),
     commands: existingCommands(project),

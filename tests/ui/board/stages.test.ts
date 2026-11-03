@@ -15,6 +15,7 @@ const VIEW: StagesView = {
     { name: "verify", kind: "verify", hasAgent: false, agent: undefined },
   ],
   defaultAgent: { provider: "claude", model: undefined },
+  claudeDefaults: { main: "opus", review: "sonnet" },
   providers: ["claude", "codex", "cursor"],
   models: { claude: ["opus", "sonnet"], codex: ["gpt-5.5"], cursor: [] },
   commands: [{ source: "web checks", command: "npm test" }],
@@ -108,6 +109,23 @@ describe("stage draft", () => {
 });
 
 describe("stages drawer", () => {
+  it("shows the real default model when claude has none pinned, and never invents one", () => {
+    const unknown = { ...VIEW, claudeDefaults: { main: null, review: null } };
+    const html = render(drawer({ view: unknown, draft: draftOf(unknown) }));
+    expect(html).toContain("claude · provider default (model not pinned)");
+  });
+
+  it("renders the read-only prompt modal with Copy", () => {
+    const loading = render(drawer({ promptView: { name: "develop", data: undefined, error: undefined } }));
+    expect(loading).toContain("Loading…");
+    expect(loading).toMatch(/disabled[^>]*data-act="stage-prompt-copy"|data-act="stage-prompt-copy"[^>]*disabled/);
+    const shown = render(drawer({ promptView: { name: "develop", data: { name: "develop", source: "built-in", text: "Implement <sub-issue>", note: "Read-only." }, error: undefined } }));
+    expect(shown).toContain("Implement &lt;sub-issue&gt;");
+    expect(shown).toContain(">built-in<");
+    expect(shown).toContain('data-act="stage-prompt-copy"');
+    expect(render(drawer({ promptView: { name: "x", data: undefined, error: "no stage named x" } }))).toContain("no stage named x");
+  });
+
   it("shows the flow, a picker per agent row, the prompt button and the new-runs-only notice", () => {
     const html = render(drawer());
     expect(html).toContain("Applies to new runs only");
@@ -116,7 +134,12 @@ describe("stages drawer", () => {
     expect(html).toContain("<option value=\"gpt-5.5\" selected>gpt-5.5</option>");
     expect(html).toContain('data-act="stage-model-pick"');
     expect(html).toContain("Custom…");
-    expect(html).toContain("default (claude)");
+    expect(html).toContain("inherit project default (claude)");
+    expect(html).toContain("claude · opus");
+    expect(html).toContain("provider default model");
+    expect(html).toContain("codex · gpt-5.5");
+    expect(html).toContain("set on stage");
+    expect(html).toContain('data-act="stage-prompt-view" data-name="develop"');
     expect(html).toContain("Edit prompt…");
     expect(html).toContain("Audit {{issue}}");
     expect(html).toContain("+ Built-in…");
