@@ -200,6 +200,20 @@ export function containerGitDir(absoluteGitDir: string): string {
   return `${CONTAINER_GITDIR}/${normalized.slice(marker + GIT_DIR_MARKER.length)}`;
 }
 
+/**
+ * A headless stage is one turn, so a command the harness auto-backgrounds (it outlives the Bash tool timeout) is never
+ * collected: the agent parks on a wakeup, ends the turn, and the stage fails with no commits. Keep commands in the
+ * foreground, bounded by the idle budget, and disable background tasks so nothing outlives the turn.
+ */
+export function bashTimeoutEnv(idleTimeoutSeconds: number): Record<string, string> {
+  const timeoutMs = String(idleTimeoutSeconds * 1000);
+  return {
+    BASH_DEFAULT_TIMEOUT_MS: timeoutMs,
+    BASH_MAX_TIMEOUT_MS: timeoutMs,
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+  };
+}
+
 export function containerEnv(
   config: OrchestratorConfig,
   gitDir: string,
@@ -214,6 +228,7 @@ export function containerEnv(
     GIT_COMMITTER_NAME: AGENT_IDENTITY.name,
     GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
     JEST_MAX_WORKERS: config.jestWorkers,
+    ...bashTimeoutEnv(config.idleTimeoutSeconds),
   };
   Object.assign(env, provider.authEnv(config));
   return env;
