@@ -205,7 +205,7 @@ export function containerGitDir(absoluteGitDir: string): string {
  * collected: the agent parks on a wakeup, ends the turn, and the stage fails with no commits. Keep commands in the
  * foreground, bounded by the idle budget, and disable background tasks so nothing outlives the turn.
  */
-export function bashTimeoutEnv(idleTimeoutSeconds: number): Record<string, string> {
+function bashTimeoutEnv(idleTimeoutSeconds: number): Record<string, string> {
   const timeoutMs = String(idleTimeoutSeconds * 1000);
   return {
     BASH_DEFAULT_TIMEOUT_MS: timeoutMs,
