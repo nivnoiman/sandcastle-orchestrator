@@ -762,7 +762,7 @@ bootstrap runs and says loudly what it skipped.
   ~1.5 min and a full tsc + jest run from hours to minutes. Every container gets
   `JEST_MAX_WORKERS` from `SANDCASTLE_JEST_WORKERS` (default 4; more workers than that
   barely helped).
-- Every container also gets `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` set to the
+- Every stage sandbox container (`containerEnv`; not the feature-verify containers) also gets `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` set to the
   idle budget and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`. A stage is one headless turn:
   Claude Code auto-backgrounds a Bash call that passes its timeout (default ~2 min), the
   agent then parks on a wakeup/monitor and ends the turn, and the stage fails with no
