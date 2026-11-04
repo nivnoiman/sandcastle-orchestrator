@@ -183,6 +183,13 @@ describe("container composition", () => {
     expect(containerEnv(testConfig({ jestWorkers: "50%" }), CONTAINER_GIT_DIR)["JEST_MAX_WORKERS"]).toBe("50%");
   });
 
+  it("keeps long commands in the foreground: Bash timeout spans the idle budget, background tasks off", () => {
+    const env = containerEnv(testConfig({ idleTimeoutSeconds: 900 }), CONTAINER_GIT_DIR);
+    expect(env["BASH_DEFAULT_TIMEOUT_MS"]).toBe("900000");
+    expect(env["BASH_MAX_TIMEOUT_MS"]).toBe("900000");
+    expect(env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"]).toBe("1");
+  });
+
   it("mounts the host ~/.claude read-only at a staging path so a skip-permissions agent cannot write it", () => {
     const staged = spec().mounts.filter((mount) => mount.containerPath.startsWith("/home/agent/.claude-host"));
     expect(staged).toHaveLength(2);
