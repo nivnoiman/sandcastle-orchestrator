@@ -25,11 +25,10 @@ function envClaudeDefaults(): ClaudeDefaultModels {
 }
 
 export function defaultStagesRouteDeps(configPath: string): StagesRouteDeps {
-  return { configPath, claudeDefaults: envClaudeDefaults, activate: (project) => setActiveProject(activated(activeProject(), project)) };
+  return { configPath, claudeDefaults: envClaudeDefaults, activate: (project) => setActiveProject(bootedWithReloadedAgentsStagesAndChecks(activeProject(), project)) };
 }
 
-/** What a reload or save changes for new runs: agents, stages and each repo's gate commands. The rest stays as the server booted with. */
-function activated(booted: ProjectConfig, fresh: ProjectConfig): ProjectConfig {
+function bootedWithReloadedAgentsStagesAndChecks(booted: ProjectConfig, fresh: ProjectConfig): ProjectConfig {
   const repos = Object.fromEntries(
     Object.entries(booted.repos).map(([name, repo]) => {
       const next = fresh.repos[name];

@@ -831,7 +831,6 @@ export class DockerSandboxRunner implements SandboxRunner {
     return { outcome: "success" };
   }
 
-  /** Runs each command in order in a clean copy of the branch; the first red one stops the list and becomes the CheckFailure. */
   private async runInCleanCopy(
     stage: string,
     attempt: string,
@@ -865,9 +864,9 @@ export class DockerSandboxRunner implements SandboxRunner {
     this.assertLive(attempt);
   }
 
-  /** The env that makes `git push` inside a stage container run the stage's commands first; none with the local tracker (no push there). */
   private pushGateEnv(commands: readonly string[] | undefined): Readonly<Record<string, string>> | undefined {
-    return commands && this.deps.config.tracker !== "local" ? STAGE_HOOKS_GIT_ENV : undefined;
+    const trackerHasRemote = this.deps.config.tracker !== "local";
+    return commands && trackerHasRemote ? STAGE_HOOKS_GIT_ENV : undefined;
   }
 
   private installPushGate(container: string, commands: readonly string[] | undefined): void {
@@ -875,7 +874,6 @@ export class DockerSandboxRunner implements SandboxRunner {
     execAsRoot(this.deps.runner, container, installPrePushHookCommand(commands));
   }
 
-  /** One stage-agent pass in a bind-mounted container, with the push gate installed when the stage has commands. */
   private async runGatedAgent(
     request: SpawnRequest,
     attempt: string,
@@ -900,10 +898,6 @@ export class DockerSandboxRunner implements SandboxRunner {
     );
   }
 
-  /**
-   * Runs the stage's commands in a clean copy before anything is pushed. Red gives the stage agent up to `stageCheckFixLimit`
-   * fix passes in a fresh container; still red throws the last CheckFailure.
-   */
   private async gateStageChecks(
     request: SpawnRequest,
     attempt: string,
