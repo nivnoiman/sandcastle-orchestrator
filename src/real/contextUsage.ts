@@ -26,8 +26,7 @@ export const CONTEXT_WINDOWS: readonly { prefix: RegExp; tokens: number }[] = [
   { prefix: /^claude-3/, tokens: 200_000 },
 ];
 
-/** A partial line longer than this is never a usage event; dropped so a newline-free stream cannot grow memory. */
-const MAX_PENDING_CHARS = 4_000_000;
+const MAX_PARTIAL_LINE_CHARS = 4_000_000;
 
 type Json = Record<string, unknown>;
 
@@ -72,7 +71,7 @@ export class ContextTracker {
   push(chunk: string): void {
     const lines = (this.pending + chunk).split("\n");
     const partial = lines.pop() ?? "";
-    this.pending = partial.length > MAX_PENDING_CHARS ? "" : partial;
+    this.pending = partial.length > MAX_PARTIAL_LINE_CHARS ? "" : partial;
     for (const line of lines) this.apply(line);
   }
 
