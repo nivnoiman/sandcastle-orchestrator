@@ -172,8 +172,12 @@ export function uiLifecycle(
     red: "red",
     skipped: "skipped",
   } as const satisfies Record<FeatureVerifyStatus["phase"], UiLifecycleStep["phase"]>)[featureVerify.phase];
+  const agentAndUsage = (role: string, stage: string) => {
+    const agent = agentFor(role);
+    return { agent, usage: usageFor(stage, agent) };
+  };
   const steps: UiLifecycleStep[] = [
-    { id: "verify", label: "Feature Verify", stage: FEATURE_VERIFY_STAGE, phase: verifyPhase, reason: featureVerify.reason, agent: agentFor("feature-verify"), usage: usageFor(FEATURE_VERIFY_STAGE, agentFor("feature-verify")) },
+    { id: "verify", label: "Feature Verify", stage: FEATURE_VERIFY_STAGE, phase: verifyPhase, reason: featureVerify.reason, ...agentAndUsage("feature-verify", FEATURE_VERIFY_STAGE) },
   ];
   if (featureVerify.rework) {
     const fixRounds = fixing ? featureVerify.rework.round : featureVerify.rework.round - 1;
@@ -184,12 +188,11 @@ export function uiLifecycle(
         stage: FEATURE_FIX_STAGE,
         phase: fixing ? "running" : "done",
         reason: `fix round ${fixRounds}/${featureVerify.rework.limit}`,
-        agent: agentFor("feature-fix"),
-        usage: usageFor(FEATURE_FIX_STAGE, agentFor("feature-fix")),
+        ...agentAndUsage("feature-fix", FEATURE_FIX_STAGE),
       });
     }
   }
-  steps.push({ id: "polish", label: "Polish", stage: POLISH_STAGE, phase: polish.phase === "green" ? "done" : polish.phase, reason: polish.reason, agent: agentFor("polish"), usage: usageFor(POLISH_STAGE, agentFor("polish")) });
+  steps.push({ id: "polish", label: "Polish", stage: POLISH_STAGE, phase: polish.phase === "green" ? "done" : polish.phase, reason: polish.reason, ...agentAndUsage("polish", POLISH_STAGE) });
   return steps;
 }
 
