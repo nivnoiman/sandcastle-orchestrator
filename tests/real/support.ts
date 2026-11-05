@@ -44,6 +44,7 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
     jestWorkers: DEFAULT_JEST_WORKERS,
     reworkLimit: REWORK_LIMIT_DEFAULT,
     featureReworkLimit: REWORK_LIMIT_DEFAULT,
+    emptyStageRetries: 0,
     verify: TEST_PROJECT.verify,
     verifyServices: { ...TEST_VERIFY_SERVICES },
     ...overrides,

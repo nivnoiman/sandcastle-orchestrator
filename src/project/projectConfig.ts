@@ -72,6 +72,8 @@ export interface ProjectConfig {
   imageTag: string;
   memoryProject: string | undefined;
   stateDir: string | undefined;
+  /** Per-agent idle budget in seconds; SANDCASTLE_IDLE_TIMEOUT and --idle-timeout win over it. */
+  idleTimeoutSeconds: number | undefined;
   repos: Record<string, RepoConfig>;
   verify: VerifyStrategy;
   ui: UiConfig;
@@ -246,6 +248,14 @@ function parseVerify(raw: unknown, repos: Record<string, RepoConfig>): VerifyStr
   throw new Error(`verify.strategy must be "none", "command" or "compose", got ${JSON.stringify(strategy)}`);
 }
 
+function parseIdleTimeout(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    throw new Error(`idleTimeoutSeconds must be a positive number of seconds, got ${JSON.stringify(raw)}`);
+  }
+  return raw;
+}
+
 function parseUi(raw: unknown): UiConfig {
   if (raw === undefined) return { port: DEFAULT_UI_PORT };
   if (!isObject(raw)) throw new Error("ui must be an object");
@@ -283,6 +293,7 @@ export function parseProjectConfig(raw: unknown, configPath: string, readText?: 
     imageTag: optionalString(raw, "imageTag", "config") ?? DEFAULT_IMAGE_TAG,
     memoryProject: optionalString(raw, "memoryProject", "config"),
     stateDir: stateDir === undefined ? undefined : resolve(projectRoot, stateDir),
+    idleTimeoutSeconds: parseIdleTimeout(raw["idleTimeoutSeconds"]),
     repos,
     verify: parseVerify(raw["verify"], repos),
     ui: parseUi(raw["ui"]),

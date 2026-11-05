@@ -123,7 +123,11 @@ interface StageResult {
   resolved?: boolean;
   detail?: string;
   rework?: ReworkRequest;
+  endedWithoutCommitsOrEvidence?: boolean;
 }
+
+export const EMPTY_RETRY_NOTE =
+  "Note: your previous attempt at this stage ended its turn without committing anything. Run long commands (tests, builds) in the foreground, never in the background, and commit your work before you finish.";
 
 export class StageCancelledError extends Error {
   constructor(readonly attempt: string) {
@@ -456,24 +460,30 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private async runAgentStage(request: SpawnRequest, attempt: string): Promise<StageResult> {
-    const prompt = buildStagePrompt(this.stagePromptContext(request));
     const worktree = this.requireWorktree(request.repo, request.branch);
     const baseline = this.prepareRework(request, worktree);
-
     const agent = resolveStageAgent(this.deps.config, request.stage);
-    try {
-      await this.inContainer(request.stage, attempt, request, worktree, agent, async (container) => {
-        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-        await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
-      });
-    } catch (cause) {
-      if (!isAgentIdleTimeout(cause)) throw cause;
-      await this.salvage(request, attempt, worktree, cause, baseline);
-    }
+    const maxRetries = this.deps.config.emptyStageRetries;
 
-    this.assertLive(attempt);
-    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
-    return this.settleOutcome(request, worktree, baseline);
+    for (let retry = 0; ; retry += 1) {
+      const basePrompt = buildStagePrompt(this.stagePromptContext(request));
+      const prompt = retry === 0 ? basePrompt : `${basePrompt}\n\n${EMPTY_RETRY_NOTE}`;
+      try {
+        await this.inContainer(request.stage, attempt, request, worktree, agent, async (container) => {
+          await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+          await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
+        });
+      } catch (cause) {
+        if (!isAgentIdleTimeout(cause)) throw cause;
+        await this.salvage(request, attempt, worktree, cause, baseline);
+      }
+
+      this.assertLive(attempt);
+      this.pushLocalTrackerBranchFromHost(worktree, request.branch);
+      const { endedWithoutCommitsOrEvidence, ...result } = this.settleOutcome(request, worktree, baseline);
+      if (!endedWithoutCommitsOrEvidence || retry >= maxRetries) return result;
+      this.deps.warn(request.itemNumber, `${request.stage} stage ended with no commits - retry ${retry + 1}/${maxRetries}`);
+    }
   }
 
   private pushLocalTrackerBranchFromHost(worktree: string, branch: string): void {
@@ -613,7 +623,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `no \`${tag}\` commits and no "${section}" section on ${pullRequest.url} — the ${stage} stage left no evidence it ran`,
       );
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection(stage, subjects, round));
     this.deps.warn(
@@ -666,7 +676,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `rework round ${round} landed no commits and no "${prSectionHeading("develop", round)}" section — nothing was fixed`,
       );
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection("develop", subjects, round));
     this.deps.warn(
@@ -680,7 +690,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     const commits = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
     if (commits === 0) {
       this.deps.warn(request.itemNumber, `no commits landed on ${request.branch} — nothing to open a pull request for`);
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.warnWithoutTestFirstCommit(request, worktree);
     const existing = this.deps.gh.findPullRequest(request.repo, request.branch);

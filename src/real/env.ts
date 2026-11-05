@@ -18,6 +18,7 @@ export const IDLE_TIMEOUT_DEFAULT = 1200;
 export const IDLE_TIMEOUT_MIN = 60;
 export const IDLE_TIMEOUT_MAX = 7200;
 export const SALVAGE_IDLE_MAX = 300;
+export const EMPTY_STAGE_RETRIES_DEFAULT = 2;
 export const DEFAULT_MODEL = "opus";
 export const DEFAULT_REVIEW_MODEL = "sonnet";
 export const DEFAULT_JEST_WORKERS = "4";
@@ -46,6 +47,8 @@ export interface OrchestratorConfig {
   jestWorkers: string;
   reworkLimit: number;
   featureReworkLimit: number;
+  /** Re-runs of a stage that ended its turn with no commits and no evidence section, before it parks. */
+  emptyStageRetries: number;
   verify: VerifyStrategy;
   verifyServices: Record<TargetRepo, VerifyService>;
 }
@@ -153,11 +156,11 @@ function verifyServices(values: Record<string, string>, verify: VerifyStrategy):
   return resolved;
 }
 
-export function reworkLimit(values: Record<string, string>, key = "SANDCASTLE_REWORK_LIMIT"): number {
+export function reworkLimit(values: Record<string, string>, key = "SANDCASTLE_REWORK_LIMIT", fallback = REWORK_LIMIT_DEFAULT): number {
   const raw = values[key]?.trim();
-  if (!raw) return REWORK_LIMIT_DEFAULT;
+  if (!raw) return fallback;
   if (!REWORK_LIMIT.test(raw)) {
-    throw new Error(`${key}="${raw}" must be a whole number of rework rounds (0 parks on the first red check) — fix it in .env.orchestrator`);
+    throw new Error(`${key}="${raw}" must be a whole number (0 turns it off) — fix it in .env.orchestrator`);
   }
   return Number(raw);
 }
@@ -230,13 +233,14 @@ export function loadOrchestratorConfig(
       (project.verify.strategy === "compose" ? project.verify.mongoImage : undefined) ||
       DEFAULT_MONGO_IMAGE,
     hubRepo: options.hubRepo ?? project.hubRepo,
-    idleTimeoutSeconds: clampIdleTimeout(options.idleTimeoutSeconds ?? idleFromFile),
+    idleTimeoutSeconds: clampIdleTimeout(options.idleTimeoutSeconds ?? idleFromFile ?? project.idleTimeoutSeconds),
     claudeSyncSource: values["SANDCASTLE_CLAUDE_SOURCE"] || undefined,
     bootstrapCommands: perRepo(values, "SANDCASTLE_BOOTSTRAP_", (repo) => project.repos[repo]!.bootstrap),
     checkCommands: perRepo(values, "SANDCASTLE_CHECKS_", (repo) => project.repos[repo]!.checks),
     jestWorkers: jestWorkers(values),
     reworkLimit: reworkLimit(values),
     featureReworkLimit: reworkLimit(values, "SANDCASTLE_FEATURE_REWORK_LIMIT"),
+    emptyStageRetries: reworkLimit(values, "SANDCASTLE_EMPTY_RETRY_LIMIT", EMPTY_STAGE_RETRIES_DEFAULT),
     verify: project.verify,
     verifyServices: verifyServices(values, project.verify),
   };
