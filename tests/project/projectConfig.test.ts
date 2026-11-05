@@ -42,6 +42,16 @@ describe("tracker", () => {
   });
 });
 
+describe("idleTimeoutSeconds", () => {
+  it("is optional and must be a positive number", () => {
+    expect(parseProjectConfig(SINGLE_REPO, CONFIG_PATH).idleTimeoutSeconds).toBeUndefined();
+    expect(parseProjectConfig({ ...SINGLE_REPO, idleTimeoutSeconds: 2400 }, CONFIG_PATH).idleTimeoutSeconds).toBe(2400);
+    for (const bad of [0, -5, "2400", null]) {
+      expect(() => parseProjectConfig({ ...SINGLE_REPO, idleTimeoutSeconds: bad }, CONFIG_PATH)).toThrow(/idleTimeoutSeconds/);
+    }
+  });
+});
+
 describe("parseProjectConfig", () => {
   it("defaults a single-repo project to the project root, dev as base and the hub's name", () => {
     const project = parseProjectConfig(SINGLE_REPO, CONFIG_PATH);

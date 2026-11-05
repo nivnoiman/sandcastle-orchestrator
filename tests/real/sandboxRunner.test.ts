@@ -20,6 +20,7 @@ import {
   containerSpec,
   copyWorkspaceCommand,
   DockerSandboxRunner,
+  EMPTY_RETRY_NOTE,
   hydrateHomeCommand,
   HYDRATE_COPIED_ENTRIES,
   withContainerEnvFile,
@@ -181,6 +182,13 @@ describe("container composition", () => {
   it("gives jest the configured worker count", () => {
     expect(containerEnv(testConfig(), CONTAINER_GIT_DIR)["JEST_MAX_WORKERS"]).toBe("4");
     expect(containerEnv(testConfig({ jestWorkers: "50%" }), CONTAINER_GIT_DIR)["JEST_MAX_WORKERS"]).toBe("50%");
+  });
+
+  it("keeps long commands in the foreground: Bash timeout spans the idle budget, background tasks off", () => {
+    const env = containerEnv(testConfig({ idleTimeoutSeconds: 900 }), CONTAINER_GIT_DIR);
+    expect(env["BASH_DEFAULT_TIMEOUT_MS"]).toBe("900000");
+    expect(env["BASH_MAX_TIMEOUT_MS"]).toBe("900000");
+    expect(env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"]).toBe("1");
   });
 
   it("mounts the host ~/.claude read-only at a staging path so a skip-permissions agent cannot write it", () => {
@@ -451,6 +459,51 @@ describe("develop stage", () => {
     expect((await completion).outcome).toBe("failure");
     expect(gh.created).toHaveLength(0);
     expect(warnings.join()).toMatch(/no commits landed/);
+  });
+
+  describe("empty stage retries", () => {
+    it("re-runs a stage that landed no commits, with the foreground/commit note, then parks when exhausted", async () => {
+      const { runner, sandbox, completion, warnings } = harness({ commits: 0, config: { emptyStageRetries: 2 } });
+      sandbox.spawnStage(SPAWN);
+      const result = await completion;
+      expect(result.outcome).toBe("failure");
+      expect(result).not.toHaveProperty("endedWithoutCommitsOrEvidence");
+      const runs = runner.findAll(/claude -p/);
+      expect(runs).toHaveLength(3);
+      expect(runs[0]?.input).not.toContain(EMPTY_RETRY_NOTE);
+      expect(runs[1]?.input).toContain(EMPTY_RETRY_NOTE);
+      expect(runs[2]?.input).toContain(EMPTY_RETRY_NOTE);
+      expect(warnings.join("\n")).toMatch(/develop stage ended with no commits - retry 1\/2/);
+      expect(warnings.join("\n")).toMatch(/retry 2\/2/);
+    });
+
+    it("re-runs a fresh-eyes stage that left no evidence", async () => {
+      const { runner, sandbox, gh, completion, warnings } = harness({
+        commits: 1,
+        stageCommits: ["feat: toy slice"],
+        config: { emptyStageRetries: 1 },
+      });
+      gh.pullRequest = openPullRequest("## What changed\n- things");
+      sandbox.spawnStage({ ...SPAWN, stage: "review" });
+      expect((await completion).outcome).toBe("failure");
+      expect(runner.findAll(/claude -p/)).toHaveLength(2);
+      expect(warnings.join("\n")).toMatch(/review stage ended with no commits - retry 1\/1/);
+    });
+
+    it("does not retry a genuine container failure", async () => {
+      const { runner, sandbox, completion } = harness({ commits: 0, config: { emptyStageRetries: 2 } });
+      runner.fail(/npm ci/, new CommandFailure("docker", ["exec"], 1, "", "npm ci exploded"));
+      sandbox.spawnStage(SPAWN);
+      expect((await completion).outcome).toBe("failure");
+      expect(runner.findAll(/claude -p/)).toHaveLength(0);
+    });
+
+    it("runs once with retries off", async () => {
+      const { runner, sandbox, completion } = harness({ commits: 0, config: { emptyStageRetries: 0 } });
+      sandbox.spawnStage(SPAWN);
+      expect((await completion).outcome).toBe("failure");
+      expect(runner.findAll(/claude -p/)).toHaveLength(1);
+    });
   });
 
   it("removes the container even when the stage blows up", async () => {

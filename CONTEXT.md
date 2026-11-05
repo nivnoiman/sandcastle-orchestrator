@@ -82,6 +82,10 @@ _Avoid_: Stuck item, hang
 A running Item whose agent has produced no output for over half its idle timeout — a warning before the timeout parks it.
 _Avoid_: Stalled item, silent, idle
 
+**Empty stage**:
+A Stage whose agent ended its turn with no commits and no evidence section. Re-run in place a bounded number of times (`SANDCASTLE_EMPTY_RETRY_LIMIT`, default 2) before it parks; not a failure by itself, unlike a container, auth or idle-timeout error.
+_Avoid_: Silent stage, no-op stage
+
 **Hold**:
 A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected.
 _Avoid_: Block, freeze

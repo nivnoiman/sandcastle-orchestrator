@@ -244,6 +244,10 @@ The engine bumps the item's round, keeps every brief, comments the new one on th
 
 After `SANDCASTLE_REWORK_LIMIT` rounds (default 3; `0` turns the loop off), the next failure parks with every round's brief in the comment; a human retry of that park grants one more round. Resume reads the round and briefs from the pull-request body, and a round whose develop section is missing resumes at develop, never at the first pass's audited stage. The card shows a `rework N/L` badge.
 
+### Empty-stage retries
+
+A stage that ends its turn with no commits and no evidence section (develop with 0 commits, a rework round with none and no `## Rework N - fix`, simplify/review with no tagged commits and no section) is not a genuine failure: the agent usually backgrounded a long command and quit. `runAgentStage` re-runs it in a fresh container, same attempt, up to `SANDCASTLE_EMPTY_RETRY_LIMIT` times (default 2, `0` off), warning `<stage> stage ended with no commits - retry N/M`. The retry prompt appends `EMPTY_RETRY_NOTE`: previous attempt ended without committing, run long commands in the foreground, commit before finishing. Once retries run out the original settle warning fires and the stage fails as before. Container errors, auth, rate limits and idle-timeout kills (with their salvage pass) throw instead and never retry here. Not verified without a live container: that the note actually changes agent behaviour.
+
 ## Park and resume
 
 A failed stage parks the item: `sc:needs-human` added **alongside** the frozen stage
@@ -446,8 +450,8 @@ boundary that exists:
 
 ### Idle timeout and the salvage pass
 
-Each agent gets an idle budget (`--idle-timeout=N` or `SANDCASTLE_IDLE_TIMEOUT`, default 1200s, clamped to
-[60, 7200]) measured from its last output, not from launch. Silence is counted on a
+Each agent gets an idle budget (`--idle-timeout=N`, else `SANDCASTLE_IDLE_TIMEOUT` in the tool-wide or project `.env.orchestrator`, else `idleTimeoutSeconds` in `.sandcastle/config.json`, default 1200s, clamped to
+[60, 7200]; the same value is the container Bash tool timeout, so it also bounds one foreground test run) measured from its last output, not from launch. Silence is counted on a
 15s tick. A tick that arrives more than four ticks late means the host was asleep, and
 it counts as one tick, so waking a machine up does not kill a stage that was fine when it
 went to sleep. On timeout the container is killed and `AgentIdleTimeoutError` is raised,
@@ -762,6 +766,12 @@ bootstrap runs and says loudly what it skipped.
   ~1.5 min and a full tsc + jest run from hours to minutes. Every container gets
   `JEST_MAX_WORKERS` from `SANDCASTLE_JEST_WORKERS` (default 4; more workers than that
   barely helped).
+- Every stage sandbox container (`containerEnv`; not the feature-verify containers) also gets `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` set to the
+  idle budget and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`. A stage is one headless turn:
+  Claude Code auto-backgrounds a Bash call that passes its timeout (default ~2 min), the
+  agent then parks on a wakeup/monitor and ends the turn, and the stage fails with no
+  commits (seen on a slow `pnpm test` / typecheck). Foreground commands are bounded by
+  the idle budget instead.
 - Playwright is pinned in the image (`ARG PLAYWRIGHT_VERSION`) so an image rebuild cannot
   silently change what the verify agent drives a browser with. `NODE_PATH` only
   resolves CommonJS, so a bare ESM `import "playwright"` would fail even though
@@ -774,6 +784,7 @@ bootstrap runs and says loudly what it skipped.
   (with mongo) `assertLocalMongoOnly`, not the network. Making the runtime network
   `--internal` would mean installing and building before attaching. That is worth doing if
   egress ever has to be proven closed, but it is not closed today.
+- `repos.<name>.stageChecks.<stage>` (`src/project/stageChecks.ts`, gate in `src/real/stageGate.ts` and `DockerSandboxRunner.gateStageChecks`) runs an ordered command list after a stage agent stops and before `pushLocalTrackerBranchFromHost` / the orchestrator's own push, via `runInCleanCopy` (copy-mode container, stop at first red `CheckFailure`). Red gives the stage agent up to `stageCheckFixLimit` fix passes; after that develop fails and later stages return `rework` sourced from the stage. In GitHub mode agents push from the container (GH_TOKEN), so a `pre-push` hook is installed as root and enabled with `GIT_CONFIG_COUNT/KEY_0/VALUE_0` (`core.hooksPath`); `--no-verify` can bypass it, which is why the clean-copy run stays authoritative. The verify gate reads the same table: `stageChecks.verify`, else `[checks]`. Dashboard edits go through `PUT /api/stages` with a `checks` body and rewrite the same config file.
 - The verify gate runs each repo's configured `checks` (e.g. typecheck + tests for an
   `api` repo, build + lint for a `web` repo). It keeps the last 4000 characters of check
   output on the thrown `CheckFailure`; that text (like an `UNFIXABLE:` settlement

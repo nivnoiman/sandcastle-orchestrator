@@ -45,7 +45,8 @@ import {
   withContainerEnvFile,
   type ContainerSpec,
 } from "./docker.js";
-import { bootstrapScript, checkCommand, salvageIdleTimeout, type OrchestratorConfig } from "./env.js";
+import { bootstrapScript, checkCommand, salvageIdleTimeout, stageCheckCommands, type OrchestratorConfig } from "./env.js";
+import { buildStageCheckFixPrompt, installPrePushHookCommand, STAGE_HOOKS_GIT_ENV, stageChecksNote } from "./stageGate.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { commitSubjectsAhead, countCommitsAhead, isRebasedOnto, resolveGitDir } from "./gitOps.js";
 import type { PullRequestOps } from "./ghClient.js";
@@ -123,7 +124,11 @@ interface StageResult {
   resolved?: boolean;
   detail?: string;
   rework?: ReworkRequest;
+  endedWithoutCommitsOrEvidence?: boolean;
 }
+
+export const EMPTY_RETRY_NOTE =
+  "Note: your previous attempt at this stage ended its turn without committing anything. Run long commands (tests, builds) in the foreground, never in the background, and commit your work before you finish.";
 
 export class StageCancelledError extends Error {
   constructor(readonly attempt: string) {
@@ -200,10 +205,20 @@ export function containerGitDir(absoluteGitDir: string): string {
   return `${CONTAINER_GITDIR}/${normalized.slice(marker + GIT_DIR_MARKER.length)}`;
 }
 
+function foregroundOnlyBashEnv(idleTimeoutSeconds: number): Record<string, string> {
+  const timeoutMs = String(idleTimeoutSeconds * 1000);
+  return {
+    BASH_DEFAULT_TIMEOUT_MS: timeoutMs,
+    BASH_MAX_TIMEOUT_MS: timeoutMs,
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+  };
+}
+
 export function containerEnv(
   config: OrchestratorConfig,
   gitDir: string,
   provider: AgentProvider = defaultAgent(config).provider,
+  extra: Readonly<Record<string, string>> = {},
 ): Record<string, string> {
   const env: Record<string, string> = {
     ...(config.ghToken ? { GH_TOKEN: config.ghToken } : {}),
@@ -214,8 +229,9 @@ export function containerEnv(
     GIT_COMMITTER_NAME: AGENT_IDENTITY.name,
     GIT_COMMITTER_EMAIL: AGENT_IDENTITY.email,
     JEST_MAX_WORKERS: config.jestWorkers,
+    ...foregroundOnlyBashEnv(config.idleTimeoutSeconds),
   };
-  Object.assign(env, provider.authEnv(config));
+  Object.assign(env, provider.authEnv(config), extra);
   return env;
 }
 
@@ -264,11 +280,11 @@ export function copyWorkspaceCommand(): string {
 /** Starts a stage container over a worktree; returns the repo's git-control snapshot to assert unchanged on teardown. */
 export function startWorktreeContainer(
   deps: { runner: CommandRunner; fs: FileSystemPort; layout: SandcastleLayout; config: OrchestratorConfig },
-  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider },
+  container: { name: string; repo: TargetRepo; worktree: string; workspace: WorkspaceMode; provider: AgentProvider; extraEnv?: Readonly<Record<string, string>> },
 ): GitControlSnapshot {
   const repoGitDir = join(repoRoot(deps.layout, container.repo), ".git");
   const gitControl = snapshotGitControl(deps.fs, repoGitDir);
-  const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider);
+  const env = containerEnv(deps.config, containerGitDir(resolveGitDir(deps.runner, container.worktree)), container.provider, container.extraEnv);
   try {
     withContainerEnvFile(deps.fs, env, (envFile) => {
       startContainer(
@@ -446,24 +462,36 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private async runAgentStage(request: SpawnRequest, attempt: string): Promise<StageResult> {
-    const prompt = buildStagePrompt(this.stagePromptContext(request));
     const worktree = this.requireWorktree(request.repo, request.branch);
     const baseline = this.prepareRework(request, worktree);
-
     const agent = resolveStageAgent(this.deps.config, request.stage);
-    try {
-      await this.inContainer(request.stage, attempt, request, worktree, agent, async (container) => {
-        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-        await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
-      });
-    } catch (cause) {
-      if (!isAgentIdleTimeout(cause)) throw cause;
-      await this.salvage(request, attempt, worktree, cause, baseline);
-    }
+    const maxRetries = this.deps.config.emptyStageRetries;
+    const commands = stageCheckCommands(this.deps.config, request.repo, request.stage);
 
-    this.assertLive(attempt);
-    this.pushLocalTrackerBranchFromHost(worktree, request.branch);
-    return this.settleOutcome(request, worktree, baseline);
+    for (let retry = 0; ; retry += 1) {
+      const basePrompt = buildStagePrompt(this.stagePromptContext(request));
+      const withNote = commands ? `${basePrompt}\n\n${stageChecksNote(commands, request.stage)}` : basePrompt;
+      const prompt = retry === 0 ? withNote : `${withNote}\n\n${EMPTY_RETRY_NOTE}`;
+      try {
+        await this.runGatedAgent(request, attempt, worktree, agent, prompt, commands);
+      } catch (cause) {
+        if (!isAgentIdleTimeout(cause)) throw cause;
+        await this.salvage(request, attempt, worktree, cause, baseline);
+      }
+
+      this.assertLive(attempt);
+      if (commands && countCommitsAhead(this.deps.runner, worktree, request.integrationBranch) > (baseline ?? 0)) {
+        try {
+          await this.gateStageChecks(request, attempt, worktree, agent, commands);
+        } catch (cause) {
+          return this.stageCheckFailureResult(request, attempt, cause, commands);
+        }
+      }
+      this.pushLocalTrackerBranchFromHost(worktree, request.branch);
+      const { endedWithoutCommitsOrEvidence, ...result } = this.settleOutcome(request, worktree, baseline);
+      if (!endedWithoutCommitsOrEvidence || retry >= maxRetries) return result;
+      this.deps.warn(request.itemNumber, `${request.stage} stage ended with no commits - retry ${retry + 1}/${maxRetries}`);
+    }
   }
 
   private pushLocalTrackerBranchFromHost(worktree: string, branch: string): void {
@@ -603,7 +631,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `no \`${tag}\` commits and no "${section}" section on ${pullRequest.url} — the ${stage} stage left no evidence it ran`,
       );
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection(stage, subjects, round));
     this.deps.warn(
@@ -656,7 +684,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `rework round ${round} landed no commits and no "${prSectionHeading("develop", round)}" section — nothing was fixed`,
       );
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection("develop", subjects, round));
     this.deps.warn(
@@ -670,7 +698,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     const commits = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
     if (commits === 0) {
       this.deps.warn(request.itemNumber, `no commits landed on ${request.branch} — nothing to open a pull request for`);
-      return { outcome: "failure" };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.warnWithoutTestFirstCommit(request, worktree);
     const existing = this.deps.gh.findPullRequest(request.repo, request.branch);
@@ -798,7 +826,8 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private async runVerifyChecks(request: VerifyRequest, attempt: string): Promise<StageResult> {
-    await this.runInCleanCopy("verify", attempt, request, checkCommand(this.deps.config, request.repo));
+    const commands = stageCheckCommands(this.deps.config, request.repo, "verify") ?? [checkCommand(this.deps.config, request.repo)];
+    await this.runInCleanCopy("verify", attempt, request, commands);
     return { outcome: "success" };
   }
 
@@ -806,30 +835,104 @@ export class DockerSandboxRunner implements SandboxRunner {
     stage: string,
     attempt: string,
     request: { itemNumber: number; repo: TargetRepo; branch: string },
-    checks: string,
+    checks: string | readonly string[],
   ): Promise<void> {
+    const commands = typeof checks === "string" ? [checks] : checks;
     const worktree = this.requireWorktree(request.repo, request.branch);
     await this.inContainer(stage, attempt, request, worktree, undefined, async (container) => {
       await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-      this.deps.log(`#${request.itemNumber} ${stage}: ${checks}`);
-      const tail = outputTail(CHECK_OUTPUT_TAIL);
-      const teeChecks = this.tee(attempt, `\n--- checks: ${checks} ---\n`);
-      try {
-        await runWithIdleTimeout(
-          this.deps.runner,
-          execRequest(container, checks, {
-            onOutput: (chunk) => {
-              tail.append(chunk);
-              teeChecks(chunk);
-            },
-          }),
-          this.deps.config.idleTimeoutSeconds,
-        );
-      } catch (cause) {
-        throw new CheckFailure(checks, tail.text(), cause);
+      for (const command of commands) {
+        this.deps.log(`#${request.itemNumber} ${stage}: ${command}`);
+        const tail = outputTail(CHECK_OUTPUT_TAIL);
+        const teeChecks = this.tee(attempt, `\n--- checks: ${command} ---\n`);
+        try {
+          await runWithIdleTimeout(
+            this.deps.runner,
+            execRequest(container, command, {
+              onOutput: (chunk) => {
+                tail.append(chunk);
+                teeChecks(chunk);
+              },
+            }),
+            this.deps.config.idleTimeoutSeconds,
+          );
+        } catch (cause) {
+          throw new CheckFailure(command, tail.text(), cause);
+        }
       }
     }, "copy");
     this.assertLive(attempt);
+  }
+
+  private pushGateEnv(commands: readonly string[] | undefined): Readonly<Record<string, string>> | undefined {
+    const trackerHasRemote = this.deps.config.tracker !== "local";
+    return commands && trackerHasRemote ? STAGE_HOOKS_GIT_ENV : undefined;
+  }
+
+  private installPushGate(container: string, commands: readonly string[] | undefined): void {
+    if (!commands || !this.pushGateEnv(commands)) return;
+    execAsRoot(this.deps.runner, container, installPrePushHookCommand(commands));
+  }
+
+  private async runGatedAgent(
+    request: SpawnRequest,
+    attempt: string,
+    worktree: string,
+    agent: ResolvedAgent,
+    prompt: string,
+    commands: readonly string[] | undefined,
+  ): Promise<void> {
+    await this.inContainer(
+      request.stage,
+      attempt,
+      request,
+      worktree,
+      agent,
+      async (container) => {
+        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+        this.installPushGate(container, commands);
+        await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
+      },
+      "bind",
+      this.pushGateEnv(commands),
+    );
+  }
+
+  private async gateStageChecks(
+    request: SpawnRequest,
+    attempt: string,
+    worktree: string,
+    agent: ResolvedAgent,
+    commands: readonly string[],
+  ): Promise<void> {
+    const limit = this.deps.config.stageCheckFixLimit;
+    for (let fix = 0; ; fix += 1) {
+      try {
+        await this.runInCleanCopy(request.stage, attempt, request, commands);
+        return;
+      } catch (cause) {
+        if (!this.isReworkableRed(cause, attempt) || fix >= limit) throw cause;
+        const failure = cause;
+        this.deps.warn(request.itemNumber, `${request.stage} stage checks red (${failure.checks}) - fix pass ${fix + 1}/${limit}`);
+        const prompt = buildStageCheckFixPrompt(
+          this.deps.context.promptContext(request),
+          request.stage,
+          { command: failure.checks, output: failure.outputTail || failure.message },
+          commands,
+          { attempt: fix + 1, limit },
+        );
+        await this.runGatedAgent(request, attempt, worktree, agent, prompt, commands);
+        this.assertLive(attempt);
+      }
+    }
+  }
+
+  private stageCheckFailureResult(request: SpawnRequest, attempt: string, cause: unknown, commands: readonly string[]): StageResult {
+    if (request.stage === "develop") throw cause;
+    return this.reworkOnRed(request, attempt, cause, `${request.stage} stage checks`, (failure, subjects) => ({
+      source: request.stage,
+      story: commandReworkStory({ ...request, command: commands.join(" && ") }, failure, subjects),
+    }));
   }
 
   private async inContainer(
@@ -840,6 +943,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     agent: ResolvedAgent | undefined,
     work: (container: string) => Promise<void>,
     workspace: WorkspaceMode = "bind",
+    extraEnv?: Readonly<Record<string, string>>,
   ): Promise<void> {
     this.ensureDocker();
     const refresh = agent ? ensureFreshLogin(this.deps, agent) : undefined;
@@ -854,6 +958,7 @@ export class DockerSandboxRunner implements SandboxRunner {
       worktree,
       workspace,
       provider,
+      ...(extraEnv ? { extraEnv } : {}),
     });
 
     this.attemptContainers.set(attempt, container);

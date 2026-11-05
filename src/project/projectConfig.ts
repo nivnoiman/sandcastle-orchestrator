@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { parseAgents, type AgentsConfig } from "./agentsConfig.js";
+import { assertStageChecksTargets, parseStageChecks, type StageChecks } from "./stageChecks.js";
 import { customStageNames, parseStages, type StageSpec } from "./stagesConfig.js";
 
 /** The per-project folder at the project root: `config.json` (committed) and, by default, the project's state. */
@@ -25,6 +26,8 @@ export interface RepoConfig {
   path: string;
   bootstrap: string;
   checks: string;
+  /** Ordered commands per stage name, run in the stage container before the stage's work is pushed. */
+  stageChecks: StageChecks;
 }
 
 export interface VerifyService {
@@ -72,6 +75,8 @@ export interface ProjectConfig {
   imageTag: string;
   memoryProject: string | undefined;
   stateDir: string | undefined;
+  /** Per-agent idle budget in seconds; SANDCASTLE_IDLE_TIMEOUT and --idle-timeout win over it. */
+  idleTimeoutSeconds: number | undefined;
   repos: Record<string, RepoConfig>;
   verify: VerifyStrategy;
   ui: UiConfig;
@@ -152,6 +157,7 @@ function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: str
     path: resolve(projectRoot, rawPath),
     bootstrap: optionalString(raw, "bootstrap", where) ?? "",
     checks: requiredString(raw, "checks", where),
+    stageChecks: parseStageChecks(raw["stageChecks"], `${where}.stageChecks`),
   };
 }
 
@@ -246,6 +252,14 @@ function parseVerify(raw: unknown, repos: Record<string, RepoConfig>): VerifyStr
   throw new Error(`verify.strategy must be "none", "command" or "compose", got ${JSON.stringify(strategy)}`);
 }
 
+function parseIdleTimeout(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    throw new Error(`idleTimeoutSeconds must be a positive number of seconds, got ${JSON.stringify(raw)}`);
+  }
+  return raw;
+}
+
 function parseUi(raw: unknown): UiConfig {
   if (raw === undefined) return { port: DEFAULT_UI_PORT };
   if (!isObject(raw)) throw new Error("ui must be an object");
@@ -273,6 +287,7 @@ export function parseProjectConfig(raw: unknown, configPath: string, readText?: 
   const stateDir = optionalString(raw, "stateDir", "config");
   const stages = parseStages(raw["stages"], { projectRoot, repos: Object.keys(repos), ...(readText ? { readText } : {}) });
   assertNoStageAgents(raw["agents"], stages);
+  assertStageChecksTargets(repos, stages);
   return {
     name,
     tracker,
@@ -283,6 +298,7 @@ export function parseProjectConfig(raw: unknown, configPath: string, readText?: 
     imageTag: optionalString(raw, "imageTag", "config") ?? DEFAULT_IMAGE_TAG,
     memoryProject: optionalString(raw, "memoryProject", "config"),
     stateDir: stateDir === undefined ? undefined : resolve(projectRoot, stateDir),
+    idleTimeoutSeconds: parseIdleTimeout(raw["idleTimeoutSeconds"]),
     repos,
     verify: parseVerify(raw["verify"], repos),
     ui: parseUi(raw["ui"]),

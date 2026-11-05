@@ -13,8 +13,16 @@ import {
 } from "../../src/real/env.js";
 import { resolveAgent } from "../../src/real/agents/index.js";
 import { memoryProjectSuffix } from "../../src/real/paths.js";
+import { parseProjectConfig, setActiveProject } from "../../src/project/projectConfig.js";
+import { TEST_PROJECT } from "../setup.js";
 import { fsWith, SANDCASTLE_DIR, testConfig, testLayout } from "./support.js";
 
+const TEST_RAW = {
+  name: "demo",
+  hubRepo: "example-org/hub",
+  repos: { api: { github: "example-org/api", path: "../api", bootstrap: "npm ci", checks: "npx tsc --noEmit" } },
+  verify: { strategy: "none" },
+};
 const ENV_PATH = join(SANDCASTLE_DIR, ".env.orchestrator");
 
 describe("parseEnvFile", () => {
@@ -98,7 +106,7 @@ describe("loadOrchestratorConfig", () => {
     expect(load("").reworkLimit).toBe(3);
     expect(load("SANDCASTLE_REWORK_LIMIT=0").reworkLimit).toBe(0);
     expect(load("SANDCASTLE_REWORK_LIMIT=5").reworkLimit).toBe(5);
-    expect(() => load("SANDCASTLE_REWORK_LIMIT=two")).toThrow(/whole number of rework rounds/);
+    expect(() => load("SANDCASTLE_REWORK_LIMIT=two")).toThrow(/must be a whole number/);
     expect(load("").featureReworkLimit).toBe(3);
     expect(load("SANDCASTLE_FEATURE_REWORK_LIMIT=1").featureReworkLimit).toBe(1);
     expect(() => load("SANDCASTLE_FEATURE_REWORK_LIMIT=-1")).toThrow(/SANDCASTLE_FEATURE_REWORK_LIMIT/);
@@ -117,6 +125,26 @@ describe("loadOrchestratorConfig", () => {
     const files = { [ENV_PATH]: ["GH_TOKEN=t", "SANDCASTLE_IDLE_TIMEOUT=120"].join("\n") };
     expect(loadOrchestratorConfig(fsWith(files), testLayout()).idleTimeoutSeconds).toBe(120);
     expect(loadOrchestratorConfig(fsWith(files), testLayout(), { idleTimeoutSeconds: 1 }).idleTimeoutSeconds).toBe(60);
+  });
+
+  it("takes the idle timeout from config.json, below the env file and the flag", () => {
+    setActiveProject(parseProjectConfig({ ...TEST_RAW, idleTimeoutSeconds: 2400 }, "/projects/hub/.sandcastle/config.json"));
+    try {
+      const bare = { [ENV_PATH]: "GH_TOKEN=t" };
+      expect(loadOrchestratorConfig(fsWith(bare), testLayout()).idleTimeoutSeconds).toBe(2400);
+      const withEnv = { [ENV_PATH]: "GH_TOKEN=t\nSANDCASTLE_IDLE_TIMEOUT=900" };
+      expect(loadOrchestratorConfig(fsWith(withEnv), testLayout()).idleTimeoutSeconds).toBe(900);
+      expect(loadOrchestratorConfig(fsWith(withEnv), testLayout(), { idleTimeoutSeconds: 300 }).idleTimeoutSeconds).toBe(300);
+    } finally {
+      setActiveProject(TEST_PROJECT);
+    }
+  });
+
+  it("retries an empty stage twice unless the file names another count", () => {
+    const load = (line: string) => loadOrchestratorConfig(fsWith({ [ENV_PATH]: `GH_TOKEN=t\n${line}` }), testLayout());
+    expect(load("").emptyStageRetries).toBe(2);
+    expect(load("SANDCASTLE_EMPTY_RETRY_LIMIT=0").emptyStageRetries).toBe(0);
+    expect(() => load("SANDCASTLE_EMPTY_RETRY_LIMIT=x")).toThrow(/SANDCASTLE_EMPTY_RETRY_LIMIT/);
   });
 
   it("refuses a non-numeric idle timeout instead of silently defaulting to 600", () => {

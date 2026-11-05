@@ -5,7 +5,7 @@ import { DEFAULT_MODEL, DEFAULT_REVIEW_MODEL, readOrchestratorEnv, resolveLayout
 import { nodeFileSystem } from "../real/fileSystem.js";
 import type { ClaudeDefaultModels } from "../project/stageModels.js";
 import { StagePromptError, stagePromptOf } from "./stagePrompt.js";
-import { parseStageEdits, saveStageEdits, stagesViewOf } from "../project/stagesEditor.js";
+import { parseRepoChecksEdits, parseStageEdits, saveStageEdits, stagesViewOf } from "../project/stagesEditor.js";
 
 export interface StagesRouteDeps {
   configPath: string;
@@ -25,7 +25,17 @@ function envClaudeDefaults(): ClaudeDefaultModels {
 }
 
 export function defaultStagesRouteDeps(configPath: string): StagesRouteDeps {
-  return { configPath, claudeDefaults: envClaudeDefaults, activate: (project) => setActiveProject({ ...activeProject(), agents: project.agents, stages: project.stages }) };
+  return { configPath, claudeDefaults: envClaudeDefaults, activate: (project) => setActiveProject(bootedWithReloadedAgentsStagesAndChecks(activeProject(), project)) };
+}
+
+function bootedWithReloadedAgentsStagesAndChecks(booted: ProjectConfig, fresh: ProjectConfig): ProjectConfig {
+  const repos = Object.fromEntries(
+    Object.entries(booted.repos).map(([name, repo]) => {
+      const next = fresh.repos[name];
+      return [name, next ? { ...repo, checks: next.checks, stageChecks: next.stageChecks } : repo];
+    }),
+  );
+  return { ...booted, agents: fresh.agents, stages: fresh.stages, repos };
 }
 
 function reply(response: Response, run: () => unknown): void {
@@ -40,6 +50,11 @@ function editsOf(request: Request): unknown {
   const body: unknown = request.body;
   if (typeof body !== "object" || body === null) throw new Error('expected a JSON body with "stages"');
   return (body as Record<string, unknown>)["stages"];
+}
+
+function checksOf(request: Request): unknown {
+  const body: unknown = request.body;
+  return typeof body === "object" && body !== null ? (body as Record<string, unknown>)["checks"] : undefined;
 }
 
 /**
@@ -71,7 +86,7 @@ export function mountStagesRoutes(app: Express, deps: StagesRouteDeps): void {
 
   app.put("/api/stages", (request, response) => {
     reply(response, () => {
-      const project = saveStageEdits(deps.configPath, parseStageEdits(editsOf(request)));
+      const project = saveStageEdits(deps.configPath, parseStageEdits(editsOf(request)), parseRepoChecksEdits(checksOf(request)));
       deps.activate(project);
       return stagesViewOf(project, deps.claudeDefaults());
     });

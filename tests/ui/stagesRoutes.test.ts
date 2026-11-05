@@ -122,3 +122,29 @@ describe("/api/stages effective agent + prompt", () => {
     expect((await fetch(`${server?.url}/api/stages/prompt`)).status).toBe(400);
   });
 });
+
+describe("/api/stages checks", () => {
+  it("saves per-stage lists through the same file and activates them for new runs", async () => {
+    const stages = [DEVELOP, SIMPLIFY, { kind: "builtin", name: "review", provider: null, model: null }, VERIFY];
+    const saved = await call("PUT", "/api/stages", { stages, checks: { app: { checks: "npm run ci", stageChecks: { develop: ["npm run lint", "npm test"] } } } });
+    expect(saved.status).toBe(200);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).repos.app).toEqual({ checks: "npm run ci", stageChecks: { develop: ["npm run lint", "npm test"] } });
+    expect(activeProject().repos["app"]?.stageChecks).toEqual({ develop: ["npm run lint", "npm test"] });
+    expect(activeProject().repos["app"]?.checks).toBe("npm run ci");
+    const read = await call("GET", "/api/stages");
+    expect((read.json.result as unknown as { repos: unknown[] }).repos).toEqual([{ repo: "app", checks: "npm run ci", stageChecks: { develop: ["npm run lint", "npm test"] } }]);
+  });
+
+  it("answers 400 and changes nothing for a list on an unknown stage", async () => {
+    const refused = await call("PUT", "/api/stages", { stages: [DEVELOP, VERIFY], checks: { app: { checks: "npm test", stageChecks: { ghost: ["x"] } } } });
+    expect(refused.status).toBe(400);
+    expect(refused.json.error).toMatch(/not in stages/);
+    expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual(BASE);
+  });
+
+  it("reload picks up a hand-edited list for new runs", async () => {
+    writeFileSync(configPath, JSON.stringify({ ...BASE, repos: { app: { checks: "npm test", stageChecks: { verify: ["a", "b"] } } } }));
+    await call("POST", "/api/stages/reload");
+    expect(activeProject().repos["app"]?.stageChecks).toEqual({ verify: ["a", "b"] });
+  });
+});

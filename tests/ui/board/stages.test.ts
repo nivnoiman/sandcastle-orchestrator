@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { addBuiltin, addStage, draftEdits, draftOf, draftProblem, isDirty, missingBuiltins, moveRow, removeRow, type StagesDraft } from "../../../src/ui/board/stagesDraft.js";
+import { addBuiltin, addStage, draftChecks, draftEdits, draftOf, draftProblem, isDirty, missingBuiltins, moveRow, removeRow, type StagesDraft } from "../../../src/ui/board/stagesDraft.js";
 import { renderDrawer } from "../../../src/ui/board/view/drawer.js";
 import type { BoardUi, DrawerState } from "../../../src/ui/board/view/ui.js";
 import type { StagesView } from "../../../src/project/stagesEditor.js";
 import { boardProject, NOW, uiState } from "./fixtures.js";
 
 const VIEW: StagesView = {
+  repos: [{ repo: "web", checks: "npm test", stageChecks: { develop: ["npm run lint", "npm run types"] } }],
   stages: [
     { name: "develop", kind: "builtin", hasAgent: true, agent: undefined },
     { name: "review", kind: "builtin", hasAgent: true, agent: { provider: "codex", model: "gpt-5.5" } },
@@ -208,6 +209,33 @@ describe("stages drawer", () => {
   });
 
   it("shows Loading before the view arrives", () => {
-    expect(render(drawer({ view: undefined, draft: { rows: [], nextKey: 0 } }))).toContain("Loading");
+    expect(render(drawer({ view: undefined, draft: { rows: [], repoDefaults: {}, nextKey: 0 } }))).toContain("Loading");
+  });
+});
+
+describe("stage checks editor", () => {
+  it("renders a checks box per gateable row, the verify gate's own box and the repo default", () => {
+    const html = render(drawer());
+    expect(html).toContain("Checks before push");
+    expect(html).toContain("Merge gate checks");
+    expect(html).toContain('data-act="repo-default-checks"');
+    expect(html).toContain("npm run lint\nnpm run types");
+    expect(html.match(/data-act="stage-checks"/g)?.length).toBe(4);
+  });
+
+  it("is dirty on a list or default edit, and sends the lists keyed by stage", () => {
+    const draft = draftOf(VIEW);
+    draft.rows.find((row) => row.name === "review")!.checks["web"] = "npm run lint\n\n npm run types ";
+    expect(isDirty(VIEW, draft)).toBe(true);
+    expect(draftChecks(draft)["web"]).toEqual({ checks: "npm test", stageChecks: { develop: ["npm run lint", "npm run types"], review: ["npm run lint", "npm run types"] } });
+    const other = draftOf(VIEW);
+    other.repoDefaults["web"] = "npm run ci";
+    expect(isDirty(VIEW, other)).toBe(true);
+  });
+
+  it("refuses an empty default", () => {
+    const draft = draftOf(VIEW);
+    draft.repoDefaults["web"] = " ";
+    expect(draftProblem(draft)).toMatch(/needs a default checks command/);
   });
 });
