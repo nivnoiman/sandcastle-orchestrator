@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { ContextTracker, type ContextReading } from "./contextUsage.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import type { SandcastleLayout } from "./paths.js";
 
@@ -72,6 +73,7 @@ export class AttemptLogStore {
   private readonly records = new Map<string, AttemptRecord>();
   private readonly counts = new Map<string, number>();
   private readonly lastOutput = new Map<number, number>();
+  private readonly context = new Map<string, ContextTracker>();
 
   constructor(private readonly deps: AttemptLogDeps) {}
 
@@ -115,6 +117,8 @@ export class AttemptLogStore {
       file,
     };
     this.records.set(id, record);
+    const tracker = new ContextTracker();
+    this.context.set(id, tracker);
     let atLineStart = true;
     return {
       record,
@@ -126,6 +130,7 @@ export class AttemptLogStore {
           .map((line, index) => (index === 0 && !atLineStart ? line : stampEventLine(line, at)))
           .join("\n");
         atLineStart = chunk.endsWith("\n");
+        tracker.push(stamped);
         this.deps.fs.appendText(file, stamped);
         this.lastOutput.set(itemNumber, this.clock().getTime());
         record.bytes += Buffer.byteLength(stamped, "utf8");
@@ -135,6 +140,14 @@ export class AttemptLogStore {
         record.endedAt = this.timestamp();
       },
     };
+  }
+
+  /** Context reading of the newest attempt of the item (of the stage, when given); kept for finished attempts too. */
+  contextOf(itemNumber: number, stage?: string): ContextReading | undefined {
+    const newest = this.list(itemNumber)
+      .filter((record) => stage === undefined || record.stage === stage)
+      .at(-1);
+    return newest && this.context.get(newest.id)?.reading();
   }
 
   list(itemNumber?: number): AttemptRecord[] {

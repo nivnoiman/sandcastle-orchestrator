@@ -1,5 +1,6 @@
 import type { UiAgent, UiItem, UiLifecycleStep, UiRun } from "../../state.js";
-import { esc } from "../format.js";
+import type { UiUsage } from "../../../real/contextUsage.js";
+import { compactTokens, esc } from "../format.js";
 import { isLocalProject, webUrl, type BoardProject } from "../model.js";
 import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
@@ -73,9 +74,22 @@ function agentLabel(agent: UiAgent | undefined): string {
   return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
 }
 
+export const CONTEXT_WARN_PERCENT = 80;
+
+/** Context in use next to the model: tokens, window and a meter; tokens alone when the window is unknown. */
+export function usageChip(usage: UiUsage | undefined): string {
+  if (!usage) return "";
+  if (usage.window === undefined || usage.percent === undefined) {
+    return `<span class="d-ctx mono" title="Context in use by the agent; the model's window is unknown">${compactTokens(usage.tokens)} tokens</span>`;
+  }
+  const warn = usage.percent >= CONTEXT_WARN_PERCENT ? " warn" : "";
+  const title = `Context in use: ${usage.tokens.toLocaleString("en-US")} of ${usage.window.toLocaleString("en-US")} tokens`;
+  return `<span class="d-ctx mono${warn}" title="${esc(title)}"><span class="meter"><i style="width:${Math.min(100, usage.percent)}%"></i></span>${compactTokens(usage.tokens)} / ${compactTokens(usage.window)} (${usage.percent}%)</span>`;
+}
+
 function stepRow(step: UiLifecycleStep): string {
   const model = agentLabel(step.agent);
-  return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase])}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${step.reason ? `<span class="why">${esc(step.reason)}</span>` : ""}</li>`;
+  return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase])}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${usageChip(step.usage)}${step.reason ? `<span class="why">${esc(step.reason)}</span>` : ""}</li>`;
 }
 
 function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
@@ -128,6 +142,7 @@ function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "i
       <div class="d-meta">
         ${tag(`${item.phase}${item.stage ? ` · ${item.stage}` : ""}`, PHASE_TONE[item.phase])}
         ${model ? `<span class="d-model mono" title="Agent model of the ${esc(item.stage ?? "latest")} stage">${esc(model)}</span>` : ""}
+        ${usageChip(item.usage)}
         <span>${icon("pin")}${esc(item.repo)}</span>
         <span class="mono">${icon("branch")}${esc(item.branch)}</span>
         ${item.reworkRound > 0 ? `<span>Rework ${item.reworkRound}/${item.reworkLimit}</span>` : ""}
