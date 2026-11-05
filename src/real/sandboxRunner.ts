@@ -123,8 +123,7 @@ interface StageResult {
   resolved?: boolean;
   detail?: string;
   rework?: ReworkRequest;
-  /** The agent ended its turn with no commits and no evidence section: recoverable by re-running the stage. */
-  empty?: boolean;
+  endedWithoutCommitsOrEvidence?: boolean;
 }
 
 export const EMPTY_RETRY_NOTE =
@@ -481,8 +480,8 @@ export class DockerSandboxRunner implements SandboxRunner {
 
       this.assertLive(attempt);
       this.pushLocalTrackerBranchFromHost(worktree, request.branch);
-      const { empty, ...result } = this.settleOutcome(request, worktree, baseline);
-      if (!empty || retry >= maxRetries) return result;
+      const { endedWithoutCommitsOrEvidence, ...result } = this.settleOutcome(request, worktree, baseline);
+      if (!endedWithoutCommitsOrEvidence || retry >= maxRetries) return result;
       this.deps.warn(request.itemNumber, `${request.stage} stage ended with no commits - retry ${retry + 1}/${maxRetries}`);
     }
   }
@@ -624,7 +623,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `no \`${tag}\` commits and no "${section}" section on ${pullRequest.url} — the ${stage} stage left no evidence it ran`,
       );
-      return { outcome: "failure", empty: true };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection(stage, subjects, round));
     this.deps.warn(
@@ -677,7 +676,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         request.itemNumber,
         `rework round ${round} landed no commits and no "${prSectionHeading("develop", round)}" section — nothing was fixed`,
       );
-      return { outcome: "failure", empty: true };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.deps.gh.appendToPullRequestBody(request.repo, pullRequest, orphanedStageSection("develop", subjects, round));
     this.deps.warn(
@@ -691,7 +690,7 @@ export class DockerSandboxRunner implements SandboxRunner {
     const commits = countCommitsAhead(this.deps.runner, worktree, request.integrationBranch);
     if (commits === 0) {
       this.deps.warn(request.itemNumber, `no commits landed on ${request.branch} — nothing to open a pull request for`);
-      return { outcome: "failure", empty: true };
+      return { outcome: "failure", endedWithoutCommitsOrEvidence: true };
     }
     this.warnWithoutTestFirstCommit(request, worktree);
     const existing = this.deps.gh.findPullRequest(request.repo, request.branch);

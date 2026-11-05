@@ -467,7 +467,7 @@ describe("develop stage", () => {
       sandbox.spawnStage(SPAWN);
       const result = await completion;
       expect(result.outcome).toBe("failure");
-      expect(result).not.toHaveProperty("empty");
+      expect(result).not.toHaveProperty("endedWithoutCommitsOrEvidence");
       const runs = runner.findAll(/claude -p/);
       expect(runs).toHaveLength(3);
       expect(runs[0]?.input).not.toContain(EMPTY_RETRY_NOTE);
