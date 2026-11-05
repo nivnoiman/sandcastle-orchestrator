@@ -23,7 +23,7 @@ const TEST_RAW = {
   repos: { api: { github: "example-org/api", path: "../api", bootstrap: "npm ci", checks: "npx tsc --noEmit" } },
   verify: { strategy: "none" },
 };
-const ENV_PATH =join(SANDCASTLE_DIR, ".env.orchestrator");
+const ENV_PATH = join(SANDCASTLE_DIR, ".env.orchestrator");
 
 describe("parseEnvFile", () => {
   it("reads plain, quoted, exported and commented lines", () => {
