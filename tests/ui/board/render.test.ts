@@ -253,6 +253,14 @@ describe("drawer context usage", () => {
     expect(head).not.toContain("meter");
   });
 
+  it("hints every metadata chip", () => {
+    const project = boardProject("p", uiState([uiRun(1, [uiItem(3, "running", { stage: "develop", reworkRound: 1, reworkLimit: 3 })])]));
+    const head = renderDrawer(ui([project]), project, { kind: "item", projectId: "p", itemNumber: 3, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+    for (const hint of ["Item phase and the stage it is in", "Repository this item changes", "Item branch", "Rework rounds used of the limit", "Parent issue that owns this run"]) {
+      expect(head).toContain(`title="${hint}"`);
+    }
+  });
+
   it("shows nothing without usage", () => {
     expect(headFor(undefined)).not.toContain("d-ctx");
   });
