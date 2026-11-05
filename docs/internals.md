@@ -244,6 +244,10 @@ The engine bumps the item's round, keeps every brief, comments the new one on th
 
 After `SANDCASTLE_REWORK_LIMIT` rounds (default 3; `0` turns the loop off), the next failure parks with every round's brief in the comment; a human retry of that park grants one more round. Resume reads the round and briefs from the pull-request body, and a round whose develop section is missing resumes at develop, never at the first pass's audited stage. The card shows a `rework N/L` badge.
 
+### Empty-stage retries
+
+A stage that ends its turn with no commits and no evidence section (develop with 0 commits, a rework round with none and no `## Rework N - fix`, simplify/review with no tagged commits and no section) is not a genuine failure: the agent usually backgrounded a long command and quit. `runAgentStage` re-runs it in a fresh container, same attempt, up to `SANDCASTLE_EMPTY_RETRY_LIMIT` times (default 2, `0` off), warning `<stage> stage ended with no commits - retry N/M`. The retry prompt appends `EMPTY_RETRY_NOTE`: previous attempt ended without committing, run long commands in the foreground, commit before finishing. Once retries run out the original settle warning fires and the stage fails as before. Container errors, auth, rate limits and idle-timeout kills (with their salvage pass) throw instead and never retry here. Not verified without a live container: that the note actually changes agent behaviour.
+
 ## Park and resume
 
 A failed stage parks the item: `sc:needs-human` added **alongside** the frozen stage
@@ -446,8 +450,8 @@ boundary that exists:
 
 ### Idle timeout and the salvage pass
 
-Each agent gets an idle budget (`--idle-timeout=N` or `SANDCASTLE_IDLE_TIMEOUT`, default 1200s, clamped to
-[60, 7200]) measured from its last output, not from launch. Silence is counted on a
+Each agent gets an idle budget (`--idle-timeout=N`, else `SANDCASTLE_IDLE_TIMEOUT` in the tool-wide or project `.env.orchestrator`, else `idleTimeoutSeconds` in `.sandcastle/config.json`, default 1200s, clamped to
+[60, 7200]; the same value is the container Bash tool timeout, so it also bounds one foreground test run) measured from its last output, not from launch. Silence is counted on a
 15s tick. A tick that arrives more than four ticks late means the host was asleep, and
 it counts as one tick, so waking a machine up does not kill a stage that was fine when it
 went to sleep. On timeout the container is killed and `AgentIdleTimeoutError` is raised,

@@ -128,6 +128,7 @@ A multi-repo example with a compose verify environment is in [`examples/demo/.sa
 | `imageTag` | `sandcastle:latest` | Agent image |
 | `memoryProject` | derived from the project root | `~/.claude/projects/<this>/memory` holds `load_bearing_memories` |
 | `stateDir` | `<project>/.sandcastle` | Env files, logs, lock, queue, `ui-<parent>.log` |
+| `idleTimeoutSeconds` | `1200` | Per-agent idle budget in seconds (positive number, clamped to [60, 7200]). `--idle-timeout` and `SANDCASTLE_IDLE_TIMEOUT` (in `<project>/.sandcastle/.env.orchestrator`) win over it. Also bounds a single foreground Bash call in the container, so set it above your longest test run |
 | `repos.<name>.github` | required | `owner/name`. `<name>` is what the `repo:<name>` label says. |
 | `repos.<name>.path` | `.` for the hub repo, else `../<name>` | Local checkout, relative to the project root |
 | `repos.<name>.bootstrap` | none | Runs in every agent container before work (`npm ci`, `pnpm install ...`) |
@@ -183,7 +184,7 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 
 - Built-in stages are the strings `develop`, `simplify`, `review` and `verify`. `develop` must come first. `verify` must come last, and is appended when left out. `simplify` and `review` can be dropped.
 - Custom stage names are lower-case kebab, at most 30 characters, unique, and not a built-in or reserved word. Each one gets its own `sc:<name>` label, created on the hub the first time it is used.
-- Order is the position in the list. A failure at any stage that asks for rework sends the item back to develop, and the whole chain runs again. `SANDCASTLE_REWORK_LIMIT` (default 3) caps rework rounds per item across all stages.
+- Order is the position in the list. A failure at any stage that asks for rework sends the item back to develop, and the whole chain runs again. `SANDCASTLE_REWORK_LIMIT` (default 3) caps rework rounds per item across all stages. A stage that ends its turn with no commits and no evidence section is re-run in place (`SANDCASTLE_EMPTY_RETRY_LIMIT`, default 2, `0` parks at once) with a note to run long commands in the foreground and commit; the feed shows `stage ended with no commits - retry N/M`. Container, auth and idle-timeout failures still park.
 
 | Kind | Fields | What it does |
 |---|---|---|
