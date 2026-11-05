@@ -26,7 +26,10 @@ export const CONTEXT_WINDOWS: readonly { prefix: RegExp; tokens: number }[] = [
   { prefix: /^claude-3/, tokens: 200_000 },
 ];
 
-type Json = Record<string, unknown>;
+/** A partial line longer than this is never a usage event; dropped so a newline-free stream cannot grow memory. */
+const MAX_PENDING_CHARS = 4_000_000;
+
+type Json =Record<string, unknown>;
 
 function isRecord(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -68,7 +71,8 @@ export class ContextTracker {
 
   push(chunk: string): void {
     const lines = (this.pending + chunk).split("\n");
-    this.pending = lines.pop() ?? "";
+    const partial = lines.pop() ?? "";
+    this.pending = partial.length > MAX_PENDING_CHARS ? "" : partial;
     for (const line of lines) this.apply(line);
   }
 
@@ -101,4 +105,3 @@ export function uiUsage(reading: ContextReading | undefined, configuredModel: st
   if (window === undefined || reading.tokens > window) return { tokens: reading.tokens, window: undefined, percent: undefined };
   return { tokens: reading.tokens, window, percent: Math.round((reading.tokens / window) * 100) };
 }
-
