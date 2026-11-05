@@ -29,7 +29,7 @@ export const CONTEXT_WINDOWS: readonly { prefix: RegExp; tokens: number }[] = [
 /** A partial line longer than this is never a usage event; dropped so a newline-free stream cannot grow memory. */
 const MAX_PENDING_CHARS = 4_000_000;
 
-type Json =Record<string, unknown>;
+type Json = Record<string, unknown>;
 
 function isRecord(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
