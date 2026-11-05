@@ -10,7 +10,7 @@ import { formatClock, formatCountdown } from "./format.js";
 import type { BoardProject, ParentOption, ProjectStatus } from "./model.js";
 import { chooseRun, isLocalProject, shouldAdopt } from "./model.js";
 import { planLines, reportLines } from "./resetText.js";
-import { addBuiltin, addStage, draftEdits, draftOf, missingBuiltins, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
+import { addBuiltin, addStage, draftChecks, draftEdits, draftOf, missingBuiltins, moveRow, removeRow, type StagesDraft } from "./stagesDraft.js";
 import type { StagesView } from "../../project/stagesEditor.js";
 import type { StagePromptView } from "../stagePrompt.js";
 import { ICON_SPRITE } from "./view/icons.js";
@@ -629,7 +629,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
 
   async function openStages(project: BoardProject): Promise<void> {
     stopDrawerPolling();
-    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: { rows: [], nextKey: 0 }, busy: false, error: undefined, notice: undefined, editing: undefined, dragKey: undefined };
+    ui.drawer = { kind: "stages", projectId: project.id, view: undefined, draft: { rows: [], repoDefaults: {}, nextKey: 0 }, busy: false, error: undefined, notice: undefined, editing: undefined, dragKey: undefined };
     render();
     focusDrawer();
     await loadStages(project, { method: "GET", url: "/api/stages" });
@@ -651,7 +651,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     drawer.error = undefined;
     render();
     try {
-      const payload = await apiOf(project).send("PUT", "/api/stages", { stages: edits });
+      const payload = await apiOf(project).send("PUT", "/api/stages", { stages: edits, checks: draftChecks(drawer.draft) });
       if (ui.drawer === drawer) applyStagesView(payload["result"] as StagesView, "Saved. New runs use these; runs in flight keep theirs.");
       localLine(project, "note", `stages saved: ${edits.map((edit) => edit.name).join(", ")} — applies to new runs`);
     } catch (cause) {
@@ -1270,6 +1270,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       else if (action === "stage-name") row.name = value;
       else if (action === "stage-run") row.run = value;
       else if (action === "stage-prompt-text") row.prompt = value;
+      else if (action === "stage-checks") row.checks[element.dataset["repo"] ?? ""] = value;
+      render();
+    } else if (action === "repo-default-checks" && ui.drawer?.kind === "stages") {
+      ui.drawer.draft.repoDefaults[element.dataset["repo"] ?? ""] = value;
       render();
     } else if (action === "add-title" && ui.drawer?.kind === "add") {
       ui.drawer.title = value;

@@ -161,6 +161,8 @@ try {
       claudeSyncSource: undefined,
       bootstrapCommands: {},
       checkCommands: {},
+      stageChecks: {},
+      stageCheckFixLimit: 2,
       jestWorkers: DEFAULT_JEST_WORKERS,
       reworkLimit: REWORK_LIMIT_DEFAULT,
       featureReworkLimit: REWORK_LIMIT_DEFAULT,

@@ -643,6 +643,9 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 .stage-head { display: flex; align-items: center; gap: 8px; }
 .stage-agent { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .stage-note { font-size: 12.5px; }
+.stage-checks-box { display: grid; gap: 4px; margin-top: 8px; font-size: 12.5px; }
+.stage-checks { display: grid; gap: 2px; }
+.stage-checks textarea, .stage-checks input { width: 100%; font-family: var(--mono, monospace); font-size: 12.5px; box-sizing: border-box; }
 .stage-error { margin: 0; color: var(--park-ink); font-size: 12.5px; }
 .stage-notice { margin: 0; font-size: 12.5px; color: var(--ink-2); }
 .stage-head .spacer { flex: 1; }

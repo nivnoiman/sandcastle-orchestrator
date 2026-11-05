@@ -75,6 +75,29 @@ function commandField(row: DraftRow, drawer: StagesDrawer, view: StagesView): st
   return `${picker}<input${attrs({ type: "text", value: row.run, placeholder: "shell command, e.g. npm run e2e", disabled: drawer.busy, "aria-label": `${row.name || "new"} command`, "data-act": "stage-run", "data-key": row.key, "data-focus": `stage-run-${row.key}`, autocomplete: "off", spellcheck: false })} />`;
 }
 
+function checksField(row: DraftRow, drawer: StagesDrawer, view: StagesView): string {
+  const verify = row.kind === "verify";
+  const hint = verify
+    ? "Merge gate commands, one per line, run in order in a clean copy; the first red one stops the list. Empty = the repo default below."
+    : "Commands run in order after this stage, before its work is pushed; the first red one stops the list and goes back to the agent for a fix. Empty = no gate.";
+  const fields = view.repos
+    .map((repo) => {
+      const value = row.checks[repo.repo] ?? "";
+      const placeholder = verify ? repo.checks : "one command per line, e.g. pnpm typecheck";
+      const label = view.repos.length > 1 ? `<span class="muted mono">${esc(repo.repo)}</span>` : "";
+      return `<label class="stage-checks">${label}<textarea${attrs({ rows: Math.min(6, Math.max(2, value.split("\n").length)), placeholder, disabled: drawer.busy, "aria-label": `${row.name || "new"} checks for ${repo.repo}`, "data-act": "stage-checks", "data-key": row.key, "data-repo": repo.repo, "data-focus": `stage-checks-${row.key}-${repo.repo}`, spellcheck: false })}>${esc(value)}</textarea></label>`;
+    })
+    .join("");
+  return `<div class="stage-checks-box"><div class="muted" title="${esc(hint)}">${verify ? "Merge gate checks" : "Checks before push"} - ${esc(hint)}</div>${fields}</div>`;
+}
+
+function repoDefaults(drawer: StagesDrawer, view: StagesView): string {
+  const fields = view.repos
+    .map((repo) => `<label class="stage-checks"><span class="muted mono">${esc(repo.repo)}</span><input${attrs({ type: "text", value: drawer.draft.repoDefaults[repo.repo] ?? "", disabled: drawer.busy, "aria-label": `${repo.repo} default checks`, "data-act": "repo-default-checks", "data-repo": repo.repo, "data-focus": `repo-default-${repo.repo}`, autocomplete: "off", spellcheck: false })} /></label>`)
+    .join("");
+  return `<div class="stage-checks-box"><b>Default checks</b> <span class="muted">- one command per repo; the merge gate runs it when it has no list of its own (SANDCASTLE_CHECKS_&lt;REPO&gt; in the env file still overrides it).</span>${fields}</div>`;
+}
+
 function moveButtons(row: DraftRow, index: number, count: number, drawer: StagesDrawer): string {
   if (isLocked(row)) return `<span class="stage-lock muted" title="${row.kind === "verify" ? "verify is the merge gate and always runs last" : "develop always runs first"}">${row.kind === "verify" ? "last" : "first"}</span>`;
   const data = { "data-key": row.key };
@@ -87,10 +110,10 @@ function moveButtons(row: DraftRow, index: number, count: number, drawer: Stages
 function rowMarkup(row: DraftRow, index: number, drawer: StagesDrawer, view: StagesView): string {
   const body =
     row.kind === "verify"
-      ? `<div class="stage-note"><span class="muted">runs the project's checks; no agent</span></div>`
+      ? `<div class="stage-note"><span class="muted">runs the project's checks; no agent</span></div>${checksField(row, drawer, view)}`
       : row.kind === "command"
         ? commandField(row, drawer, view)
-        : `${agentControls(row, drawer, view)}${row.kind === "agent" ? promptButton(row, drawer, view) : ""}${viewPromptButton(row, drawer)}`;
+        : `${agentControls(row, drawer, view)}${row.kind === "agent" ? promptButton(row, drawer, view) : ""}${viewPromptButton(row, drawer)}${checksField(row, drawer, view)}`;
   const movable = !isLocked(row) && !drawer.busy;
   return `<li${attrs({ class: `stage-row${drawer.dragKey === row.key ? " dragging" : ""}`, "data-key": row.key, "data-index": index })}>
       <div class="stage-head">
@@ -164,6 +187,7 @@ export function stagesBody(drawer: StagesDrawer): string {
       <div class="flow" aria-label="Stage flow">${flow}</div>
       <ul class="stage-list">${drawer.draft.rows.map((row, index) => rowMarkup(row, index, drawer, view)).join("")}</ul>
       ${addBar(drawer)}
+      ${repoDefaults(drawer, view)}
       ${problem && dirty ? `<p class="stage-error" role="alert">${esc(problem)}</p>` : ""}
       ${drawer.error ? `<p class="stage-error" role="alert">${esc(drawer.error)}</p>` : ""}
       ${drawer.notice ? `<p class="stage-notice" role="status">${esc(drawer.notice)}</p>` : ""}

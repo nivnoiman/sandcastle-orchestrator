@@ -29,8 +29,22 @@ export interface StageRow {
   promptPath?: string;
 }
 
+/** One repo's gate commands as the editor shows them: the default `checks` and the ordered list per stage. */
+export interface RepoChecksRow {
+  repo: string;
+  checks: string;
+  stageChecks: Record<string, string[]>;
+}
+
+/** What the editor sends back for one repo; `stageChecks` replaces the repo's whole map. */
+export interface RepoChecksEdit {
+  checks: string;
+  stageChecks: Record<string, string[]>;
+}
+
 export interface StagesView {
   stages: StageRow[];
+  repos: RepoChecksRow[];
   defaultAgent: AgentChoice;
   claudeDefaults: ClaudeDefaultModels;
   providers: readonly ProviderName[];
@@ -125,6 +139,7 @@ export function stagesViewOf(project: ProjectConfig, claudeDefaults: ClaudeDefau
   const present = new Set(project.stages.map((stage) => stage.name));
   return {
     stages: project.stages.map((stage) => rowOf(stage, project, claudeDefaults)),
+    repos: Object.entries(project.repos).map(([repo, config]) => ({ repo, checks: config.checks, stageChecks: config.stageChecks })),
     defaultAgent: project.agents.default,
     claudeDefaults,
     providers: PROVIDER_NAMES,
@@ -179,6 +194,41 @@ export function parseStageEdits(raw: unknown): StageEdit[] {
   return raw.map(parseEdit);
 }
 
+/** The `checks` map of a PUT body: repo name to its default command and per-stage lists. Absent = leave the repos alone. */
+export function parseRepoChecksEdits(raw: unknown): Record<string, RepoChecksEdit> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) throw new Error("checks must map repo names to { checks, stageChecks }");
+  const edits: Record<string, RepoChecksEdit> = {};
+  for (const [repo, value] of Object.entries(raw)) {
+    const where = `checks.${repo}`;
+    if (!isObject(value)) throw new Error(`${where} must be { checks, stageChecks }`);
+    const checks = value["checks"];
+    if (typeof checks !== "string" || checks.trim() === "") throw new Error(`${where}.checks must be a non-empty command`);
+    const lists = value["stageChecks"] ?? {};
+    if (!isObject(lists)) throw new Error(`${where}.stageChecks must map stage names to lists of commands`);
+    const stageChecks: Record<string, string[]> = {};
+    for (const [stage, list] of Object.entries(lists)) {
+      if (!Array.isArray(list) || list.some((command) => typeof command !== "string")) throw new Error(`${where}.stageChecks.${stage} must be a list of commands`);
+      const commands = (list as string[]).map((command) => command.trim()).filter((command) => command !== "");
+      if (commands.length > 0) stageChecks[stage] = commands;
+    }
+    edits[repo] = { checks, stageChecks };
+  }
+  return edits;
+}
+
+function withRepoChecks(config: Json, edits: Readonly<Record<string, RepoChecksEdit>>): void {
+  const repos = isObject(config["repos"]) ? config["repos"] : {};
+  for (const [repo, edit] of Object.entries(edits)) {
+    const entry = repos[repo];
+    if (!isObject(entry)) throw new Error(`checks.${repo} names a repo that is not under repos`);
+    entry["checks"] = edit.checks;
+    const lists = Object.fromEntries(Object.entries(edit.stageChecks).filter(([, commands]) => commands.length > 0));
+    if (Object.keys(lists).length > 0) entry["stageChecks"] = lists;
+    else delete entry["stageChecks"];
+  }
+}
+
 function choiceJson(provider: ProviderName, model: string | null): string | Json {
   return model === null ? provider : { provider, model };
 }
@@ -197,8 +247,14 @@ function promptPathKeepingExisting(name: string, rawStages: unknown): { prompt: 
 }
 
 /** The raw config for the edited chain, plus the prompt files it needs written. Built-in agents go to `agents.<role>`. */
-export function withStageEdits(rawConfig: Json, edits: readonly StageEdit[], projectRoot: string): { config: Json; prompts: PromptWrite[] } {
+export function withStageEdits(
+  rawConfig: Json,
+  edits: readonly StageEdit[],
+  projectRoot: string,
+  repoChecks?: Readonly<Record<string, RepoChecksEdit>>,
+): { config: Json; prompts: PromptWrite[] } {
   const next: Json = structuredClone(rawConfig);
+  if (repoChecks) withRepoChecks(next, repoChecks);
   const agents: Json = isObject(next["agents"]) ? { ...next["agents"] } : {};
   const prompts: PromptWrite[] = [];
   const stages = edits.map((edit): unknown => {
@@ -248,7 +304,7 @@ function assertInsideProject(path: string, projectRoot: string): void {
  * then writes the changed prompt files and replaces `config.json`, each atomically.
  * Refuses when the file changed on disk between our read and the write.
  */
-export function saveStageEdits(configPath: string, edits: readonly StageEdit[]): ProjectConfig {
+export function saveStageEdits(configPath: string, edits: readonly StageEdit[], repoChecks?: Readonly<Record<string, RepoChecksEdit>>): ProjectConfig {
   const original = readFileSync(configPath, "utf8");
   let raw: unknown;
   try {
@@ -258,7 +314,7 @@ export function saveStageEdits(configPath: string, edits: readonly StageEdit[]):
   }
   if (!isObject(raw)) throw new Error(`${configPath} must hold a JSON object`);
   const projectRoot = projectRootOf(configPath);
-  const { config, prompts } = withStageEdits(raw, edits, projectRoot);
+  const { config, prompts } = withStageEdits(raw, edits, projectRoot, repoChecks);
   const pending = new Map<string, string>();
   for (const prompt of prompts) {
     if (pending.has(prompt.path)) throw new Error(`two stages share the prompt file ${prompt.path} — give each its own file in config.json`);

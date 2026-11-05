@@ -41,6 +41,8 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
     claudeSyncSource: undefined,
     bootstrapCommands: { ...TEST_BOOTSTRAP },
     checkCommands: { ...TEST_CHECKS },
+    stageChecks: {},
+    stageCheckFixLimit: 2,
     jestWorkers: DEFAULT_JEST_WORKERS,
     reworkLimit: REWORK_LIMIT_DEFAULT,
     featureReworkLimit: REWORK_LIMIT_DEFAULT,
