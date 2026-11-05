@@ -54,7 +54,12 @@ export interface RealRun {
 }
 
 function withProjectAtRunStart(shared: OrchestratorConfig, project: ProjectConfig): OrchestratorConfig {
-  return { ...shared, agents: project.agents, stages: project.stages };
+  return {
+    ...shared,
+    agents: project.agents,
+    stages: project.stages,
+    stageChecks: Object.fromEntries(Object.entries(shared.stageChecks).map(([repo, checks]) => [repo, project.repos[repo]?.stageChecks ?? checks])),
+  };
 }
 
 export function startRealRun(options: RealRunOptions): Promise<RealRun> {

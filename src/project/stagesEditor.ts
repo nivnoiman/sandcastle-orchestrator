@@ -212,7 +212,7 @@ export function parseRepoChecksEdits(raw: unknown): Record<string, RepoChecksEdi
       const commands = (list as string[]).map((command) => command.trim()).filter((command) => command !== "");
       if (commands.length > 0) stageChecks[stage] = commands;
     }
-    edits[repo] = { checks, stageChecks };
+    edits[repo] = { checks: checks.trim(), stageChecks };
   }
   return edits;
 }
@@ -220,7 +220,7 @@ export function parseRepoChecksEdits(raw: unknown): Record<string, RepoChecksEdi
 function withRepoChecks(config: Json, edits: Readonly<Record<string, RepoChecksEdit>>): void {
   const repos = isObject(config["repos"]) ? config["repos"] : {};
   for (const [repo, edit] of Object.entries(edits)) {
-    const entry = repos[repo];
+    const entry = Object.hasOwn(repos, repo) ? repos[repo] : undefined;
     if (!isObject(entry)) throw new Error(`checks.${repo} names a repo that is not under repos`);
     entry["checks"] = edit.checks;
     const lists = Object.fromEntries(Object.entries(edit.stageChecks).filter(([, commands]) => commands.length > 0));

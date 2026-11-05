@@ -918,7 +918,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         return;
       } catch (cause) {
         if (!this.isReworkableRed(cause, attempt) || fix >= limit) throw cause;
-        const failure = cause as CheckFailure;
+        const failure = cause;
         this.deps.warn(request.itemNumber, `${request.stage} stage checks red (${failure.checks}) - fix pass ${fix + 1}/${limit}`);
         const prompt = buildStageCheckFixPrompt(
           this.deps.context.promptContext(request),

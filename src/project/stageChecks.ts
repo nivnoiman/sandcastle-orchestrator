@@ -39,7 +39,7 @@ export function assertStageChecksTargets(repos: Readonly<Record<string, { stageC
 
 /** The commands a gate runs after `stage`, or undefined when none are configured. `verify` falls back to the repo default `checks`. */
 export function commandsForStage(stageChecks: StageChecks | undefined, stage: string, defaultChecks: string | undefined): string[] | undefined {
-  const own = stageChecks?.[stage];
+  const own = stageChecks && Object.hasOwn(stageChecks, stage) ? stageChecks[stage] : undefined;
   if (own) return own;
   if (stage === "verify" && defaultChecks !== undefined) return [defaultChecks];
   return undefined;
