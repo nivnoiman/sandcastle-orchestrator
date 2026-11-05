@@ -473,20 +473,7 @@ export class DockerSandboxRunner implements SandboxRunner {
       const withNote = commands ? `${basePrompt}\n\n${stageChecksNote(commands, request.stage)}` : basePrompt;
       const prompt = retry === 0 ? withNote : `${withNote}\n\n${EMPTY_RETRY_NOTE}`;
       try {
-        await this.inContainer(
-          request.stage,
-          attempt,
-          request,
-          worktree,
-          agent,
-          async (container) => {
-            await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-            this.installPushGate(container, commands);
-            await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
-          },
-          "bind",
-          this.pushGateEnv(commands),
-        );
+        await this.runGatedAgent(request, attempt, worktree, agent, prompt, commands);
       } catch (cause) {
         if (!isAgentIdleTimeout(cause)) throw cause;
         await this.salvage(request, attempt, worktree, cause, baseline);
@@ -884,8 +871,33 @@ export class DockerSandboxRunner implements SandboxRunner {
   }
 
   private installPushGate(container: string, commands: readonly string[] | undefined): void {
-    if (!this.pushGateEnv(commands)) return;
-    execAsRoot(this.deps.runner, container, installPrePushHookCommand(commands!));
+    if (!commands || !this.pushGateEnv(commands)) return;
+    execAsRoot(this.deps.runner, container, installPrePushHookCommand(commands));
+  }
+
+  /** One stage-agent pass in a bind-mounted container, with the push gate installed when the stage has commands. */
+  private async runGatedAgent(
+    request: SpawnRequest,
+    attempt: string,
+    worktree: string,
+    agent: ResolvedAgent,
+    prompt: string,
+    commands: readonly string[] | undefined,
+  ): Promise<void> {
+    await this.inContainer(
+      request.stage,
+      attempt,
+      request,
+      worktree,
+      agent,
+      async (container) => {
+        await this.bootstrap(container, request.repo, request.itemNumber, attempt);
+        this.installPushGate(container, commands);
+        await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
+      },
+      "bind",
+      this.pushGateEnv(commands),
+    );
   }
 
   /**
@@ -915,20 +927,7 @@ export class DockerSandboxRunner implements SandboxRunner {
           commands,
           { attempt: fix + 1, limit },
         );
-        await this.inContainer(
-          request.stage,
-          attempt,
-          request,
-          worktree,
-          agent,
-          async (container) => {
-            await this.bootstrap(container, request.repo, request.itemNumber, attempt);
-            this.installPushGate(container, commands);
-            await this.runAgent(container, prompt, agent, this.deps.config.idleTimeoutSeconds, request.itemNumber, attempt);
-          },
-          "bind",
-          this.pushGateEnv(commands),
-        );
+        await this.runGatedAgent(request, attempt, worktree, agent, prompt, commands);
         this.assertLive(attempt);
       }
     }
