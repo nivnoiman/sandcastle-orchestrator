@@ -230,6 +230,47 @@ describe("drawer model chip", () => {
   });
 });
 
+describe("drawer context usage", () => {
+  const headFor = (usage: UiItem["usage"]) => {
+    const project = boardProject("p", uiState([uiRun(1, [uiItem(3, "running", { stage: "develop", usage })])]));
+    return renderDrawer(ui([project]), project, { kind: "item", projectId: "p", itemNumber: 3, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+  };
+
+  it("shows tokens, window, percent and a meter", () => {
+    const head = headFor({ tokens: 142_000, window: 200_000, percent: 71 });
+    expect(head).toContain("142k / 200k (71%)");
+    expect(head).toContain('style="width:71%"');
+    expect(head).not.toContain("d-ctx mono warn");
+  });
+
+  it("warns from 80%", () => {
+    expect(headFor({ tokens: 170_000, window: 200_000, percent: 85 })).toContain("d-ctx mono warn");
+  });
+
+  it("shows bare tokens without a meter when the window is unknown", () => {
+    const head = headFor({ tokens: 42_000, window: undefined, percent: undefined });
+    expect(head).toContain("42k tokens");
+    expect(head).not.toContain("meter");
+  });
+
+  it("hints every metadata chip", () => {
+    const project = boardProject("p", uiState([uiRun(1, [uiItem(3, "running", { stage: "develop", reworkRound: 1, reworkLimit: 3 })])]));
+    const head = renderDrawer(ui([project]), project, { kind: "item", projectId: "p", itemNumber: 3, attempts: [], attemptId: undefined, raw: false, loaded: true } as never, "").head;
+    for (const hint of ["Item phase and the stage it is in", "Repository this item changes", "Item branch", "Rework rounds used of the limit", "Parent issue that owns this run"]) {
+      expect(head).toContain(`title="${hint}"`);
+    }
+  });
+
+  it("shows nothing without usage", () => {
+    expect(headFor(undefined)).not.toContain("d-ctx");
+  });
+
+  it("shows it per lifecycle step", () => {
+    const lifecycle = uiLifecycle(idleFeatureVerify(), idlePolish(), undefined, () => ({ tokens: 120_000, window: 200_000, percent: 60 }));
+    expect(lifecycle[0]?.usage?.tokens).toBe(120_000);
+  });
+});
+
 describe("Needs Attention banner and dialog", () => {
   const parkedBoard = (extra: Partial<BoardUi> = {}) =>
     ui([boardProject("alpha", uiState([uiRun(10, [uiItem(41, "parked", { stage: "develop", parkReason: "<b>config under .git changed</b>", pullRequestUrl: "https://github.com/acme/api/pull/9" })])]))], extra);

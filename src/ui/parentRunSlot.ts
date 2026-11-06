@@ -5,6 +5,7 @@ import { OperatorError } from "../engine/operatorError.js";
 import type { QuietInfo } from "./quiet.js";
 import type { RunModel } from "../model/runModel.js";
 import type { AttemptChunk, AttemptRecord } from "../real/attemptLog.js";
+import { uiUsage, type ContextReading, type UiUsage } from "../real/contextUsage.js";
 import type { AuthRecheck } from "../real/authHold.js";
 import {
   featureVerifyLabel,
@@ -30,6 +31,8 @@ export interface AttemptReader {
   list(itemNumber?: number): AttemptRecord[];
   read(id: string, from?: number): AttemptChunk;
   lastOutputAt?(itemNumber: number): number | undefined;
+  /** Latest context reading of the item's newest attempt (of `stage` when given). */
+  contextOf?(itemNumber: number, stage?: string): ContextReading | undefined;
 }
 
 export interface Session {
@@ -108,6 +111,10 @@ export class ParentRunSlot {
     this.notePolish(note);
   }
 
+  usageFor(itemNumber: number, stage: string | undefined, agent: UiAgent | undefined): UiUsage | undefined {
+    return uiUsage(this.session.attempts?.contextOf?.(itemNumber, stage), agent?.model);
+  }
+
   agentFor(view: ItemView): UiAgent | undefined {
     return view.stage === undefined ? undefined : this.session.agentFor?.(view.stage);
   }
@@ -126,13 +133,19 @@ export class ParentRunSlot {
       hold: uiHold(this.engine),
       featureVerify: this.featureVerify(),
       polish: this.polish(),
-      lifecycle: uiLifecycle(this.featureVerify(), this.polish(), (role) => this.session.agentFor?.(role)),
+      lifecycle: uiLifecycle(
+        this.featureVerify(),
+        this.polish(),
+        (role) => this.session.agentFor?.(role),
+        (stage, agent) => this.usageFor(this.parentNumber, stage, agent),
+      ),
       phaseCounts: phaseCounts(views),
       items: uiItems(
         urlOf,
         views,
         (item) => quietFor?.(item, this.session.attempts),
         (item) => this.agentFor(item),
+        (item, agent) => this.usageFor(item.number, item.stage, agent),
       ),
     };
   }

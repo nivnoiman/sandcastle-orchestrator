@@ -71,6 +71,7 @@ export async function realSession(request: StartSessionRequest, options: RealSes
       list: (itemNumber) => run.logs.list(itemNumber),
       read: (id, from) => run.logs.read(id, from),
       lastOutputAt: (itemNumber) => run.logs.lastOutputAt(itemNumber),
+      contextOf: (itemNumber, stage) => run.logs.contextOf(itemNumber, stage),
     },
     recheckAuth: () => run.recheckAuth(),
     authProviders: () => agentsInUse(run.config).map((agent) => agent.provider.name),

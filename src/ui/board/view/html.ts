@@ -33,8 +33,8 @@ export function button(options: ButtonOptions): string {
   return `<button${pieces}>${options.icon ? icon(options.icon) : ""}${options.label ? esc(options.label) : ""}</button>`;
 }
 
-export function tag(label: string, tone = "", iconName?: string): string {
-  return `<span class="tag ${tone}">${iconName ? icon(iconName) : ""}${esc(label)}</span>`;
+export function tag(label: string, tone = "", iconName?: string, hint?: string): string {
+  return `<span class="tag ${tone}"${hint ? ` title="${esc(hint)}"` : ""}>${iconName ? icon(iconName) : ""}${esc(label)}</span>`;
 }
 
 /** Bars for working agents against a cap; long caps are capped at 16 bars. */

@@ -320,6 +320,7 @@ export class UiController {
         views,
         (view) => quietFor(view, primary?.session.attempts),
         (view) => primary?.agentFor(view),
+        (view, agent) => primary?.usageFor(view.number, view.stage, agent),
       ),
       feed: [...this.feed],
     };
