@@ -784,6 +784,7 @@ bootstrap runs and says loudly what it skipped.
   (with mongo) `assertLocalMongoOnly`, not the network. Making the runtime network
   `--internal` would mean installing and building before attaching. That is worth doing if
   egress ever has to be proven closed, but it is not closed today.
+- `repos.<name>.stageChecks.<stage>` (`src/project/stageChecks.ts`, gate in `src/real/stageGate.ts` and `DockerSandboxRunner.gateStageChecks`) runs an ordered command list after a stage agent stops and before `pushLocalTrackerBranchFromHost` / the orchestrator's own push, via `runInCleanCopy` (copy-mode container, stop at first red `CheckFailure`). Red gives the stage agent up to `stageCheckFixLimit` fix passes; after that develop fails and later stages return `rework` sourced from the stage. In GitHub mode agents push from the container (GH_TOKEN), so a `pre-push` hook is installed as root and enabled with `GIT_CONFIG_COUNT/KEY_0/VALUE_0` (`core.hooksPath`); `--no-verify` can bypass it, which is why the clean-copy run stays authoritative. The verify gate reads the same table: `stageChecks.verify`, else `[checks]`. Dashboard edits go through `PUT /api/stages` with a `checks` body and rewrite the same config file.
 - The verify gate runs each repo's configured `checks` (e.g. typecheck + tests for an
   `api` repo, build + lint for a `web` repo). It keeps the last 4000 characters of check
   output on the thrown `CheckFailure`; that text (like an `UNFIXABLE:` settlement

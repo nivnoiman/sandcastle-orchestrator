@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProjectConfig } from "../../src/project/projectConfig.js";
-import { parseStageEdits, saveStageEdits, stagesViewOf, type StageEdit } from "../../src/project/stagesEditor.js";
+import { parseRepoChecksEdits, parseStageEdits, saveStageEdits, stagesViewOf, type StageEdit } from "../../src/project/stagesEditor.js";
 
 let root: string;
 let configPath: string;
@@ -155,5 +155,47 @@ describe("parseStageEdits", () => {
     expect(() => parseStageEdits([{ kind: "agent", name: "x", prompt: "   " }])).toThrow(/prompt must not be empty/);
     expect(() => parseStageEdits([{ kind: "agent", name: "x", prompt: "a".repeat(70000) }])).toThrow(/longer than/);
     expect(() => parseStageEdits([{ kind: "ship", name: "x" }])).toThrow(/kind must be/);
+  });
+});
+
+describe("repo checks", () => {
+  const edits = [develop, review, security, verify];
+
+  it("shows the default and per-stage lists in the view", () => {
+    writeConfig({ ...BASE, repos: { app: { checks: "npm test", stageChecks: { develop: ["a", "b"] } } } });
+    const view = stagesViewOf(readProjectConfig(configPath), { main: "opus", review: "sonnet" });
+    expect(view.repos).toEqual([{ repo: "app", checks: "npm test", stageChecks: { develop: ["a", "b"] } }]);
+  });
+
+  it("saves lists and the default into the same file, keeping order, and drops emptied stages", () => {
+    saveStageEdits(configPath, edits, { app: { checks: "pnpm verify", stageChecks: { develop: ["pnpm typecheck", "pnpm test"], review: [] } } });
+    const repos = savedConfig()["repos"] as Record<string, Record<string, unknown>>;
+    expect(repos["app"]).toEqual({ checks: "pnpm verify", stageChecks: { develop: ["pnpm typecheck", "pnpm test"] } });
+    expect(readProjectConfig(configPath).repos["app"]?.stageChecks).toEqual({ develop: ["pnpm typecheck", "pnpm test"] });
+  });
+
+  it("removes stageChecks from the file when every list is cleared", () => {
+    writeConfig({ ...BASE, repos: { app: { checks: "npm test", stageChecks: { develop: ["a"] } } } });
+    saveStageEdits(configPath, edits, { app: { checks: "npm test", stageChecks: {} } });
+    expect((savedConfig()["repos"] as Record<string, object>)["app"]).toEqual({ checks: "npm test" });
+  });
+
+  it("leaves the repos alone when the edit carries no checks", () => {
+    writeConfig({ ...BASE, repos: { app: { checks: "npm test", stageChecks: { develop: ["a"] } } } });
+    saveStageEdits(configPath, edits);
+    expect((savedConfig()["repos"] as Record<string, object>)["app"]).toEqual({ checks: "npm test", stageChecks: { develop: ["a"] } });
+  });
+
+  it("refuses a list for a stage that is not in the chain, writing nothing", () => {
+    const before = readFileSync(configPath, "utf8");
+    expect(() => saveStageEdits(configPath, edits, { app: { checks: "npm test", stageChecks: { ghost: ["a"] } } })).toThrow(/not in stages/);
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+  });
+
+  it("refuses unknown repos and malformed bodies", () => {
+    expect(() => saveStageEdits(configPath, edits, { nope: { checks: "x", stageChecks: {} } })).toThrow(/not under repos/);
+    expect(() => parseRepoChecksEdits({ app: { checks: "  ", stageChecks: {} } })).toThrow(/non-empty command/);
+    expect(() => parseRepoChecksEdits({ app: { checks: "x", stageChecks: { develop: "a" } } })).toThrow(/list of commands/);
+    expect(parseRepoChecksEdits(undefined)).toBeUndefined();
   });
 });

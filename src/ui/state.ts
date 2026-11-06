@@ -8,6 +8,7 @@ import { hubIssueUrl } from "../real/ghClient.js";
 import { FEATURE_FIX_STAGE, FEATURE_VERIFY_STAGE, POLISH_STAGE } from "../real/featureVerify/stages.js";
 import { idleFeatureVerify, type FeatureVerifyStatus } from "../real/featureVerify/runFeatureVerify.js";
 import { idlePolish, type PolishStatus } from "../real/polish/runPolish.js";
+import type { UiUsage } from "../real/contextUsage.js";
 import type { QuietInfo } from "./quiet.js";
 import type { QueueSettings } from "./runQueue.js";
 
@@ -32,6 +33,8 @@ export interface UiItem extends ItemView {
   agent: UiAgent | undefined;
   /** Set while the item's agent is Quiet; Stall stays run-only. */
   quiet: QuietInfo | undefined;
+  /** Context in use by the item's latest agent attempt; unset when the provider reports none. */
+  usage?: UiUsage | undefined;
 }
 
 export interface UiParent {
@@ -75,6 +78,7 @@ export interface UiLifecycleStep {
   phase: "idle" | "waiting" | "running" | "done" | "red" | "reverted" | "skipped";
   reason: string | undefined;
   agent: UiAgent | undefined;
+  usage?: UiUsage | undefined;
 }
 
 export interface UiRun {
@@ -156,6 +160,7 @@ export function uiLifecycle(
   featureVerify: FeatureVerifyStatus,
   polish: PolishStatus,
   agentFor: (role: string) => UiAgent | undefined = () => undefined,
+  usageFor: (stage: string, agent: UiAgent | undefined) => UiUsage | undefined = () => undefined,
 ): UiLifecycleStep[] {
   const fixing = featureVerify.phase === "fixing";
   const verifyPhase = ({
@@ -167,8 +172,12 @@ export function uiLifecycle(
     red: "red",
     skipped: "skipped",
   } as const satisfies Record<FeatureVerifyStatus["phase"], UiLifecycleStep["phase"]>)[featureVerify.phase];
+  const agentAndUsage = (role: string, stage: string) => {
+    const agent = agentFor(role);
+    return { agent, usage: usageFor(stage, agent) };
+  };
   const steps: UiLifecycleStep[] = [
-    { id: "verify", label: "Feature Verify", stage: FEATURE_VERIFY_STAGE, phase: verifyPhase, reason: featureVerify.reason, agent: agentFor("feature-verify") },
+    { id: "verify", label: "Feature Verify", stage: FEATURE_VERIFY_STAGE, phase: verifyPhase, reason: featureVerify.reason, ...agentAndUsage("feature-verify", FEATURE_VERIFY_STAGE) },
   ];
   if (featureVerify.rework) {
     const fixRounds = fixing ? featureVerify.rework.round : featureVerify.rework.round - 1;
@@ -179,11 +188,11 @@ export function uiLifecycle(
         stage: FEATURE_FIX_STAGE,
         phase: fixing ? "running" : "done",
         reason: `fix round ${fixRounds}/${featureVerify.rework.limit}`,
-        agent: agentFor("feature-fix"),
+        ...agentAndUsage("feature-fix", FEATURE_FIX_STAGE),
       });
     }
   }
-  steps.push({ id: "polish", label: "Polish", stage: POLISH_STAGE, phase: polish.phase === "green" ? "done" : polish.phase, reason: polish.reason, agent: agentFor("polish") });
+  steps.push({ id: "polish", label: "Polish", stage: POLISH_STAGE, phase: polish.phase === "green" ? "done" : polish.phase, reason: polish.reason, ...agentAndUsage("polish", POLISH_STAGE) });
   return steps;
 }
 
@@ -220,8 +229,12 @@ export function uiItems(
   views: readonly ItemView[],
   quietFor: (view: ItemView) => QuietInfo | undefined = () => undefined,
   agentFor: (view: ItemView) => UiAgent | undefined = () => undefined,
+  usageFor: (view: ItemView, agent: UiAgent | undefined) => UiUsage | undefined = () => undefined,
 ): UiItem[] {
-  return views.map((view) => ({ ...view, issueUrl: urlOf(view.number), agent: agentFor(view), quiet: quietFor(view) }));
+  return views.map((view) => {
+    const agent = agentFor(view);
+    return { ...view, issueUrl: urlOf(view.number), agent, quiet: quietFor(view), usage: usageFor(view, agent) };
+  });
 }
 
 function zeroPhaseCounts(): Record<ItemPhase, number> {

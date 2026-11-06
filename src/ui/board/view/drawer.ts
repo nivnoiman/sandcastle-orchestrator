@@ -1,5 +1,6 @@
 import type { UiAgent, UiItem, UiLifecycleStep, UiRun } from "../../state.js";
-import { esc } from "../format.js";
+import type { UiUsage } from "../../../real/contextUsage.js";
+import { compactTokens, esc } from "../format.js";
 import { isLocalProject, webUrl, type BoardProject } from "../model.js";
 import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
@@ -73,9 +74,26 @@ function agentLabel(agent: UiAgent | undefined): string {
   return agent.provider === "claude" ? agent.model : `${agent.provider} · ${agent.model}`;
 }
 
+export const CONTEXT_WARN_PERCENT = 80;
+
+/** Context in use next to the model: tokens, window and a meter; tokens alone when the window is unknown. */
+export function usageChip(usage: UiUsage | undefined): string {
+  if (!usage) return "";
+  if (usage.window === undefined || usage.percent === undefined) {
+    return `<span class="d-ctx mono" title="Context in use by the agent; the model's window is unknown">${compactTokens(usage.tokens)} tokens</span>`;
+  }
+  const warn = usage.percent >= CONTEXT_WARN_PERCENT ? " warn" : "";
+  const title = `Context in use: ${usage.tokens.toLocaleString("en-US")} of ${usage.window.toLocaleString("en-US")} tokens`;
+  return `<span class="d-ctx mono${warn}" title="${esc(title)}"><span class="meter"><i style="width:${Math.min(100, usage.percent)}%"></i></span>${compactTokens(usage.tokens)} / ${compactTokens(usage.window)} (${usage.percent}%)</span>`;
+}
+
+function runChip(run: UiRun): string {
+  return `<span title="Parent issue that owns this run">Run #${run.parent.number}</span>`;
+}
+
 function stepRow(step: UiLifecycleStep): string {
   const model = agentLabel(step.agent);
-  return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase])}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${step.reason ? `<span class="why">${esc(step.reason)}</span>` : ""}</li>`;
+  return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase], undefined, `${step.label} status`)}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${usageChip(step.usage)}${step.reason ? `<span class="why" title="Why the step is in this state">${esc(step.reason)}</span>` : ""}</li>`;
 }
 
 function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
@@ -84,7 +102,7 @@ function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
   const reverted = polish.phase === "reverted" ? polish.reason ?? "polish changes were reverted" : undefined;
   const waiting = verify.phase === "waiting" ? "Waiting for another parent's Feature Verify to release the verify environment." : "";
   const open = verify.phase === "idle" ? run.items.filter((item) => item.phase !== "done").map((item) => item.number) : [];
-  const counts = verify.phase === "idle" || verify.phase === "skipped" ? "" : `<span>${verify.counts.pass} pass · ${verify.counts.fail} fail · ${verify.counts.requiresStg} requires-STG</span>`;
+  const counts = verify.phase === "idle" || verify.phase === "skipped" ? "" : `<span title="Feature Verify results: passing, failing and requires-STG checks">${verify.counts.pass} pass · ${verify.counts.fail} fail · ${verify.counts.requiresStg} requires-STG</span>`;
   const links = [...verify.pullRequests, ...polish.pullRequests]
     .filter((url) => webUrl(url))
     .map((url) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noreferrer">${icon("pr")}${esc(prLabel(url))}</a>`)
@@ -92,10 +110,10 @@ function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
   return `<div class="d-head">
       <div class="row"><h2>${issueLink(webUrl(run.parent.url), `#${run.parent.number}`)}Feature lifecycle · ${esc(run.parent.feature)}</h2>${closeButton()}</div>
       <div class="d-meta">
-        <span class="mono">${icon("branch")}${esc(run.parent.integrationBranch)}</span>
+        <span class="mono" title="Integration branch every item of this feature merges into">${icon("branch")}${esc(run.parent.integrationBranch)}</span>
         ${counts}
-        ${verify.rework ? `<span>Fix round ${verify.rework.round}/${verify.rework.limit}</span>` : ""}
-        <span>Run #${run.parent.number}</span>
+        ${verify.rework ? `<span title="Feature Verify fix rounds used of the limit">Fix round ${verify.rework.round}/${verify.rework.limit}</span>` : ""}
+        ${runChip(run)}
       </div>
       <ul class="d-steps">${run.lifecycle.map(stepRow).join("")}</ul>
       ${failure ? `<div class="d-reason"><b>Feature Verify red:</b> ${esc(failure)}</div>` : ""}
@@ -126,12 +144,13 @@ function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "i
   return `<div class="d-head">
       <div class="row"><h2>${issueLink(webUrl(item.issueUrl), `#${item.number}`)}${esc(item.title)}</h2>${closeButton()}</div>
       <div class="d-meta">
-        ${tag(`${item.phase}${item.stage ? ` · ${item.stage}` : ""}`, PHASE_TONE[item.phase])}
+        ${tag(`${item.phase}${item.stage ? ` · ${item.stage}` : ""}`, PHASE_TONE[item.phase], undefined, "Item phase and the stage it is in")}
         ${model ? `<span class="d-model mono" title="Agent model of the ${esc(item.stage ?? "latest")} stage">${esc(model)}</span>` : ""}
-        <span>${icon("pin")}${esc(item.repo)}</span>
-        <span class="mono">${icon("branch")}${esc(item.branch)}</span>
-        ${item.reworkRound > 0 ? `<span>Rework ${item.reworkRound}/${item.reworkLimit}</span>` : ""}
-        ${run ? `<span>Run #${run.parent.number}</span>` : ""}
+        ${usageChip(item.usage)}
+        <span title="Repository this item changes">${icon("pin")}${esc(item.repo)}</span>
+        <span class="mono" title="Item branch">${icon("branch")}${esc(item.branch)}</span>
+        ${item.reworkRound > 0 ? `<span title="Rework rounds used of the limit">Rework ${item.reworkRound}/${item.reworkLimit}</span>` : ""}
+        ${run ? runChip(run) : ""}
       </div>
       ${reason}
       ${blockedBy(project, item.blockers)}

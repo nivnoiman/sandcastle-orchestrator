@@ -1,7 +1,8 @@
 import type { ProviderName } from "../../project/agentsConfig.js";
 import type { BuiltinAgentStage } from "../../project/stagesConfig.js";
 import { effectiveAgent, tierOf, type EffectiveAgent } from "../../project/stageModels.js";
-import type { StageEdit, StageRow, StagesView } from "../../project/stagesEditor.js";
+import { commandsOfText } from "../../project/stageChecks.js";
+import type { RepoChecksEdit, StageEdit, StageRow, StagesView } from "../../project/stagesEditor.js";
 
 /** One editable row; `provider` "" means "use the project default". */
 export interface DraftRow {
@@ -16,10 +17,14 @@ export interface DraftRow {
   promptPath: string | undefined;
   run: string;
   runMap: Record<string, string> | undefined;
+  /** Per repo: the commands to run after this stage, one per line. Empty = no gate (verify: the repo default). */
+  checks: Record<string, string>;
 }
 
 export interface StagesDraft {
   rows: DraftRow[];
+  /** Per repo: the default `checks` command. */
+  repoDefaults: Record<string, string>;
   nextKey: number;
 }
 
@@ -27,7 +32,11 @@ export function isLocked(row: Pick<DraftRow, "kind" | "name">): boolean {
   return row.kind === "verify" || row.name === "develop";
 }
 
-function rowOfView(row: StageRow, key: string): DraftRow {
+function checksOfView(view: StagesView, stage: string): Record<string, string> {
+  return Object.fromEntries(view.repos.map((repo) => [repo.repo, (repo.stageChecks[stage] ?? []).join("\n")]));
+}
+
+function rowOfView(row: StageRow, key: string, view: StagesView): DraftRow {
   return {
     key,
     kind: row.kind,
@@ -40,17 +49,22 @@ function rowOfView(row: StageRow, key: string): DraftRow {
     promptPath: row.promptPath,
     run: typeof row.run === "string" ? row.run : "",
     runMap: typeof row.run === "object" ? row.run : undefined,
+    checks: checksOfView(view, row.name),
   };
 }
 
 export function draftOf(view: StagesView): StagesDraft {
-  return { rows: view.stages.map((row, index) => rowOfView(row, `r${index}`)), nextKey: view.stages.length };
+  return {
+    rows: view.stages.map((row, index) => rowOfView(row, `r${index}`, view)),
+    repoDefaults: Object.fromEntries(view.repos.map((repo) => [repo.repo, repo.checks])),
+    nextKey: view.stages.length,
+  };
 }
 
 function blankRow(draft: StagesDraft, kind: DraftRow["kind"], name: string): DraftRow {
   const key = `r${draft.nextKey}`;
   draft.nextKey += 1;
-  return { key, kind, name, isNew: true, provider: "", model: "", customModel: false, prompt: "", promptPath: undefined, run: "", runMap: undefined };
+  return { key, kind, name, isNew: true, provider: "", model: "", customModel: false, prompt: "", promptPath: undefined, run: "", runMap: undefined, checks: Object.fromEntries(Object.keys(draft.repoDefaults).map((repo) => [repo, ""])) };
 }
 
 function insertBeforeVerifyGate(draft: StagesDraft, row: DraftRow): void {
@@ -107,8 +121,24 @@ export function draftEdits(draft: StagesDraft): StageEdit[] {
   return draft.rows.map(editOf);
 }
 
+/** Gate commands per repo as the PUT body: the default plus a list for every gated, non-command stage. */
+export function draftChecks(draft: StagesDraft): Record<string, RepoChecksEdit> {
+  return Object.fromEntries(
+    Object.entries(draft.repoDefaults).map(([repo, checks]) => {
+      const stageChecks: Record<string, string[]> = {};
+      for (const row of draft.rows) {
+        if (row.kind === "command") continue;
+        const commands = commandsOfText(row.checks[repo] ?? "");
+        if (commands.length > 0) stageChecks[row.name.trim()] = commands;
+      }
+      return [repo, { checks: checks.trim(), stageChecks }];
+    }),
+  );
+}
+
 export function isDirty(view: StagesView, draft: StagesDraft): boolean {
-  return JSON.stringify(draftEdits(draft)) !== JSON.stringify(draftEdits(draftOf(view)));
+  const saved = draftOf(view);
+  return JSON.stringify([draftEdits(draft), draftChecks(draft)]) !== JSON.stringify([draftEdits(saved), draftChecks(saved)]);
 }
 
 /** Why Save would be refused before it asks the server; the server still validates everything. */
@@ -119,6 +149,8 @@ export function draftProblem(draft: StagesDraft): string | undefined {
   if (emptyPrompt) return `${emptyPrompt.name.trim()} has no prompt — open "Edit prompt" and write one.`;
   const emptyRun = draft.rows.find((row) => row.kind === "command" && !row.runMap && row.run.trim() === "");
   if (emptyRun) return `${emptyRun.name.trim()} has no command to run.`;
+  const noDefault = Object.entries(draft.repoDefaults).find(([, checks]) => checks.trim() === "");
+  if (noDefault) return `${noDefault[0]} needs a default checks command (the merge gate uses it).`;
   return undefined;
 }
 

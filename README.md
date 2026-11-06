@@ -132,11 +132,35 @@ A multi-repo example with a compose verify environment is in [`examples/demo/.sa
 | `repos.<name>.github` | required | `owner/name`. `<name>` is what the `repo:<name>` label says. |
 | `repos.<name>.path` | `.` for the hub repo, else `../<name>` | Local checkout, relative to the project root |
 | `repos.<name>.bootstrap` | none | Runs in every agent container before work (`npm ci`, `pnpm install ...`) |
-| `repos.<name>.checks` | required | The per-item gate. Must be green before an item merges. |
+| `repos.<name>.checks` | required | The per-item gate. Must be green before an item merges. Also the default for the verify gate's command list below. |
+| `repos.<name>.stageChecks` | none | Ordered commands per stage, run before that stage's work is pushed, see [Stage checks](#stage-checks) |
 | `verify` | `{ "strategy": "none" }` | Feature Verify strategy, see below |
 | `ui.port` | `7777` | Control plane port for this project |
 | `agents` | `{ "default": "claude" }` | Which agent CLI runs each stage, see [Agent providers](#agent-providers) |
 | `stages` | `["develop", "simplify", "review", "verify"]` | The per-item stage chain, see [Stages](#stages) |
+
+### Stage checks
+
+`repos.<name>.stageChecks` maps a stage name to an ordered list of shell commands. After that stage's agent stops, sandcastle runs the list in a clean container copy of the branch, in order, and stops at the first red command. Nothing is pushed until it is green.
+
+```json
+"repos": {
+  "your-app": {
+    "checks": "pnpm typecheck && pnpm test",
+    "stageChecks": {
+      "develop": ["pnpm typecheck", "pnpm check:repo", "pnpm test:stage"],
+      "review": ["pnpm typecheck"]
+    }
+  }
+}
+```
+
+- Keys are stage names from `stages` (built-in or custom agent stages, and `verify`). A command stage has its own `run`; a list for it is refused. An unknown stage, an empty list or a blank command fails at boot and in `sandcastle validate`.
+- A stage with no list is not gated, so existing configs behave exactly as before.
+- `verify` is the merge gate: its list, when set, replaces the single `checks` command; without one it runs `checks`.
+- The stage agent is told the list in its prompt. In GitHub mode a `pre-push` hook (`core.hooksPath` set through git env, nothing written to the repo) runs the same list on every `git push` from the stage container and blocks it while red. `git push --no-verify` bypasses a hook, so the clean-copy run after the agent stops is the authoritative gate; with the local tracker the orchestrator does the only push, after that run.
+- Red after the agent stops: the stage agent gets a fix pass in a fresh container with the failing command and its output (`SANDCASTLE_STAGE_CHECK_FIX_LIMIT`, default 2). Still red: `develop` fails the item, any later stage sends it back to develop as a rework round.
+- Edit the lists and the default `checks` in Board View, **Stages**, or by hand in `config.json`. Both write the same file; Save validates with the same parser as boot, and **Refresh** picks up hand edits. Changes apply to new runs.
 
 Port precedence: `--port=N`, then `SANDCASTLE_UI_PORT`, then `ui.port`, then `7777`.
 

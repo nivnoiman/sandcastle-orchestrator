@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { messageOf } from "../messageOf.js";
 import { parseAgents, type AgentsConfig } from "./agentsConfig.js";
+import { assertStageChecksTargets, parseStageChecks, type StageChecks } from "./stageChecks.js";
 import { customStageNames, parseStages, type StageSpec } from "./stagesConfig.js";
 
 /** The per-project folder at the project root: `config.json` (committed) and, by default, the project's state. */
@@ -25,6 +26,8 @@ export interface RepoConfig {
   path: string;
   bootstrap: string;
   checks: string;
+  /** Ordered commands per stage name, run in the stage container before the stage's work is pushed. */
+  stageChecks: StageChecks;
 }
 
 export interface VerifyService {
@@ -154,6 +157,7 @@ function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: str
     path: resolve(projectRoot, rawPath),
     bootstrap: optionalString(raw, "bootstrap", where) ?? "",
     checks: requiredString(raw, "checks", where),
+    stageChecks: parseStageChecks(raw["stageChecks"], `${where}.stageChecks`),
   };
 }
 
@@ -283,6 +287,7 @@ export function parseProjectConfig(raw: unknown, configPath: string, readText?: 
   const stateDir = optionalString(raw, "stateDir", "config");
   const stages = parseStages(raw["stages"], { projectRoot, repos: Object.keys(repos), ...(readText ? { readText } : {}) });
   assertNoStageAgents(raw["agents"], stages);
+  assertStageChecksTargets(repos, stages);
   return {
     name,
     tracker,

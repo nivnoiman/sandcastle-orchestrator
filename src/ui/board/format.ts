@@ -48,3 +48,10 @@ export function formatCountdown(untilIso: string, nowMs: number): string {
 export function feedTime(at: string): string {
   return at.length >= 19 ? at.slice(11, 19) : at;
 }
+
+/** Token count as `850`, `142k`, `1.2M`. */
+export function compactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
+  return String(tokens);
+}

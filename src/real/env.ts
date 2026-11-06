@@ -11,6 +11,7 @@ import {
 } from "../project/projectConfig.js";
 import type { AgentsConfig } from "../project/agentsConfig.js";
 import type { StageSpec } from "../project/stagesConfig.js";
+import { commandsForStage, type StageChecks } from "../project/stageChecks.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { defaultLayout, sandcastleDirFrom, TOOL_DIR, type SandcastleLayout } from "./paths.js";
 
@@ -19,6 +20,7 @@ export const IDLE_TIMEOUT_MIN = 60;
 export const IDLE_TIMEOUT_MAX = 7200;
 export const SALVAGE_IDLE_MAX = 300;
 export const EMPTY_STAGE_RETRIES_DEFAULT = 2;
+export const STAGE_CHECK_FIX_LIMIT_DEFAULT = 2;
 export const DEFAULT_MODEL = "opus";
 export const DEFAULT_REVIEW_MODEL = "sonnet";
 export const DEFAULT_JEST_WORKERS = "4";
@@ -44,6 +46,10 @@ export interface OrchestratorConfig {
   claudeSyncSource: string | undefined;
   bootstrapCommands: Record<TargetRepo, string>;
   checkCommands: Record<TargetRepo, string>;
+  /** Per repo, per stage: ordered commands run before that stage's work is pushed. */
+  stageChecks: Record<TargetRepo, StageChecks>;
+  /** Fix attempts the stage agent gets after its stage checks go red, before the item is sent back to develop. */
+  stageCheckFixLimit: number;
   jestWorkers: string;
   reworkLimit: number;
   featureReworkLimit: number;
@@ -237,6 +243,8 @@ export function loadOrchestratorConfig(
     claudeSyncSource: values["SANDCASTLE_CLAUDE_SOURCE"] || undefined,
     bootstrapCommands: perRepo(values, "SANDCASTLE_BOOTSTRAP_", (repo) => project.repos[repo]!.bootstrap),
     checkCommands: perRepo(values, "SANDCASTLE_CHECKS_", (repo) => project.repos[repo]!.checks),
+    stageChecks: Object.fromEntries(knownRepos().map((repo) => [repo, project.repos[repo]!.stageChecks])),
+    stageCheckFixLimit: reworkLimit(values, "SANDCASTLE_STAGE_CHECK_FIX_LIMIT", STAGE_CHECK_FIX_LIMIT_DEFAULT),
     jestWorkers: jestWorkers(values),
     reworkLimit: reworkLimit(values),
     featureReworkLimit: reworkLimit(values, "SANDCASTLE_FEATURE_REWORK_LIMIT"),
@@ -270,6 +278,11 @@ export function perRepoValue<T>(values: Readonly<Record<TargetRepo, T>>, repo: T
 
 export function checkCommand(config: OrchestratorConfig, repo: TargetRepo): string {
   return perRepoValue(config.checkCommands, repo, "checks command");
+}
+
+/** The ordered commands to gate `stage` on for `repo`; undefined = no gate. `verify` falls back to the repo's default `checks`. */
+export function stageCheckCommands(config: OrchestratorConfig, repo: TargetRepo, stage: string): string[] | undefined {
+  return commandsForStage(config.stageChecks[repo], stage, checkCommand(config, repo));
 }
 
 export function bootstrapScript(config: OrchestratorConfig, repo: TargetRepo): string {
