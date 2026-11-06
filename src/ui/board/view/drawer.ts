@@ -87,6 +87,10 @@ export function usageChip(usage: UiUsage | undefined): string {
   return `<span class="d-ctx mono${warn}" title="${esc(title)}"><span class="meter"><i style="width:${Math.min(100, usage.percent)}%"></i></span>${compactTokens(usage.tokens)} / ${compactTokens(usage.window)} (${usage.percent}%)</span>`;
 }
 
+function runChip(run: UiRun): string {
+  return `<span title="Parent issue that owns this run">Run #${run.parent.number}</span>`;
+}
+
 function stepRow(step: UiLifecycleStep): string {
   const model = agentLabel(step.agent);
   return `<li class="d-step"><span class="t">${esc(step.label)}</span>${tag(step.phase, STEP_TONE[step.phase], undefined, `${step.label} status`)}${model ? `<span class="d-model mono" title="Agent model of the ${esc(step.stage)} step">${esc(model)}</span>` : ""}${usageChip(step.usage)}${step.reason ? `<span class="why" title="Why the step is in this state">${esc(step.reason)}</span>` : ""}</li>`;
@@ -109,7 +113,7 @@ function featureLifecycleDrawer(project: BoardProject, run: UiRun): string {
         <span class="mono" title="Integration branch every item of this feature merges into">${icon("branch")}${esc(run.parent.integrationBranch)}</span>
         ${counts}
         ${verify.rework ? `<span title="Feature Verify fix rounds used of the limit">Fix round ${verify.rework.round}/${verify.rework.limit}</span>` : ""}
-        <span title="Parent issue that owns this run">Run #${run.parent.number}</span>
+        ${runChip(run)}
       </div>
       <ul class="d-steps">${run.lifecycle.map(stepRow).join("")}</ul>
       ${failure ? `<div class="d-reason"><b>Feature Verify red:</b> ${esc(failure)}</div>` : ""}
@@ -146,7 +150,7 @@ function itemHead(project: BoardProject, drawer: Extract<DrawerState, { kind: "i
         <span title="Repository this item changes">${icon("pin")}${esc(item.repo)}</span>
         <span class="mono" title="Item branch">${icon("branch")}${esc(item.branch)}</span>
         ${item.reworkRound > 0 ? `<span title="Rework rounds used of the limit">Rework ${item.reworkRound}/${item.reworkLimit}</span>` : ""}
-        ${run ? `<span title="Parent issue that owns this run">Run #${run.parent.number}</span>` : ""}
+        ${run ? runChip(run) : ""}
       </div>
       ${reason}
       ${blockedBy(project, item.blockers)}
