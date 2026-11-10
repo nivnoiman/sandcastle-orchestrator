@@ -22,12 +22,12 @@ export const ONE_MILLION = 1_000_000;
 
 /**
  * Known windows by model-id prefix, first match wins. A model absent here has an unknown window; nothing is guessed.
- * 1M by default: Opus 4.7+, Sonnet 5+, Haiku 5+, Fable (Claude Code model-config docs; claude-opus-4-8 and claude-sonnet-5 also
- * confirmed by the CLI's own `modelUsage.contextWindow`). 200K: Opus/Sonnet 4.6 and earlier (1M only via `[1m]`), Haiku 4.5 (confirmed).
+ * 1M by default: Opus 4.7+, Sonnet 5+, Fable (Claude Code model-config docs; claude-opus-4-8 and claude-sonnet-5 also
+ * confirmed by the CLI's own `modelUsage.contextWindow`). 200K: Opus/Sonnet 4.6 and earlier (1M only via `[1m]`), Haiku 4.5 (confirmed). Haiku 5+ is unverified, so unknown.
  */
 export const CONTEXT_WINDOWS: readonly { prefix: RegExp; tokens: number }[] = [
   { prefix: /^claude-opus-4-(?:[7-9]|\d{2})(?!\d)/, tokens: ONE_MILLION },
-  { prefix: /^claude-(?:opus|sonnet|haiku)-(?:[5-9]|\d{2})(?!\d)/, tokens: ONE_MILLION },
+  { prefix: /^claude-(?:opus|sonnet)-(?:[5-9]|\d{2})(?!\d)/, tokens: ONE_MILLION },
   { prefix: /^claude-fable/, tokens: ONE_MILLION },
   { prefix: /^claude-(?:opus|sonnet|haiku)-[34]/, tokens: 200_000 },
   { prefix: /^claude-3/, tokens: 200_000 },

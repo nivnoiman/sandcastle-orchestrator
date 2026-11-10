@@ -58,7 +58,7 @@ describe("context percentage and window", () => {
     ["claude-opus-5-5", 1_000_000],
     ["claude-sonnet-5", 1_000_000],
     ["claude-sonnet-5-5", 1_000_000],
-    ["claude-haiku-5-5", 1_000_000],
+    ["claude-haiku-5-5", undefined],
     ["claude-fable-5-1", 1_000_000],
     ["claude-opus-4-6", 200_000],
     ["claude-opus-4-5-20251101", 200_000],
