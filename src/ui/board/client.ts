@@ -585,25 +585,25 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const drawer = itemDrawer();
     if (!drawer) return;
     const changes = changesOf(drawer);
-    if (changes.status === "loading") return;
+    changes.generation += 1;
+    const generation = changes.generation;
     changes.status = "loading";
     render();
-    const number = drawer.itemNumber;
+    const stale = (): boolean => itemDrawer() !== drawer || changes.generation !== generation;
     try {
-      const payload = await apiOf(project).get(`/api/changes?item=${number}${changes.showGenerated ? "&generated=1" : ""}`);
-      const current = itemDrawer();
-      if (!current || current.itemNumber !== number) return;
-      const next = changesOf(current);
-      next.data = payload["result"] as ChangesResult;
-      next.status = "ready";
-      next.error = undefined;
-      next.previews = {};
+      const payload = await apiOf(project).get(`/api/changes?item=${drawer.itemNumber}${changes.showGenerated ? "&generated=1" : ""}`);
+      if (stale()) return;
+      changes.data = payload["result"] as ChangesResult;
+      changes.status = "ready";
+      changes.error = undefined;
+      changes.previews = {};
+      const paths = new Set(changes.data.files.map((file) => file.path));
+      changes.previewing = changes.previewing.filter((path) => paths.has(path));
+      for (const path of changes.previewing) void loadPreview(project, path);
     } catch (cause) {
-      const current = itemDrawer();
-      if (!current || current.itemNumber !== number) return;
-      const next = changesOf(current);
-      next.status = "error";
-      next.error = messageOf(cause);
+      if (stale()) return;
+      changes.status = "error";
+      changes.error = messageOf(cause);
     }
     render();
   }
@@ -612,18 +612,19 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const drawer = itemDrawer();
     if (!drawer) return;
     const changes = changesOf(drawer);
+    const generation = changes.generation;
     changes.previews[path] = { status: "loading", text: "", note: "" };
     render();
-    const number = drawer.itemNumber;
+    const stale = (): boolean => itemDrawer() !== drawer || changes.generation !== generation;
     try {
-      const payload = await apiOf(project).get(`/api/changes/file?item=${number}&path=${encodeURIComponent(path)}`);
+      const payload = await apiOf(project).get(`/api/changes/file?item=${drawer.itemNumber}&path=${encodeURIComponent(path)}`);
       const file = payload["result"] as FileText;
-      if (itemDrawer()?.itemNumber !== number) return;
+      if (stale()) return;
       changes.previews[path] = file.binary
         ? { status: "error", text: "", note: "Binary file, no preview." }
         : { status: "ready", text: file.text, note: file.clipped ? "Preview cut at 512 KB." : "" };
     } catch (cause) {
-      if (itemDrawer()?.itemNumber !== number) return;
+      if (stale()) return;
       changes.previews[path] = { status: "error", text: "", note: messageOf(cause) };
     }
     render();
@@ -653,7 +654,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       setTimeout(() => zones.dBody.querySelector<HTMLElement>(`#${fileId(path)}`)?.scrollIntoView({ block: "start" }), 0);
     } else if (action === "changes-preview") {
       changes.previewing = toggled(changes.previewing, path);
-      if (changes.previewing.includes(path) && !changes.previews[path]) void loadPreview(project, path);
+      if (changes.previewing.includes(path) && changes.previews[path]?.status !== "ready" && changes.previews[path]?.status !== "loading") void loadPreview(project, path);
       render();
     } else return false;
     return true;

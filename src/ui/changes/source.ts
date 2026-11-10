@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { hostGitEnv } from "../../real/gitGuard.js";
 import { repoRoot, worktreePath, type SandcastleLayout } from "../../real/paths.js";
 
@@ -54,12 +54,12 @@ export function assertRelativePath(path: string): string {
   const bad =
     path.length === 0 ||
     path.length > 1024 ||
-    path.includes("\0") ||
+    /[\0-\x1f:]/.test(path) ||
     path.startsWith("-") ||
     /^[A-Za-z]:/.test(path) ||
     path.startsWith("/") ||
     path.startsWith("\\") ||
-    parts.some((part) => part === ".." || part === "");
+    parts.some((part) => part === ".." || part === "" || /^\.git[. ]*$/i.test(part));
   if (bad) throw new ChangesError(`"${path.slice(0, 80)}" is not a repo-relative file path`);
   return path;
 }
@@ -126,6 +126,26 @@ async function firstRef(cwd: string, candidates: readonly string[]): Promise<str
   return undefined;
 }
 
+function readCapped(file: string): Buffer {
+  const fd = openSync(file, "r");
+  try {
+    const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+    return buffer.subarray(0, readSync(fd, buffer, 0, buffer.length, 0));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Resolves symlinks/junctions in every component; the real file must stay inside the real worktree and outside `.git`. */
+function realFileInside(worktree: string, full: string): string {
+  const real = realpathSync(full);
+  const rel = relative(realpathSync(worktree), real);
+  const outside = rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || /^\.git([\\/]|$)/i.test(rel);
+  if (outside) throw new ChangesError("path escapes the worktree");
+  if (!statSync(real).isFile()) throw new ChangesError("not a regular file");
+  return real;
+}
+
 function textOf(bytes: Buffer): FileText {
   const clipped = bytes.length > MAX_FILE_BYTES;
   const body = clipped ? bytes.subarray(0, MAX_FILE_BYTES) : bytes;
@@ -180,10 +200,7 @@ export class GitChangesSource implements ChangesSource {
     if (worktree) {
       const full = resolve(worktree, path);
       if (!full.startsWith(resolve(worktree) + sep)) throw new ChangesError("path escapes the worktree");
-      if (existsSync(full)) {
-        if (!lstatSync(full).isFile()) throw new ChangesError("not a regular file");
-        return textOf(readFileSync(full).subarray(0, MAX_FILE_BYTES + 1));
-      }
+      if (existsSync(full)) return textOf(readCapped(realFileInside(worktree, full)));
     }
     const ref = await firstRef(root, [`origin/${target.branch}`, target.branch]);
     if (!ref) throw new ChangesError("file is not available: the branch is gone");

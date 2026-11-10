@@ -14,6 +14,21 @@ function ready(overrides: Partial<ChangesState> = {}, diff = SAMPLE_DIFF): Chang
   return { ...emptyChanges(), status: "ready", data, ...overrides };
 }
 
+describe("fileId", () => {
+  it("is unique for paths that sanitize alike", () => {
+    expect(fileId("a/b")).not.toBe(fileId("a-b"));
+  });
+});
+
+describe("markdownToHtml bounds", () => {
+  it("cuts a pathological single line instead of scanning it", () => {
+    const started = Date.now();
+    const html = markdownToHtml("[".repeat(400_000));
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(html.length).toBeLessThan(20_000);
+  });
+});
+
 describe("renderChanges", () => {
   it("lists every file with status, counts and a jump target, then a section per file", () => {
     const html = renderChanges(ready());

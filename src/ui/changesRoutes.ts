@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { messageOf } from "../messageOf.js";
 import { integrationBase } from "../project/projectConfig.js";
-import { parseDiff, type DiffFile, type ParsedDiff } from "./changes/diff.js";
+import { parseDiff, redactSecrets, type DiffFile, type ParsedDiff } from "./changes/diff.js";
 import { assertRelativePath, ChangesError, type ChangeSource, type ChangesSource, type ChangeTarget, type FileText } from "./changes/source.js";
 import type { UiState } from "./state.js";
 
@@ -45,6 +45,7 @@ function numberOf(request: Request): number {
 }
 
 function reply(response: Response, work: () => Promise<unknown>): void {
+  response.set("cache-control", "no-store");
   work().then(
     (result) => response.json({ ok: true, result }),
     (cause: unknown) => {
@@ -87,7 +88,8 @@ export function mountChangesRoutes(app: Express, deps: ChangesRouteDeps): void {
       const target = resolveTarget(request);
       const path = request.query["path"];
       if (typeof path !== "string") throw new ChangesError("path is required");
-      return deps.source.file(target, assertRelativePath(path));
+      const file = await deps.source.file(target, assertRelativePath(path));
+      return { ...file, text: redactSecrets(file.text) };
     });
   });
 }

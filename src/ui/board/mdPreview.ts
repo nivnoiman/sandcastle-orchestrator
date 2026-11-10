@@ -2,7 +2,11 @@ import { esc } from "./format.js";
 
 /** Small, safe Markdown subset for the Changes preview: everything is escaped first, only http(s) links are kept. */
 
-function inline(raw: string): string {
+/** Bounds the quadratic bracket/emphasis scans on hostile single-line input. */
+const MAX_INLINE = 5000;
+
+function inline(source: string): string {
+  const raw = source.length > MAX_INLINE ? `${source.slice(0, MAX_INLINE)}…` : source;
   const codes: string[] = [];
   let text = esc(raw).replace(/`([^`]+)`/g, (_whole, code: string) => {
     codes.push(`<code>${code}</code>`);

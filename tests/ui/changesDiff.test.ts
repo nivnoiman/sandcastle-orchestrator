@@ -102,6 +102,14 @@ describe("parseDiff", () => {
     expect(files[0]?.hunks[0]?.lines[0]?.text).toBe("KEY=[redacted]");
   });
 
+  it("redacts secrets in hunk headers and keeps paths with spaces in binary headers", () => {
+    const text = "diff --git a/my b/dir/x.png b/my b/dir/x.png\nBinary files a/my b/dir/x.png and b/my b/dir/x.png differ\ndiff --git a/e b/e\n--- a/e\n+++ b/e\n@@ -0,0 +1 @@ key=ghp_abcdefghijklmnopqrstuvwxyz0123\n+x\n";
+    const { files } = parseDiff(text);
+    expect(files[0]).toMatchObject({ path: "my b/dir/x.png", binary: true });
+    expect(files[0]?.oldPath).toBeUndefined();
+    expect(files[1]?.hunks[0]?.header).toBe("@@ -0,0 +1 @@ key=[redacted]");
+  });
+
   it("returns nothing for empty input", () => {
     expect(parseDiff("")).toEqual({ files: [], totals: { files: 0, additions: 0, deletions: 0 }, truncated: false });
   });
@@ -120,7 +128,7 @@ describe("ref and path validation", () => {
     expect(assertRelativePath(path)).toBe(path);
   });
 
-  it.each(["", "../etc/passwd", "a/../../b", "/etc/passwd", "C:\\win", "..\\x", "-rf", "a//b", "a\0b"])("rejects path %j", (path) => {
+  it.each(["", "../etc/passwd", "a/../../b", "/etc/passwd", "C:\\win", "..\\x", "-rf", "a//b", "a\0b", ".git/config", "x/.GIT/y", ".git. /x", "a.txt:stream", "a\nb"])("rejects path %j", (path) => {
     expect(() => assertRelativePath(path)).toThrow(ChangesError);
   });
 });

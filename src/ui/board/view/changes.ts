@@ -26,10 +26,12 @@ export interface ChangesState {
   /** Markdown files shown rendered instead of as a diff. */
   previewing: string[];
   previews: Record<string, FilePreview>;
+  /** Bumped per diff load; responses from an older load are dropped. */
+  generation: number;
 }
 
 export function emptyChanges(): ChangesState {
-  return { status: "idle", data: undefined, error: undefined, filter: "", layout: "unified", collapsed: [], showGenerated: false, previewing: [], previews: {} };
+  return { status: "idle", data: undefined, error: undefined, filter: "", layout: "unified", collapsed: [], showGenerated: false, previewing: [], previews: {}, generation: 0 };
 }
 
 const STATUS_LABEL: Record<DiffFile["status"], string> = { A: "Added", M: "Modified", D: "Removed", R: "Renamed" };
@@ -41,7 +43,9 @@ const SOURCE_LABEL: Record<ChangesResult["source"], string> = {
 };
 
 export function fileId(path: string): string {
-  return `df-${path.replace(/[^A-Za-z0-9]+/g, "-")}`;
+  let hash = 5381;
+  for (let index = 0; index < path.length; index += 1) hash = (Math.imul(hash, 33) ^ path.charCodeAt(index)) >>> 0;
+  return `df-${path.replace(/[^A-Za-z0-9]+/g, "-")}-${hash.toString(36)}`;
 }
 
 export function matchesFilter(file: DiffFile, filter: string): boolean {

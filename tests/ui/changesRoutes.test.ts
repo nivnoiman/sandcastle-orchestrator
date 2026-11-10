@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -87,6 +87,12 @@ describe("GET /api/changes/file", () => {
     }
     expect((await get(base, "/api/changes/file?item=1")).status).toBe(400);
   });
+
+  it("redacts secrets in served file text", async () => {
+    const source: ChangesSource = { diff: () => Promise.reject(new Error("x")), file: () => Promise.resolve({ text: "k=ghp_abcdefghijklmnopqrstuvwxyz0123", clipped: false, binary: false }) };
+    const { json } = await get(await serve(source), "/api/changes/file?item=1&path=a.md");
+    expect(json.result.text).toBe("k=[redacted]");
+  });
 });
 
 function git(cwd: string, ...args: string[]): void {
@@ -122,6 +128,19 @@ describe("GitChangesSource", () => {
     expect(raw.text).toContain("new file mode");
     const file = await source.file(target, "new.md");
     expect(file).toEqual({ text: "# New\n\nbody\n", clipped: false, binary: false });
+  });
+
+  it("refuses to read through a directory link out of the worktree", async () => {
+    const { source, target, root } = fixtureRepo();
+    const outside = mkdtempSync(join(tmpdir(), "changes-out-"));
+    cleanups.push(outside);
+    writeFileSync(join(outside, "secret.md"), "TOP SECRET");
+    const worktree = join(root, "..", "wt", "app", "feat-x");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(worktree, "ok.md"), "fine");
+    symlinkSync(outside, join(worktree, "link"), "junction");
+    expect((await source.file(target, "ok.md")).text).toBe("fine");
+    await expect(source.file(target, "link/secret.md")).rejects.toThrow(/escapes the worktree/);
   });
 
   it("rejects option-looking refs without running git and a missing branch with a clear error", async () => {

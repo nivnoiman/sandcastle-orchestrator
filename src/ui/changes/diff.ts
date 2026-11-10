@@ -82,6 +82,11 @@ function stripPrefix(path: string): string {
 /** `diff --git a/x b/x`: only used when no ---/+++ or rename lines name the path (binary and mode-only files). */
 function pathsOfHeader(line: string): { oldPath: string; path: string } {
   const rest = line.slice("diff --git ".length);
+  const half = (rest.length - 5) / 2;
+  if (Number.isInteger(half) && half > 0 && rest.startsWith("a/") && rest.slice(2 + half, 5 + half) === " b/" && rest.slice(2, 2 + half) === rest.slice(5 + half)) {
+    const same = rest.slice(2, 2 + half);
+    return { oldPath: same, path: same };
+  }
   const middle = rest.indexOf(" b/");
   if (middle === -1) return { oldPath: stripPrefix(rest), path: stripPrefix(rest) };
   return { oldPath: stripPrefix(rest.slice(0, middle)), path: stripPrefix(rest.slice(middle + 1)) };
@@ -123,6 +128,8 @@ export function parseDiff(text: string, options: ParseOptions = {}): ParsedDiff 
     hunk = undefined;
   };
 
+  const clipLine = (text: string): string => (text.length > caps.maxLineLength ? `${text.slice(0, caps.maxLineLength)}… (line cut)` : text);
+
   const addLine = (line: DiffLine): void => {
     if (!current || !hunk) return;
     const hidden = current.binary || (isGeneratedPath(current.path) && !options.includeGenerated);
@@ -134,8 +141,7 @@ export function parseDiff(text: string, options: ParseOptions = {}): ParsedDiff 
     }
     linesKept += 1;
     linesInFile += 1;
-    const clipped = line.text.length > caps.maxLineLength ? `${line.text.slice(0, caps.maxLineLength)}… (line cut)` : line.text;
-    hunk.lines.push({ ...line, text: redactSecrets(clipped) });
+    hunk.lines.push({ ...line, text: clipLine(redactSecrets(line.text)) });
   };
 
   for (const raw of text.split("\n")) {
@@ -179,7 +185,7 @@ export function parseDiff(text: string, options: ParseOptions = {}): ParsedDiff 
       oldLeft = header[2] === undefined ? 1 : Number(header[2]);
       newNo = Number(header[3]);
       newLeft = header[4] === undefined ? 1 : Number(header[4]);
-      hunk = { header: line, lines: [] };
+      hunk = { header: clipLine(redactSecrets(line)), lines: [] };
       if (files.length < caps.maxFiles) current.hunks.push(hunk);
       continue;
     }
