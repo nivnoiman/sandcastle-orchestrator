@@ -35,8 +35,9 @@ export function isDismissed(dismissed: DismissedMap, entry: AttentionEntry): boo
 /** Drops dismissals whose entry is gone or changed, so a recurrence is never pre-dismissed. Only projects with known state count as evidence. */
 export function pruneDismissed(dismissed: DismissedMap, entries: readonly AttentionEntry[], knownProjectIds: ReadonlySet<string>): DismissedMap {
   const live = new Map(entries.map((entry) => [entry.key, entry.version]));
+  const knownPrefixes = [...knownProjectIds].map((id) => `${id}:`);
   const kept = Object.entries(dismissed).filter(([key, version]) => {
-    const known = [...knownProjectIds].some((id) => key.startsWith(`${id}:`));
+    const known = knownPrefixes.some((prefix) => key.startsWith(prefix));
     return !known || live.get(key) === version;
   });
   return kept.length === Object.keys(dismissed).length ? dismissed : Object.fromEntries(kept);
