@@ -31,6 +31,7 @@ const FEED_KEY = "sandcastle.feed";
 const HELD_KEY = "sandcastle.held";
 const DISMISSED_KEY = "sandcastle.dismissed";
 const SHOW_DISMISSED_KEY = "sandcastle.showDismissed";
+const ATTENTION_CLOSED_KEY = "sandcastle.attentionClosed";
 const THEMES: readonly Theme[] = ["auto", "light", "dark"];
 const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:7700/";
 
@@ -133,6 +134,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     held: [],
     dismissed: parseHeld(readStorage(DISMISSED_KEY)),
     showDismissed: readStorage(SHOW_DISMISSED_KEY) === "1",
+    attentionOpen: readStorage(ATTENTION_CLOSED_KEY) !== "1",
     notifyPermission: notifyPermission(),
     busy: new Set(),
     flash: undefined,
@@ -334,6 +336,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
 
   function apiOf(project: BoardProject): ProjectApi {
     return connections.get(project.id)?.api ?? projectApi(project.apiBase);
+  }
+
+  async function refreshAllStates(): Promise<void> {
+    const results = await Promise.allSettled(ui.projects.filter((project) => project.status !== "died").map((project) => refreshState(project)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    toast(failed ? "error" : "info", failed ? `Refresh failed for ${failed} project(s).` : "Refreshed - entries that resolved are gone.");
   }
 
   async function refreshState(project: BoardProject): Promise<void> {
@@ -1074,6 +1082,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (dialogKind && itemNumber) return openDialog(project, dialogKind, itemNumber, runNumber);
     if (act_ === "att-recheck-auth" && runNumber) return void recheckAuth(project, runNumber);
     if (act_ === "att-dismiss") return toggleDismiss(element.dataset["key"] ?? "");
+    if (act_ === "att-toggle-open") {
+      ui.attentionOpen = !ui.attentionOpen;
+      writeStorage(ATTENTION_CLOSED_KEY, ui.attentionOpen ? undefined : "1");
+      return render();
+    }
+    if (act_ === "att-refresh") return void refreshAllStates();
     if (act_ === "att-toggle-dismissed") {
       ui.showDismissed = !ui.showDismissed;
       writeStorage(SHOW_DISMISSED_KEY, ui.showDismissed ? "1" : undefined);

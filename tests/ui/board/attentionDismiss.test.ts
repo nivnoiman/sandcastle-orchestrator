@@ -3,6 +3,7 @@ import { buildAttention } from "../../../src/ui/board/attention.js";
 import { isDismissed, pruneDismissed } from "../../../src/ui/board/humanAlerts.js";
 import { ATTENTION_VISIBLE, renderAttention } from "../../../src/ui/board/view/attention.js";
 import type { BoardUi } from "../../../src/ui/board/view/ui.js";
+import { idlePolish } from "../../../src/ui/state.js";
 import { boardProject, NOW, uiItem, uiRun, uiState } from "./fixtures.js";
 
 function entriesFor(reasons: Record<number, string>, since = "2026-08-15T08:00:00.000Z") {
@@ -12,7 +13,7 @@ function entriesFor(reasons: Record<number, string>, since = "2026-08-15T08:00:0
 }
 
 function ui(entries: ReturnType<typeof entriesFor>, extra: Partial<BoardUi> = {}): BoardUi {
-  return { scope: "project", projects: [entries.project], currentId: "alpha", nowMs: NOW, held: [], dismissed: {}, showDismissed: false, notifyPermission: "granted", busy: new Set(), ...extra } as unknown as BoardUi;
+  return { scope: "project", projects: [entries.project], currentId: "alpha", nowMs: NOW, held: [], dismissed: {}, showDismissed: false, attentionOpen: true, notifyPermission: "granted", busy: new Set(), ...extra } as unknown as BoardUi;
 }
 
 describe("attention dismissal", () => {
@@ -71,5 +72,34 @@ describe("attention render", () => {
     const html = renderAttention(ui(one, { dismissed: { [one.entries[0]!.key]: one.entries[0]!.version } }), one.entries);
     expect(html).toContain("1 dismissed");
     expect(html).not.toContain("<li ");
+  });
+});
+
+describe("attention accordion, refresh and ready-to-merge", () => {
+  const cleared = uiRun(90, [uiItem(1, "done")], {
+    featureVerify: { phase: "green", counts: { pass: 3, fail: 0, requiresStg: 0 }, reason: undefined, pullRequests: ["https://github.com/acme/api/pull/5"] },
+    polish: { ...idlePolish(), phase: "green" },
+  });
+  const ready = (() => {
+    const project = boardProject("alpha", uiState([cleared]), { parents: [{ number: 90, title: "ready", subIssues: 1, completedSubIssues: 1 }] });
+    return { project, entries: buildAttention([project], "alpha") };
+  })();
+
+  it("dismisses a ready-to-merge entry like any other", () => {
+    const entry = ready.entries.find((candidate) => candidate.kind === "integration-ready")!;
+    expect(renderAttention(ui(ready), ready.entries)).toContain('data-act="att-dismiss"');
+    const hidden = renderAttention(ui(ready, { dismissed: { [entry.key]: entry.version } }), ready.entries);
+    expect(hidden).toContain("1 dismissed");
+    expect(hidden).not.toContain("<li ");
+  });
+
+  it("collapses the whole section but keeps the header count, toggle and refresh", () => {
+    const many = entriesFor({ 1: "a", 2: "b" });
+    const closed = renderAttention(ui(many, { attentionOpen: false }), many.entries);
+    expect(closed).toContain('aria-expanded="false"');
+    expect(closed).toContain('<span class="count">2</span>');
+    expect(closed).toContain('data-act="att-refresh"');
+    expect(closed).not.toContain("<li ");
+    expect(renderAttention(ui(many), many.entries)).toContain('aria-expanded="true"');
   });
 });

@@ -170,10 +170,12 @@ export function renderAttention(ui: BoardUi, entries: readonly AttentionEntry[])
   const dismissedCount = entries.filter((entry) => isDismissed(ui.dismissed, entry)).length;
   const visible = ui.showDismissed ? entries : entries.filter((entry) => !isDismissed(ui.dismissed, entry));
   const count = ui.scope === "dashboard" || others > 0 ? `${own} here${others > 0 ? ` · ${others} in other projects` : ""}` : `${own}`;
+  const open = ui.attentionOpen;
+  const toggle = `<button${attrs({ type: "button", class: "att-toggle", "data-act": "att-toggle-open", "data-proj": ui.currentId, "aria-expanded": open, "aria-controls": "att-body" })}><h2 id="att-h">${icon("alert")}Needs attention <span class="count">${count}</span></h2><span class="att-chevron" aria-hidden="true">${open ? "▾" : "▸"}</span></button>`;
+  const refresh = `<button${attrs({ type: "button", class: "btn sm ghost", "data-act": "att-refresh", "data-proj": ui.currentId, title: "Re-fetch every project's state; resolved entries disappear" })}>${icon("retry")}Refresh</button>`;
+  const body = open ? `${list(ui, visible)}${dismissLine(ui, dismissedCount)}${heldLine}` : "";
   return `<section class="attention" aria-labelledby="att-h">
-    <header><h2 id="att-h">${icon("alert")}Needs attention <span class="count">${count}</span></h2>${notifyButton}</header>
-    ${list(ui, visible)}
-    ${dismissLine(ui, dismissedCount)}
-    ${heldLine}
+    <header>${toggle}${notifyButton}${refresh}</header>
+    <div id="att-body"${open ? "" : " hidden"}>${body}</div>
   </section>`;
 }

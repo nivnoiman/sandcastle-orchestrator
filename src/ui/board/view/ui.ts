@@ -89,6 +89,7 @@ export interface BoardUi {
   held: readonly AttentionEntry[];
   dismissed: Readonly<DismissedMap>;
   showDismissed: boolean;
+  attentionOpen: boolean;
   notifyPermission: NotifyPermission;
   busy: ReadonlySet<string>;
   /** Item card to flash after a "waits on" jump. */

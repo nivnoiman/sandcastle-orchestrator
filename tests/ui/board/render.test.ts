@@ -35,6 +35,7 @@ function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
     held: [],
     dismissed: {},
     showDismissed: false,
+    attentionOpen: true,
     notifyPermission: "default",
     busy: new Set(),
     flash: undefined,

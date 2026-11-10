@@ -697,3 +697,7 @@ pre.raw { border: 0; background: transparent; padding: 0; }
   background: linear-gradient(to bottom, transparent, var(--surface));
 }
 .att-more { margin: 0; padding: 4px 14px; font-size: 11.5px; color: var(--ink-3); text-align: center; border-top: 1px solid var(--line); }
+.att-toggle { display: flex; align-items: center; gap: 8px; margin-right: auto; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: var(--radius-sm); }
+.att-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.att-chevron { color: var(--ink-3); font-size: 12px; }
+#att-body[hidden] { display: none; }
