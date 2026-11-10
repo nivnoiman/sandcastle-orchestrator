@@ -21,7 +21,7 @@ export const IDLE_TIMEOUT_MAX = 7200;
 export const SALVAGE_IDLE_MAX = 300;
 export const EMPTY_STAGE_RETRIES_DEFAULT = 2;
 export const STAGE_CHECK_FIX_LIMIT_DEFAULT = 2;
-/** `sonnet` is the CLI alias for the latest Sonnet (Sonnet 5.5 on the Anthropic API, Claude Code >= 2.1.284). */
+/** CLI alias for latest Sonnet. */
 export const DEFAULT_MODEL = "sonnet";
 export const DEFAULT_REVIEW_MODEL = "sonnet";
 export const DEFAULT_JEST_WORKERS = "4";
