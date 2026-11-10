@@ -819,8 +819,7 @@ describe("salvage pass", () => {
       await completion;
       const agentRuns = runner.findAll(/claude -p/);
       expect(agentRuns).toHaveLength(2);
-      const expectedModel = "sonnet";
-      for (const run of agentRuns) expect(run.line).toContain(`--model ${expectedModel}`);
+      for (const run of agentRuns) expect(run.line).toContain("--model sonnet");
       expect(warnings.join()).toMatch(/constrained salvage pass/);
     }
   });
