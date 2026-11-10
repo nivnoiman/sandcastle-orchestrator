@@ -235,7 +235,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     writeStorage(DISMISSED_KEY, Object.keys(dismissed).length ? JSON.stringify(dismissed) : undefined);
   }
 
-  /** View-only: no server call, no effect on the badge, push or Hold. */
   function toggleDismiss(key: string): void {
     const entry = buildAttention(ui.projects, ui.currentId).find((candidate) => candidate.key === key);
     if (!entry) return;

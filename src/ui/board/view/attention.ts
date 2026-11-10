@@ -17,7 +17,6 @@ const ROW_ICON: Record<AttentionEntry["kind"], string> = {
   "server-died": "alert",
 };
 
-/** Entries visible at once; the rest scroll inside the list. */
 export const ATTENTION_VISIBLE = 5;
 
 function dismissButton(ui: BoardUi, entry: AttentionEntry): string {
@@ -140,7 +139,6 @@ function row(ui: BoardUi, entry: AttentionEntry): string {
     </li>`;
 }
 
-/** At most ATTENTION_VISIBLE entries show; the list scrolls (keyboard focusable) for the rest. */
 function list(ui: BoardUi, visible: readonly AttentionEntry[]): string {
   if (visible.length === 0) return "";
   const capped = visible.length > ATTENTION_VISIBLE;

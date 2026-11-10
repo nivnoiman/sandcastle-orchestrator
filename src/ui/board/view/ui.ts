@@ -87,9 +87,7 @@ export interface BoardUi {
   dialog: DialogState | undefined;
   /** Parked entries the operator put on Hold; kept out of the badge and the banner. */
   held: readonly AttentionEntry[];
-  /** Entries dismissed in this browser (key -> version); hidden from the list only, never from badge, push or Hold. */
   dismissed: Readonly<DismissedMap>;
-  /** Show dismissed entries again, flagged. */
   showDismissed: boolean;
   notifyPermission: NotifyPermission;
   busy: ReadonlySet<string>;

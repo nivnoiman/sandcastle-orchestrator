@@ -49,7 +49,6 @@ export interface AttentionAction {
 
 export interface AttentionEntry {
   key: string;
-  /** Changes when the problem changes in place (new park, new failure reason); a dismissal holds for one version only. */
   version: string;
   kind: AttentionKind;
   /** 1-based position in the fixed kind order. */

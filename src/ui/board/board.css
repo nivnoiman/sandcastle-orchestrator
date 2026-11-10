@@ -676,7 +676,6 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 .modal.modal-wide { width: min(860px, calc(100vw - 32px)); }
 .prompt-view { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; background: var(--bg, rgba(127, 127, 127, 0.08)); border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono, monospace); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* Needs Attention: dismiss + capped scrolling list */
 .btn.icon-only { padding: 0; width: 26px; justify-content: center; flex: none; }
 .nh-head .att-x { margin-left: auto; }
 .alert.dismissed { opacity: .55; }
