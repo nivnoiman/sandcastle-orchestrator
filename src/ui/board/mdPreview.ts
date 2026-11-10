@@ -1,12 +1,9 @@
 import { esc } from "./format.js";
 
-/** Small, safe Markdown subset for the Changes preview: everything is escaped first, only http(s) links are kept. */
-
-/** Bounds the quadratic bracket/emphasis scans on hostile single-line input. */
-const MAX_INLINE = 5000;
+const MAX_INLINE_LENGTH_BOUNDING_QUADRATIC_SCANS = 5000;
 
 function inline(source: string): string {
-  const raw = source.length > MAX_INLINE ? `${source.slice(0, MAX_INLINE)}…` : source;
+  const raw = source.length > MAX_INLINE_LENGTH_BOUNDING_QUADRATIC_SCANS ? `${source.slice(0, MAX_INLINE_LENGTH_BOUNDING_QUADRATIC_SCANS)}…` : source;
   const codes: string[] = [];
   let text = esc(raw).replace(/`([^`]+)`/g, (_whole, code: string) => {
     codes.push(`<code>${code}</code>`);
@@ -29,6 +26,7 @@ function tableRow(line: string, cell: "td" | "th"): string {
 const LIST_ITEM = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
 const SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
+/** Small, safe Markdown subset for the Changes preview: everything is escaped first, only http(s) links are kept. */
 export function markdownToHtml(source: string): string {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];

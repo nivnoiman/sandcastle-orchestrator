@@ -136,8 +136,7 @@ function readCapped(file: string): Buffer {
   }
 }
 
-/** Resolves symlinks/junctions in every component; the real file must stay inside the real worktree and outside `.git`. */
-function realFileInside(worktree: string, full: string): string {
+function resolveSymlinksStayingInsideWorktreeOutsideGit(worktree: string, full: string): string {
   const real = realpathSync(full);
   const rel = relative(realpathSync(worktree), real);
   const outside = rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || /^\.git([\\/]|$)/i.test(rel);
@@ -200,7 +199,7 @@ export class GitChangesSource implements ChangesSource {
     if (worktree) {
       const full = resolve(worktree, path);
       if (!full.startsWith(resolve(worktree) + sep)) throw new ChangesError("path escapes the worktree");
-      if (existsSync(full)) return textOf(readCapped(realFileInside(worktree, full)));
+      if (existsSync(full)) return textOf(readCapped(resolveSymlinksStayingInsideWorktreeOutsideGit(worktree, full)));
     }
     const ref = await firstRef(root, [`origin/${target.branch}`, target.branch]);
     if (!ref) throw new ChangesError("file is not available: the branch is gone");

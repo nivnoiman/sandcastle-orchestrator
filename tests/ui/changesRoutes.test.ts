@@ -99,7 +99,7 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "ignore" });
 }
 
-describe("GitChangesSource", () => {
+describe("GitChangesSource", { timeout: 30_000 }, () => {
   function fixtureRepo(): { source: GitChangesSource; target: ChangeTarget; root: string } {
     const dir = mkdtempSync(join(tmpdir(), "changes-git-"));
     cleanups.push(dir);

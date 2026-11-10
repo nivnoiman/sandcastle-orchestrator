@@ -1,5 +1,3 @@
-/** Unified-diff parser for the drawer's Changes tab: pure, capped, and secret-redacting. */
-
 export type FileStatus = "A" | "M" | "D" | "R";
 export type LineKind = "ctx" | "add" | "del" | "note";
 
@@ -79,8 +77,7 @@ function stripPrefix(path: string): string {
   return unquote(path).replace(/^[ab]\//, "");
 }
 
-/** `diff --git a/x b/x`: only used when no ---/+++ or rename lines name the path (binary and mode-only files). */
-function pathsOfHeader(line: string): { oldPath: string; path: string } {
+function fallbackPathsOfBinaryOrModeOnlyHeader(line: string): { oldPath: string; path: string } {
   const rest = line.slice("diff --git ".length);
   const half = (rest.length - 5) / 2;
   if (Number.isInteger(half) && half > 0 && rest.startsWith("a/") && rest.slice(2 + half, 5 + half) === " b/" && rest.slice(2, 2 + half) === rest.slice(5 + half)) {
@@ -93,7 +90,7 @@ function pathsOfHeader(line: string): { oldPath: string; path: string } {
 }
 
 function emptyFile(header: string): DiffFile {
-  const { oldPath, path } = pathsOfHeader(header);
+  const { oldPath, path } = fallbackPathsOfBinaryOrModeOnlyHeader(header);
   const file: DiffFile = { path, status: "M", binary: false, generated: false, additions: 0, deletions: 0, hunks: [], truncated: false };
   if (oldPath !== path) file.oldPath = oldPath;
   return file;

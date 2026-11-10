@@ -702,7 +702,6 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 .att-chevron { color: var(--ink-3); font-size: 12px; }
 #att-body[hidden] { display: none; }
 
-/* Drawer tabs + Changes tab */
 .d-tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--line); }
 .d-tab { height: 34px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-2); font: 500 12.5px var(--font); cursor: pointer; }
 .d-tab:hover { color: var(--ink); }
