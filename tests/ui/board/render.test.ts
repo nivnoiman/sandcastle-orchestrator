@@ -33,6 +33,8 @@ function ui(projects: BoardProject[], extra: Partial<BoardUi> = {}): BoardUi {
     toasts: [],
     dialog: undefined,
     held: [],
+    dismissed: {},
+    showDismissed: false,
     notifyPermission: "default",
     busy: new Set(),
     flash: undefined,

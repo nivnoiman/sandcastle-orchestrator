@@ -1,5 +1,6 @@
 import type { AttentionAction, AttentionEntry } from "../attention.js";
 import { esc, formatClock, formatCountdown } from "../format.js";
+import { isDismissed } from "../humanAlerts.js";
 import { attrs } from "./html.js";
 import { icon } from "./icons.js";
 import type { BoardUi } from "./ui.js";
@@ -15,6 +16,19 @@ const ROW_ICON: Record<AttentionEntry["kind"], string> = {
   "rate-hold": "clock",
   "server-died": "alert",
 };
+
+/** Entries visible at once; the rest scroll inside the list. */
+export const ATTENTION_VISIBLE = 5;
+
+function dismissButton(ui: BoardUi, entry: AttentionEntry): string {
+  const restore = isDismissed(ui.dismissed, entry);
+  const label = restore ? "Restore" : "Dismiss";
+  return `<button${attrs({ type: "button", class: "btn sm ghost icon-only att-x", "data-act": "att-dismiss", "data-key": entry.key, "data-proj": entry.projectId, "aria-label": `${label}: ${entry.title}`, title: restore ? "Show in the list again" : "Hide from this list (this browser only)" })}>${icon(restore ? "retry" : "x")}</button>`;
+}
+
+function rowClass(ui: BoardUi, entry: AttentionEntry): string {
+  return isDismissed(ui.dismissed, entry) ? " dismissed" : "";
+}
 
 const ACTION_ICON: Partial<Record<AttentionAction["id"], string>> = { requeue: "retry", log: "log", "open-feature": "log", restart: "retry", cancel: "x", hold: "pause" };
 
@@ -43,7 +57,7 @@ function mergeHint(merge: NonNullable<AttentionEntry["merge"]>): string {
   return `<div class="merge-hint"><span class="chip">branch <b class="mono">${esc(merge.branch)}</b></span><code class="mono">${esc(merge.command)}</code><button${attrs({ type: "button", class: "btn sm", "data-act": "att-copy", "data-copy": merge.command, title: "Copy the merge command" })}>${icon("copy")}Copy</button></div>`;
 }
 
-function parkedCard(entry: AttentionEntry, nowMs: number): string {
+function parkedCard(ui: BoardUi, entry: AttentionEntry, nowMs: number): string {
   const park = entry.park;
   if (!park) return "";
   const lastIndex = entry.actions.length - 1;
@@ -57,8 +71,8 @@ function parkedCard(entry: AttentionEntry, nowMs: number): string {
   const help = entry.local
     ? "Re-queue clears the item's park state and restarts it. Until then its dependents stay blocked. Hold only hides this banner; the issue files are untouched."
     : "Re-queue flips <code>ready-for-human</code> back to <code>ready-for-agent</code> and restarts the item. Until then its dependents stay blocked. Hold only hides this banner; GitHub is untouched.";
-  return `<li class="alert red k-parked needs-human" data-key="${esc(entry.key)}">
-      <div class="nh-head">${icon("alert")}<div class="nh-title">${esc(entry.title)}</div></div>
+  return `<li class="alert red k-parked needs-human${rowClass(ui, entry)}" data-key="${esc(entry.key)}">
+      <div class="nh-head">${icon("alert")}<div class="nh-title">${esc(entry.title)}</div>${dismissButton(ui, entry)}</div>
       <div class="nh-meta">${stage}${run}${since}${branch}${pr}${issue}</div>
       <div class="nh-label">Why it stopped</div>
       <pre class="nh-reason">${esc(park.reason)}</pre>
@@ -92,8 +106,8 @@ function authCard(ui: BoardUi, entry: AttentionEntry): string {
     : "";
   const goProject = other ? `<button type="button" class="btn sm ghost" data-act="select-project" data-proj="${esc(entry.projectId)}">Open project</button>` : "";
   const feedButton = feed && !other ? actionButton(entry, feed, false) : "";
-  return `<li class="alert red k-auth-hold needs-human" data-key="${esc(entry.key)}">
-      <div class="nh-head">${icon("alert")}<div class="nh-title">Agent login expired - the Run is held</div>${project}</div>
+  return `<li class="alert red k-auth-hold needs-human${rowClass(ui, entry)}" data-key="${esc(entry.key)}">
+      <div class="nh-head">${icon("alert")}<div class="nh-title">Agent login expired - the Run is held</div>${project}${dismissButton(ui, entry)}</div>
       <p class="nh-help">The agent credentials were rejected, so no new stages start. Sandcastle re-probes only about every 10 minutes.</p>
       ${authFixSteps(auth?.providers ?? ["claude"])}
       ${error}
@@ -105,7 +119,7 @@ function row(ui: BoardUi, entry: AttentionEntry): string {
   const { currentId, nowMs } = ui;
   const other = entry.projectId !== currentId;
   if (entry.kind === "auth-hold") return authCard(ui, entry);
-  if (entry.kind === "parked" && !other) return parkedCard(entry, nowMs);
+  if (entry.kind === "parked" && !other) return parkedCard(ui, entry, nowMs);
   const lastIndex = entry.actions.length - 1;
   const detail =
     entry.kind === "rate-hold" && entry.until
@@ -115,15 +129,30 @@ function row(ui: BoardUi, entry: AttentionEntry): string {
   const goProject = other
     ? `<button type="button" class="btn sm ghost" data-act="select-project" data-proj="${esc(entry.projectId)}">Open project</button>`
     : "";
-  return `<li class="alert ${entry.tone} k-${entry.kind} ${other ? "other" : ""}">
+  return `<li class="alert ${entry.tone} k-${entry.kind} ${other ? "other" : ""}${rowClass(ui, entry)}" data-key="${esc(entry.key)}">
       ${icon(ROW_ICON[entry.kind])}
       <div class="alert-text">
         <div class="what"${other ? ` data-project="${esc(entry.projectName)}"` : ""}>${esc(entry.title)}${entry.runNumber !== undefined && entry.kind === "parked" ? `<span class="where">run #${entry.runNumber}</span>` : ""}</div>
         <div class="why">${detail}</div>
         ${entry.merge && !other ? mergeHint(entry.merge) : ""}
       </div>
-      <div class="acts">${other ? goProject : actions}</div>
+      <div class="acts">${other ? goProject : actions}${dismissButton(ui, entry)}</div>
     </li>`;
+}
+
+/** At most ATTENTION_VISIBLE entries show; the list scrolls (keyboard focusable) for the rest. */
+function list(ui: BoardUi, visible: readonly AttentionEntry[]): string {
+  if (visible.length === 0) return "";
+  const capped = visible.length > ATTENTION_VISIBLE;
+  const rows = `<ul class="alerts">${visible.map((entry) => row(ui, entry)).join("")}</ul>`;
+  if (!capped) return rows;
+  return `<div class="alerts-wrap capped"><div${attrs({ class: "alerts-scroll", tabindex: 0, role: "region", "aria-label": `Needs attention list, ${visible.length} entries, scrollable`, "data-scroll": "att-list" })}>${rows}</div></div>
+    <p class="att-more" aria-hidden="true">+${visible.length - ATTENTION_VISIBLE} more, scroll the list</p>`;
+}
+
+function dismissLine(ui: BoardUi, dismissedCount: number): string {
+  if (dismissedCount === 0) return "";
+  return `<p class="held-line dismiss-line">${dismissedCount} dismissed - <button${attrs({ type: "button", class: "linklike", "data-act": "att-toggle-dismissed", "data-proj": ui.currentId, "aria-pressed": ui.showDismissed })}>${ui.showDismissed ? "hide" : "show"}</button></p>`;
 }
 
 export function renderAttention(ui: BoardUi, entries: readonly AttentionEntry[]): string {
@@ -140,10 +169,13 @@ export function renderAttention(ui: BoardUi, entries: readonly AttentionEntry[])
     ui.notifyPermission === "default"
       ? `<button type="button" class="btn sm ghost" data-act="notify-enable">${icon("alert")}Enable desktop alerts</button>`
       : "";
+  const dismissedCount = entries.filter((entry) => isDismissed(ui.dismissed, entry)).length;
+  const visible = ui.showDismissed ? entries : entries.filter((entry) => !isDismissed(ui.dismissed, entry));
   const count = ui.scope === "dashboard" || others > 0 ? `${own} here${others > 0 ? ` · ${others} in other projects` : ""}` : `${own}`;
   return `<section class="attention" aria-labelledby="att-h">
     <header><h2 id="att-h">${icon("alert")}Needs attention <span class="count">${count}</span></h2>${notifyButton}</header>
-    <ul class="alerts">${entries.map((entry) => row(ui, entry)).join("")}</ul>
+    ${list(ui, visible)}
+    ${dismissLine(ui, dismissedCount)}
     ${heldLine}
   </section>`;
 }

@@ -35,6 +35,8 @@ function ui(projects: BoardProject[], drawer?: DrawerState): BoardUi {
     toasts: [],
     dialog: undefined,
     held: [],
+    dismissed: {},
+    showDismissed: false,
     notifyPermission: "default",
     busy: new Set(),
     flash: undefined,

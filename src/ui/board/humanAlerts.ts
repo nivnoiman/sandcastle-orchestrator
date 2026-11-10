@@ -22,6 +22,26 @@ export function isHeld(held: HeldMap, entry: AttentionEntry): boolean {
   return entry.kind === "parked" && held[entry.key] === holdReasonOf(entry);
 }
 
+/**
+ * Dismiss is a per-browser view filter: entry key -> the entry version it was dismissed at.
+ * It never touches the badge, web push or Hold; a changed version (new park, new failure) shows the entry again.
+ */
+export type DismissedMap = Record<string, string>;
+
+export function isDismissed(dismissed: DismissedMap, entry: AttentionEntry): boolean {
+  return dismissed[entry.key] === entry.version;
+}
+
+/** Drops dismissals whose entry is gone or changed, so a recurrence is never pre-dismissed. Only projects with known state count as evidence. */
+export function pruneDismissed(dismissed: DismissedMap, entries: readonly AttentionEntry[], knownProjectIds: ReadonlySet<string>): DismissedMap {
+  const live = new Map(entries.map((entry) => [entry.key, entry.version]));
+  const kept = Object.entries(dismissed).filter(([key, version]) => {
+    const known = [...knownProjectIds].some((id) => key.startsWith(`${id}:`));
+    return !known || live.get(key) === version;
+  });
+  return kept.length === Object.keys(dismissed).length ? dismissed : Object.fromEntries(kept);
+}
+
 export function parseHeld(raw: string | undefined): HeldMap {
   if (!raw) return {};
   try {
