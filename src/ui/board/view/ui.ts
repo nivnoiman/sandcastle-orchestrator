@@ -1,4 +1,5 @@
 import type { AttentionEntry } from "../attention.js";
+import type { DismissedMap } from "../humanAlerts.js";
 import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
@@ -86,6 +87,9 @@ export interface BoardUi {
   dialog: DialogState | undefined;
   /** Parked entries the operator put on Hold; kept out of the badge and the banner. */
   held: readonly AttentionEntry[];
+  dismissed: Readonly<DismissedMap>;
+  showDismissed: boolean;
+  attentionOpen: boolean;
   notifyPermission: NotifyPermission;
   busy: ReadonlySet<string>;
   /** Item card to flash after a "waits on" jump. */

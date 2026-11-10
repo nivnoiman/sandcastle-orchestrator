@@ -22,6 +22,22 @@ export function isHeld(held: HeldMap, entry: AttentionEntry): boolean {
   return entry.kind === "parked" && held[entry.key] === holdReasonOf(entry);
 }
 
+export type DismissedMap = Record<string, string>;
+
+export function isDismissed(dismissed: DismissedMap, entry: AttentionEntry): boolean {
+  return dismissed[entry.key] === entry.version;
+}
+
+export function pruneDismissed(dismissed: DismissedMap, entries: readonly AttentionEntry[], knownProjectIds: ReadonlySet<string>): DismissedMap {
+  const live = new Map(entries.map((entry) => [entry.key, entry.version]));
+  const knownPrefixes = [...knownProjectIds].map((id) => `${id}:`);
+  const kept = Object.entries(dismissed).filter(([key, version]) => {
+    const known = knownPrefixes.some((prefix) => key.startsWith(prefix));
+    return !known || live.get(key) === version;
+  });
+  return kept.length === Object.keys(dismissed).length ? dismissed : Object.fromEntries(kept);
+}
+
 export function parseHeld(raw: string | undefined): HeldMap {
   if (!raw) return {};
   try {
