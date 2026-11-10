@@ -52,9 +52,9 @@ function login(lastRefresh: string): string {
 describe("resolveAgent", () => {
   it("keeps today's claude models when nothing is configured", () => {
     const config = testConfig();
-    expect(resolveAgent(config, "develop")).toEqual({ provider: claudeProvider, model: "opus" });
-    expect(resolveAgent(config, "resolve").model).toBe("opus");
-    expect(resolveAgent(config, "feature-fix").model).toBe("opus");
+    expect(resolveAgent(config, "develop")).toEqual({ provider: claudeProvider, model: "sonnet" });
+    expect(resolveAgent(config, "resolve").model).toBe("sonnet");
+    expect(resolveAgent(config, "feature-fix").model).toBe("sonnet");
     for (const role of ["simplify", "review", "feature-verify", "polish"] as const) expect(resolveAgent(config, role).model).toBe("sonnet");
   });
 
@@ -67,7 +67,7 @@ describe("resolveAgent", () => {
   it("lists each provider in use once, default first", () => {
     expect(agentsInUse(MIXED).map((agent) => agent.provider.name)).toEqual(["claude", "codex"]);
     expect(agentsInUse(testConfig()).map((agent) => agent.provider.name)).toEqual(["claude"]);
-    expect(defaultAgent(MIXED)).toEqual({ provider: claudeProvider, model: "opus" });
+    expect(defaultAgent(MIXED)).toEqual({ provider: claudeProvider, model: "sonnet" });
   });
 
   it("probes a claude role under a codex default with the model that role runs", () => {
@@ -79,7 +79,7 @@ describe("resolveAgent", () => {
   });
 
   it("describes claude by model only, so its log lines do not change", () => {
-    expect(describeAgent(resolveAgent(MIXED, "develop"))).toBe("opus");
+    expect(describeAgent(resolveAgent(MIXED, "develop"))).toBe("sonnet");
     expect(describeAgent(resolveAgent(MIXED, "review"))).toBe("codex default model");
     expect(describeAgent(resolveAgent(MIXED, "polish"))).toBe("codex gpt-5.5-codex");
   });

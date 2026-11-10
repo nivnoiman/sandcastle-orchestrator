@@ -32,7 +32,7 @@ export function testConfig(overrides: Partial<OrchestratorConfig> = {}): Orchest
     cursorApiKey: undefined,
     agents: DEFAULT_AGENTS,
     stages: DEFAULT_STAGES,
-    model: "opus",
+    model: "sonnet",
     reviewModel: "sonnet",
     imageTag: "sandcastle:demo",
     mongoImage: DEFAULT_MONGO_IMAGE,

@@ -85,7 +85,7 @@ describe("loadOrchestratorConfig", () => {
     expect(config.ghToken).toBe("t");
     expect(config.anthropicApiKey).toBeUndefined();
     expect(config.claudeOauthToken).toBeUndefined();
-    expect(config.model).toBe("opus");
+    expect(config.model).toBe("sonnet");
     expect(config.reviewModel).toBe("sonnet");
     expect(config.imageTag).toBe("sandcastle:demo");
     expect(config.idleTimeoutSeconds).toBe(1200);

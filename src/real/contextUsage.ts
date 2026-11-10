@@ -20,9 +20,12 @@ export interface UiUsage {
 
 export const ONE_MILLION = 1_000_000;
 
-/** Known windows by model-id prefix. A model absent here has an unknown window; nothing is guessed. */
+/** Known windows by model-id prefix, first match wins. Unknown model: no guess. */
 export const CONTEXT_WINDOWS: readonly { prefix: RegExp; tokens: number }[] = [
-  { prefix: /^claude-(opus|sonnet|haiku)-[34]/, tokens: 200_000 },
+  { prefix: /^claude-opus-4-(?:[7-9]|\d{2})(?!\d)/, tokens: ONE_MILLION },
+  { prefix: /^claude-(?:opus|sonnet)-(?:[5-9]|\d{2})(?!\d)/, tokens: ONE_MILLION },
+  { prefix: /^claude-fable/, tokens: ONE_MILLION },
+  { prefix: /^claude-(?:opus|sonnet|haiku)-[34]/, tokens: 200_000 },
   { prefix: /^claude-3/, tokens: 200_000 },
 ];
 
