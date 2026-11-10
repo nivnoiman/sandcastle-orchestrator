@@ -6,6 +6,7 @@ import type { UiRun } from "../../state.js";
 import type { StagesView } from "../../../project/stagesEditor.js";
 import type { StagePromptView } from "../../stagePrompt.js";
 import type { StagesDraft } from "../stagesDraft.js";
+import type { ChangesState } from "./changes.js";
 
 export type Theme = "auto" | "light" | "dark";
 export type BoardScope = "project" | "dashboard";
@@ -27,6 +28,9 @@ export type DrawerState =
       attemptId: string | undefined;
       raw: boolean;
       loaded: boolean;
+      /** Log (default) or the diff of the item branch. */
+      tab?: "log" | "changes";
+      changes?: ChangesState;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
   | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined; editing: string | undefined; dragKey: string | undefined; promptView?: StagePromptShown }

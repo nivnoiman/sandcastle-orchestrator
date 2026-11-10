@@ -16,6 +16,8 @@ import { applyReset, planReset, type ResetDeps } from "../real/reset.js";
 import { parentList, UiController, type NewLocalParent, type ResetOps, type StartSessionRequest } from "../ui/controller.js";
 import { resolveUiPort, startUiServer } from "../ui/server.js";
 import { defaultStagesRouteDeps } from "../ui/stagesRoutes.js";
+import { GitChangesSource } from "../ui/changes/source.js";
+import { SampleChangesSource } from "../ui/changes/sample.js";
 import { loadQueueFile, queueFilePath, saveQueueFile } from "../ui/queueStore.js";
 import { RunQueue } from "../ui/runQueue.js";
 import { dryRunSession, realSession } from "../ui/sessions.js";
@@ -243,6 +245,7 @@ const server = await startUiServer(
   instance,
   push ? { store: push.store, publicKey: push.publicKey, ...(pusher ? { pusher } : {}) } : undefined,
   defaultStagesRouteDeps(project.configPath),
+  mode === "dry" ? new SampleChangesSource() : new GitChangesSource(defaultLayout()),
 ).catch((cause: unknown) => {
   return fail(messageOf(cause));
 });

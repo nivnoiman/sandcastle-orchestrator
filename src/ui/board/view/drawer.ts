@@ -6,6 +6,7 @@ import { collapseTurns, transcriptTurns, type LogRow } from "../transcript.js";
 import { attrs, button, issueLink, tag } from "./html.js";
 import { icon } from "./icons.js";
 import { prLabel } from "./run.js";
+import { renderChanges, emptyChanges } from "./changes.js";
 import { stagesBody, stagesHead } from "./stages.js";
 import type { BoardUi, DrawerState } from "./ui.js";
 
@@ -238,14 +239,21 @@ function addBody(drawer: Extract<DrawerState, { kind: "add" }>, local: boolean):
     </form>`;
 }
 
+function tabsMarkup(drawer: Extract<DrawerState, { kind: "item" }>): string {
+  const active = drawer.tab ?? "log";
+  const tab = (id: "log" | "changes", label: string): string =>
+    `<button${attrs({ type: "button", role: "tab", class: "d-tab", id: `d-tab-${id}`, "data-act": "drawer-tab", "data-tab": id, "aria-selected": active === id })}>${label}</button>`;
+  return `<div class="d-tabs" role="tablist" aria-label="Item detail">${tab("log", "Log")}${tab("changes", "Changes")}</div>`;
+}
+
 export function renderDrawer(ui: BoardUi, project: BoardProject, drawer: DrawerState, logText: string): DrawerParts {
   const local = isLocalProject(project);
   if (drawer.kind === "item") {
     return {
       label: "Item detail",
       head: itemHead(project, drawer),
-      attempts: attemptsMarkup(drawer),
-      body: renderLog(logText, drawer.raw),
+      attempts: tabsMarkup(drawer) + (drawer.tab === "changes" ? "" : attemptsMarkup(drawer)),
+      body: drawer.tab === "changes" ? renderChanges(drawer.changes ?? emptyChanges()) : renderLog(logText, drawer.raw),
     };
   }
   if (drawer.kind === "reset") {
