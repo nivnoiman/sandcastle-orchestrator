@@ -286,7 +286,7 @@ describe("develop stage", () => {
     const agent = runner.find("claude -p");
     expect(agent?.args[0]).toBe("exec");
     expect(agent?.args[1]).toBe("-i");
-    expect(agent?.line).toContain("--model opus");
+    expect(agent?.line).toContain("--model sonnet");
     expect(agent?.input).toContain("example-org/hub#17");
     expect(runner.find("docker rm -f")).toBeDefined();
   });
@@ -756,7 +756,7 @@ describe("the gate conflict resolve pass", () => {
     expect(result).toMatchObject({ itemNumber: 17, stage: "verify", outcome: "success", resolved: true });
     const agent = runner.findAll(/claude -p/)[0];
     expect(agent?.input).toContain("Resolve a merge conflict");
-    expect(agent?.line).toContain("--model opus");
+    expect(agent?.line).toContain("--model sonnet");
     expect(agent?.input).toContain("src/models/Profile.ts");
     expect(agent?.input).toContain(`git rebase origin/${INTEGRATION}`);
     expect(runner.find(/merge-base --is-ancestor/)).toBeDefined();
@@ -819,8 +819,7 @@ describe("salvage pass", () => {
       await completion;
       const agentRuns = runner.findAll(/claude -p/);
       expect(agentRuns).toHaveLength(2);
-      const expectedModel = stage === "develop" ? "opus" : "sonnet";
-      for (const run of agentRuns) expect(run.line).toContain(`--model ${expectedModel}`);
+      for (const run of agentRuns) expect(run.line).toContain("--model sonnet");
       expect(warnings.join()).toMatch(/constrained salvage pass/);
     }
   });

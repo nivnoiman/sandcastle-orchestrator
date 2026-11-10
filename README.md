@@ -184,7 +184,7 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 
 - Roles: `develop`, `simplify`, `review`, `resolve`, `feature-verify`, `feature-fix`, `polish`. Salvage runs under its stage's role.
 - A value is a provider name or `{ "provider": ..., "model": ... }`.
-- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `opus`) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex and Cursor without a `model` use their own default.
+- Models: `model` from the entry first. Otherwise claude keeps `SANDCASTLE_MODEL` (develop, resolve, feature-fix; default `sonnet`, the latest Sonnet; set `opus` to restore the old develop default) and `SANDCASTLE_REVIEW_MODEL` (the rest; default `sonnet`). Codex and Cursor without a `model` use their own default.
 - Skills are the same files for every provider (see [Agent skills](#agent-skills)). Claude invokes them as skills. Codex reads them by path and also finds them in `~/.agents/skills`. Codex has no `Skill` tool or subagents, so polish tells it to run the `/polish` passes itself, in order.
 - Auth holds and re-probes cover every provider in use. One rejected login holds new stages for the whole run.
 - `sandcastle smoke --agent=codex` checks the codex install, home and flags in a container. It makes a real call only when a Codex login or `CODEX_API_KEY` is present.

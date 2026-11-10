@@ -149,7 +149,7 @@ every check as a line instead of dying on the first failure:
 [preflight] ok   gh auth (host) / GH_TOKEN (containers)
 [preflight] FAIL repo checkouts: no git checkout at /work/api ... check repos.api.path in .sandcastle/config.json
 [preflight] ok   integration base / sandbox env files / load-bearing memories / agent skills
-[preflight] ok   agent auth: a throwaway container answered opus over the mounted credentials
+[preflight] ok   agent auth: a throwaway container answered sonnet over the mounted credentials
 ```
 
 `sandcastle preflight <parent>` runs the same checks without starting anything. Three
