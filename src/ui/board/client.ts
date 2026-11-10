@@ -3,7 +3,7 @@ import type { AttemptChunk, AttemptRecord } from "../../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../../real/reset.js";
 import { buildAttention, type AttentionEntry } from "./attention.js";
 import { ensurePushSubscription } from "./push.js";
-import { alertText, holdReasonOf, isHeld, newlyNeedingAttention, pageTitle, parseHeld, type HeldMap } from "./humanAlerts.js";
+import { alertText, holdReasonOf, isDismissed, isHeld, pruneDismissed, newlyNeedingAttention, pageTitle, parseHeld, type DismissedMap, type HeldMap } from "./humanAlerts.js";
 import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
 import { formatClock, formatCountdown } from "./format.js";
@@ -29,6 +29,9 @@ const TOAST_MS = { error: 12_000, info: 5000 } as const;
 const THEME_KEY = "sandcastle.theme";
 const FEED_KEY = "sandcastle.feed";
 const HELD_KEY = "sandcastle.held";
+const DISMISSED_KEY = "sandcastle.dismissed";
+const SHOW_DISMISSED_KEY = "sandcastle.showDismissed";
+const ATTENTION_CLOSED_KEY = "sandcastle.attentionClosed";
 const THEMES: readonly Theme[] = ["auto", "light", "dark"];
 const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:7700/";
 
@@ -129,6 +132,9 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     toasts: [],
     dialog: undefined,
     held: [],
+    dismissed: parseHeld(readStorage(DISMISSED_KEY)),
+    showDismissed: readStorage(SHOW_DISMISSED_KEY) === "1",
+    attentionOpen: readStorage(ATTENTION_CLOSED_KEY) !== "1",
     notifyPermission: notifyPermission(),
     busy: new Set(),
     flash: undefined,
@@ -204,6 +210,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const everything = buildAttention(ui.projects, ui.currentId);
     const attention = everything.filter((entry) => !isHeld(heldMap, entry));
     ui.held = everything.filter((entry) => !attention.includes(entry));
+    pruneStoredDismissals(everything);
     announceNew(everything);
     closeOrRefreshParkedDialog();
     ui.notifyPermission = notifyPermission();
@@ -216,6 +223,28 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     patch(zones.toasts, renderToasts(ui.toasts));
     const counted = attention.filter((entry) => entry.counted).length;
     document.title = pageTitle(counted, currentProject(ui)?.name);
+  }
+
+  function pruneStoredDismissals(everything: readonly AttentionEntry[]): void {
+    const known = new Set(ui.projects.filter((project) => project.state || project.status === "died").map((project) => project.id));
+    const pruned = pruneDismissed(ui.dismissed, everything, known);
+    if (pruned === ui.dismissed) return;
+    storeDismissed(pruned);
+  }
+
+  function storeDismissed(dismissed: DismissedMap): void {
+    ui.dismissed = dismissed;
+    writeStorage(DISMISSED_KEY, Object.keys(dismissed).length ? JSON.stringify(dismissed) : undefined);
+  }
+
+  function toggleDismiss(key: string): void {
+    const entry = buildAttention(ui.projects, ui.currentId).find((candidate) => candidate.key === key);
+    if (!entry) return;
+    const next = { ...ui.dismissed };
+    if (isDismissed(next, entry)) delete next[key];
+    else next[key] = entry.version;
+    storeDismissed(next);
+    render();
   }
 
   function announceNew(entries: readonly AttentionEntry[]): void {
@@ -307,6 +336,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
 
   function apiOf(project: BoardProject): ProjectApi {
     return connections.get(project.id)?.api ?? projectApi(project.apiBase);
+  }
+
+  async function refreshAllStates(): Promise<void> {
+    const results = await Promise.allSettled(ui.projects.filter((project) => project.status !== "died").map((project) => refreshState(project)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    toast(failed ? "error" : "info", failed ? `Refresh failed for ${failed} project(s).` : "Refreshed - entries that resolved are gone.");
   }
 
   async function refreshState(project: BoardProject): Promise<void> {
@@ -1046,6 +1081,18 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const dialogKind = ({ "att-requeue": "requeue", "att-hold": "hold", "att-comment": "comment" } as const)[act_ as "att-requeue"];
     if (dialogKind && itemNumber) return openDialog(project, dialogKind, itemNumber, runNumber);
     if (act_ === "att-recheck-auth" && runNumber) return void recheckAuth(project, runNumber);
+    if (act_ === "att-dismiss") return toggleDismiss(element.dataset["key"] ?? "");
+    if (act_ === "att-toggle-open") {
+      ui.attentionOpen = !ui.attentionOpen;
+      writeStorage(ATTENTION_CLOSED_KEY, ui.attentionOpen ? undefined : "1");
+      return render();
+    }
+    if (act_ === "att-refresh") return void refreshAllStates();
+    if (act_ === "att-toggle-dismissed") {
+      ui.showDismissed = !ui.showDismissed;
+      writeStorage(SHOW_DISMISSED_KEY, ui.showDismissed ? "1" : undefined);
+      return render();
+    }
     if (act_ === "att-unhold") {
       const entry = ui.held.find((candidate) => candidate.key === element.dataset["key"]);
       if (entry) setHeld(entry, false);

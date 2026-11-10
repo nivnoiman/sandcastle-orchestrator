@@ -675,3 +675,29 @@ pre.raw { border: 0; background: transparent; padding: 0; }
 .stage-effective { grid-column: 1 / -1; font-size: 12.5px; display: flex; gap: 8px; align-items: baseline; }
 .modal.modal-wide { width: min(860px, calc(100vw - 32px)); }
 .prompt-view { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; background: var(--bg, rgba(127, 127, 127, 0.08)); border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono, monospace); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.btn.icon-only { padding: 0; width: 26px; justify-content: center; flex: none; }
+.nh-head .att-x { margin-left: auto; }
+.alert.dismissed { opacity: .55; }
+.linklike { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; border-radius: 3px; }
+.linklike:hover { color: var(--accent); }
+.dismiss-line { display: block; }
+.alerts-wrap { position: relative; }
+.alerts-scroll {
+  max-height: min(62vh, 520px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+}
+.alerts-scroll::-webkit-scrollbar { width: 8px; }
+.alerts-scroll::-webkit-scrollbar-track { background: transparent; }
+.alerts-scroll::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; border: 2px solid var(--surface); }
+.alerts-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+.alerts-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.alerts-wrap.capped::after {
+  content: ""; position: absolute; left: 0; right: 8px; bottom: 0; height: 22px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+}
+.att-more { margin: 0; padding: 4px 14px; font-size: 11.5px; color: var(--ink-3); text-align: center; border-top: 1px solid var(--line); }
+.att-toggle { display: flex; align-items: center; gap: 8px; margin-right: auto; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: var(--radius-sm); }
+.att-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.att-chevron { color: var(--ink-3); font-size: 12px; }
+#att-body[hidden] { display: none; }

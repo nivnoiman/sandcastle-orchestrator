@@ -49,6 +49,7 @@ export interface AttentionAction {
 
 export interface AttentionEntry {
   key: string;
+  version: string;
   kind: AttentionKind;
   /** 1-based position in the fixed kind order. */
   rank: number;
@@ -89,14 +90,16 @@ function rankOf(kind: AttentionKind): number {
   return ATTENTION_KINDS.indexOf(kind) + 1;
 }
 
-type EntryInput = Omit<AttentionEntry, "rank" | "tone" | "counted" | "projectId" | "projectName" | "key"> & {
+type EntryInput = Omit<AttentionEntry, "rank" | "tone" | "counted" | "projectId" | "projectName" | "key" | "version"> & {
   scope: string;
+  version?: string;
 };
 
 function entry(project: BoardProject, input: EntryInput): AttentionEntry {
-  const { scope, ...rest } = input;
+  const { scope, version, ...rest } = input;
   return {
     ...rest,
+    version: version ?? "",
     key: `${project.id}:${input.kind}:${scope}`,
     rank: rankOf(input.kind),
     tone: TONES[input.kind],
@@ -124,6 +127,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
       entries.push(
         entry(project, {
           scope: `${number}:${item.number}`,
+          version: `${item.phaseSince}|${reason}`,
           kind: "parked",
           title: `#${item.number} ${item.title} parked${item.stage ? ` at ${item.stage}` : ""}`,
           detail: reason,
@@ -172,6 +176,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
     entries.push(
       entry(project, {
         scope: String(number),
+        version: `${rounds}|${reason ?? ""}`,
         kind: "verify-red",
         title: `Feature Verify red on #${number}${rounds}`,
         detail: reason ?? `${counts.pass} pass, ${counts.fail} fail, ${counts.requiresStg} requires-STG`,
@@ -199,6 +204,7 @@ function runEntries(project: BoardProject, run: UiRun): AttentionEntry[] {
     entries.push(
       entry(project, {
         scope: String(number),
+        version: run.polish.reason ?? "",
         kind: "polish-reverted",
         title: `Polish reverted on #${number}`,
         detail: run.polish.reason ?? "polish changes were reverted",
@@ -285,6 +291,7 @@ function holdEntries(project: BoardProject): AttentionEntry[] {
     entries.push(
       entry(project, {
         scope: "rate",
+        version: rate.until ?? "",
         kind: "rate-hold",
         title: "Held — usage limit reached",
         detail: "No new stages start until the usage window reopens.",
