@@ -22,6 +22,7 @@ function tableRow(line: string, cell: "td" | "th"): string {
   return `<tr>${cells.map((value) => `<${cell}>${inline(value.trim())}</${cell}>`).join("")}</tr>`;
 }
 
+const LIST_ITEM = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
 const SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 export function markdownToHtml(source: string): string {
@@ -74,12 +75,12 @@ export function markdownToHtml(source: string): string {
       out.push(`<table class="md-table">${rows.join("")}</table>`);
       continue;
     }
-    const list = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(line);
+    const list = LIST_ITEM.exec(line);
     if (list) {
       const ordered = /\d/.test(list[2] ?? "");
       const items: string[] = [];
       while (index < lines.length) {
-        const match = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(lines[index] ?? "");
+        const match = LIST_ITEM.exec(lines[index] ?? "");
         if (!match) break;
         const task = /^\[([ xX])\]\s+(.*)$/.exec(match[3] ?? "");
         const text = task ? `${task[1] === " " ? "☐" : "☑"} ${inline(task[2] ?? "")}` : inline(match[3] ?? "");

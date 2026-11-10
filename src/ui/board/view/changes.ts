@@ -105,7 +105,7 @@ export function splitPairs(lines: DiffLine[]): SplitPair[] {
 
 function splitCells(line: DiffLine | undefined, side: "old" | "new"): string {
   if (!line) return '<td class="n empty"></td><td class="c empty"></td>';
-  const kind = line.kind === "note" ? "note" : line.kind === "ctx" ? "ctx" : line.kind;
+  const { kind } = line;
   return `<td class="n ${kind}">${line[side] ?? ""}</td><td class="c ${kind}">${esc(line.text)}</td>`;
 }
 

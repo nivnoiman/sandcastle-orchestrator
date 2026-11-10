@@ -574,6 +574,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     }
   }
 
+  const toggled = (paths: string[], path: string): string[] => (paths.includes(path) ? paths.filter((candidate) => candidate !== path) : [...paths, path]);
+
   function changesOf(drawer: Extract<DrawerState, { kind: "item" }>): ChangesState {
     drawer.changes ??= emptyChanges();
     return drawer.changes;
@@ -643,18 +645,15 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       changes.layout = element.dataset["layout"] === "split" ? "split" : "unified";
       render();
     } else if (action === "changes-fold") {
-      changes.collapsed = changes.collapsed.includes(path) ? changes.collapsed.filter((candidate) => candidate !== path) : [...changes.collapsed, path];
+      changes.collapsed = toggled(changes.collapsed, path);
       render();
     } else if (action === "changes-jump") {
       changes.collapsed = changes.collapsed.filter((candidate) => candidate !== path);
       render();
       setTimeout(() => zones.dBody.querySelector<HTMLElement>(`#${fileId(path)}`)?.scrollIntoView({ block: "start" }), 0);
     } else if (action === "changes-preview") {
-      if (changes.previewing.includes(path)) changes.previewing = changes.previewing.filter((candidate) => candidate !== path);
-      else {
-        changes.previewing = [...changes.previewing, path];
-        if (!changes.previews[path]) void loadPreview(project, path);
-      }
+      changes.previewing = toggled(changes.previewing, path);
+      if (changes.previewing.includes(path) && !changes.previews[path]) void loadPreview(project, path);
       render();
     } else return false;
     return true;
