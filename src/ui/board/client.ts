@@ -3,7 +3,7 @@ import type { AttemptChunk, AttemptRecord } from "../../real/attemptLog.js";
 import type { ResetPlan, ResetReport } from "../../real/reset.js";
 import { buildAttention, type AttentionEntry } from "./attention.js";
 import { ensurePushSubscription } from "./push.js";
-import { alertText, holdReasonOf, isDismissed, isHeld, pruneDismissed, newlyNeedingAttention, pageTitle, parseHeld, type HeldMap } from "./humanAlerts.js";
+import { alertText, holdReasonOf, isDismissed, isHeld, pruneDismissed, newlyNeedingAttention, pageTitle, parseHeld, type DismissedMap, type HeldMap } from "./humanAlerts.js";
 import { messageOf, projectApi, type ProjectApi } from "./api.js";
 import { patch, patchLog, readStorage, writeStorage } from "./dom.js";
 import { formatClock, formatCountdown } from "./format.js";
@@ -227,8 +227,12 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const known = new Set(ui.projects.filter((project) => project.state || project.status === "died").map((project) => project.id));
     const pruned = pruneDismissed(ui.dismissed, everything, known);
     if (pruned === ui.dismissed) return;
-    ui.dismissed = pruned;
-    writeStorage(DISMISSED_KEY, Object.keys(pruned).length ? JSON.stringify(pruned) : undefined);
+    storeDismissed(pruned);
+  }
+
+  function storeDismissed(dismissed: DismissedMap): void {
+    ui.dismissed = dismissed;
+    writeStorage(DISMISSED_KEY, Object.keys(dismissed).length ? JSON.stringify(dismissed) : undefined);
   }
 
   /** View-only: no server call, no effect on the badge, push or Hold. */
@@ -238,8 +242,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const next = { ...ui.dismissed };
     if (isDismissed(next, entry)) delete next[key];
     else next[key] = entry.version;
-    ui.dismissed = next;
-    writeStorage(DISMISSED_KEY, Object.keys(next).length ? JSON.stringify(next) : undefined);
+    storeDismissed(next);
     render();
   }
 

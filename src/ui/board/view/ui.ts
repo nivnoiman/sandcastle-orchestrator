@@ -1,4 +1,5 @@
 import type { AttentionEntry } from "../attention.js";
+import type { DismissedMap } from "../humanAlerts.js";
 import type { UiFeedLine } from "../../state.js";
 import { chooseRun, type BoardProject } from "../model.js";
 import type { UiRun } from "../../state.js";
@@ -87,7 +88,7 @@ export interface BoardUi {
   /** Parked entries the operator put on Hold; kept out of the badge and the banner. */
   held: readonly AttentionEntry[];
   /** Entries dismissed in this browser (key -> version); hidden from the list only, never from badge, push or Hold. */
-  dismissed: Readonly<Record<string, string>>;
+  dismissed: Readonly<DismissedMap>;
   /** Show dismissed entries again, flagged. */
   showDismissed: boolean;
   notifyPermission: NotifyPermission;
