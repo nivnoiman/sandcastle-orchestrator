@@ -52,6 +52,26 @@ describe("context percentage and window", () => {
     expect(contextWindow(reading(300_000, "claude-opus-4-5"), "opus[1m]")).toBe(1_000_000);
   });
 
+  it.each([
+    ["claude-opus-4-8", 1_000_000],
+    ["claude-opus-4-7", 1_000_000],
+    ["claude-opus-5-5", 1_000_000],
+    ["claude-sonnet-5", 1_000_000],
+    ["claude-sonnet-5-5", 1_000_000],
+    ["claude-haiku-5-5", 1_000_000],
+    ["claude-fable-5-1", 1_000_000],
+    ["claude-opus-4-6", 200_000],
+    ["claude-opus-4-5-20251101", 200_000],
+    ["claude-sonnet-4-5", 200_000],
+    ["claude-haiku-4-5-20251001", 200_000],
+  ])("knows the window of %s", (model, window) => {
+    expect(contextWindow(reading(1000, model), undefined)).toBe(window);
+  });
+
+  it("shows 1M for a live opus-4-8 turn instead of the old 200K", () => {
+    expect(uiUsage(reading(74_292, "claude-opus-4-8"), "opus")).toEqual({ tokens: 74_292, window: 1_000_000, percent: 7 });
+  });
+
   it("shows tokens only when the window is unknown, never a fake limit", () => {
     expect(uiUsage(reading(42_000, "claude-future-9"), undefined)).toEqual({ tokens: 42_000, window: undefined, percent: undefined });
     expect(uiUsage(reading(42_000), "mystery")).toEqual({ tokens: 42_000, window: undefined, percent: undefined });

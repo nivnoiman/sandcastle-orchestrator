@@ -11,7 +11,7 @@ export const PROMPTS_DIR = ".sandcastle/prompts";
 export const PROMPT_MAX_CHARS = 65536;
 
 const SUGGESTED_MODELS: Record<ProviderName, readonly string[]> = {
-  claude: ["opus", "sonnet", "haiku"],
+  claude: ["sonnet", "opus", "haiku"],
   codex: ["gpt-5.5", "gpt-5.5-codex"],
   cursor: [],
 };
