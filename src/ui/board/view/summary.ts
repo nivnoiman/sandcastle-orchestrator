@@ -72,7 +72,6 @@ function attemptCount(count: number): string {
 function whatSection(view: SummaryView): string {
   const { subject, summary } = view;
   if (!subject) return "";
-  const parent = subject.kind === "feature" ? subject.run.parent : undefined;
   const title = subject.kind === "item" ? subject.item.title : subject.run.parent.title;
   const issueUrl = subject.kind === "item" ? subject.item.issueUrl : subject.run.parent.url;
   const number = subject.kind === "item" ? subject.item.number : subject.run.parent.number;
@@ -81,7 +80,8 @@ function whatSection(view: SummaryView): string {
   if (subject.kind === "item") {
     rows.push(`<dt>Repo</dt><dd>${esc(subject.item.repo)}</dd>`);
     rows.push(`<dt>Branch</dt><dd class="mono">${esc(subject.item.branch)}${subject.run ? ` → ${esc(subject.run.parent.integrationBranch)}` : ""}</dd>`);
-  } else if (parent) {
+  } else {
+    const { parent } = subject.run;
     rows.push(`<dt>Feature</dt><dd>${esc(parent.feature)}</dd>`);
     rows.push(`<dt>Branch</dt><dd class="mono">${esc(parent.integrationBranch)}</dd>`);
   }

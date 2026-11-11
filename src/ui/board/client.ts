@@ -308,11 +308,8 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     patch(zones.dAtt, parts.attempts);
     zones.dAtt.hidden = parts.attempts === "";
     if (drawer.kind === "item") {
-      if (drawer.tab === "summary") {
-        zones.dBody.className = "d-scroll summary";
-        patch(zones.dBody, parts.body);
-      } else if (drawer.tab === "changes") {
-        zones.dBody.className = "d-scroll changes";
+      if (drawer.tab === "summary" || drawer.tab === "changes") {
+        zones.dBody.className = `d-scroll ${drawer.tab}`;
         patch(zones.dBody, parts.body);
       } else {
         zones.dBody.className = "log";
