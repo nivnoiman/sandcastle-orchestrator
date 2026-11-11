@@ -10,6 +10,8 @@ import { DEFAULT_UI_PORT, isTcpPort, tcpPort } from "../project/projectConfig.js
 import { boardPage, mountBoardAssets, warmBoardAssets } from "./board/assets.js";
 import { mountPushRoutes, type PushRouteDeps } from "../push/routes.js";
 import { mountStagesRoutes, type StagesRouteDeps } from "./stagesRoutes.js";
+import { mountChangesRoutes } from "./changesRoutes.js";
+import type { ChangesSource } from "./changes/source.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
 
@@ -123,12 +125,13 @@ export interface InstanceInfo {
   pid: number;
 }
 
-export function createUiApp(controller: UiController, instance?: InstanceInfo, push?: PushRouteDeps, stages?: StagesRouteDeps): Express {
+export function createUiApp(controller: UiController, instance?: InstanceInfo, push?: PushRouteDeps, stages?: StagesRouteDeps, changes?: ChangesSource): Express {
   const app = express();
   app.use(guardOrigin);
   app.use(express.json({ limit: "1mb" }));
   if (push) mountPushRoutes(app, push);
   if (stages) mountStagesRoutes(app, stages);
+  if (changes) mountChangesRoutes(app, { source: changes, state: () => controller.state() });
 
   app.get("/", (_request, response) => {
     response.type("html").set("cache-control", "no-cache").send(boardPage());
@@ -363,9 +366,10 @@ export function startUiServer(
   instance?: InstanceInfo,
   push?: PushRouteDeps,
   stages?: StagesRouteDeps,
+  changes?: ChangesSource,
 ): Promise<UiServer> {
   warmBoardAssets();
-  const server: Server = createServer(createUiApp(controller, instance, push, stages));
+  const server: Server = createServer(createUiApp(controller, instance, push, stages, changes));
   const sockets = new Set<import("node:net").Socket>();
   server.on("connection", (socket) => {
     sockets.add(socket);
