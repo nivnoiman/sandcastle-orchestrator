@@ -29,7 +29,8 @@ function tailOf(deps: SummaryRouteDeps, record: AttemptRecord): AttemptTail {
   try {
     const { chunk } = deps.read(record.id, from);
     return { id: record.id, ...lastAgentMessage(wholeLines(chunk, from === 0)) };
-  } catch {
+  } catch (cause) {
+    console.error(`summary: log ${record.id}: ${messageOf(cause).split("\n")[0]}`);
     return { id: record.id, message: undefined, clipped: false };
   }
 }

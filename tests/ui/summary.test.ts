@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AttemptRecord } from "../../src/real/attemptLog.js";
 import { lastAgentMessage, MESSAGE_CAP, wholeLines } from "../../src/ui/summary.js";
 import { mountSummaryRoutes, type SummaryRouteDeps } from "../../src/ui/summaryRoutes.js";
@@ -91,7 +91,10 @@ describe("GET /api/summary", () => {
     const read = (): never => {
       throw new Error("no transcripts");
     };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { status, json } = await get({ attempts: () => [record("10-polish-1")], read }, "/api/summary?item=10");
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("10-polish-1: no transcripts"));
+    logged.mockRestore();
     expect(status).toBe(200);
     expect(json.result.task).toBeUndefined();
     expect(json.result.attempts).toEqual([{ id: "10-polish-1", message: undefined, clipped: false }]);
