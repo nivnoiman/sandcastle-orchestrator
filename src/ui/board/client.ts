@@ -14,8 +14,10 @@ import { addBuiltin, addStage, draftChecks, draftEdits, draftOf, missingBuiltins
 import type { StagesView } from "../../project/stagesEditor.js";
 import type { StagePromptView } from "../stagePrompt.js";
 import { ICON_SPRITE } from "./view/icons.js";
-import { renderDrawer } from "./view/drawer.js";
+import { findFeature, findItem, renderDrawer } from "./view/drawer.js";
 import { emptyChanges, fileId, type ChangesState } from "./view/changes.js";
+import { emptySummary, type SummaryState } from "./view/summary.js";
+import type { SummaryResult } from "../summary.js";
 import type { ChangesResult } from "../changesRoutes.js";
 import type { FileText } from "../changes/source.js";
 import { renderMain, renderSide } from "./view/main.js";
@@ -306,7 +308,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     patch(zones.dAtt, parts.attempts);
     zones.dAtt.hidden = parts.attempts === "";
     if (drawer.kind === "item") {
-      if (drawer.tab === "changes") {
+      if (drawer.tab === "summary") {
+        zones.dBody.className = "d-scroll summary";
+        patch(zones.dBody, parts.body);
+      } else if (drawer.tab === "changes") {
         zones.dBody.className = "d-scroll changes";
         patch(zones.dBody, parts.body);
       } else {
@@ -534,11 +539,21 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     logState.attempt = undefined;
     logState.offset = 0;
     logState.text = "";
-    ui.drawer = { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: false, tab: "log" };
+    ui.drawer = { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: false, tab: defaultTab(project, itemNumber) };
     render();
     focusDrawer();
+    if (ui.drawer.tab === "summary") void loadSummary(project);
     void loadAttempts(project, true);
     drawerTimer = setInterval(() => void loadAttempts(project, false), DRAWER_POLL_MS);
+  }
+
+  /** Finished or stuck work opens on the recap; work still moving opens on the live log. */
+  function defaultTab(project: BoardProject, number: number): "summary" | "log" {
+    const item = findItem(project, number)?.item;
+    if (item) return item.phase === "running" || item.phase === "awaiting" ? "log" : "summary";
+    const run = findFeature(project, number);
+    const live = run?.lifecycle.some((step) => step.phase === "running") ?? false;
+    return live ? "log" : "summary";
   }
 
   function itemDrawer(): Extract<DrawerState, { kind: "item" }> | undefined {
@@ -561,8 +576,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
         live: record.endedAt === undefined || record.endedAt === null,
         bytes: record.bytes,
         startedAt: record.startedAt,
+        endedAt: record.endedAt ?? undefined,
       }));
       current.loaded = true;
+      if (current.tab === "summary" && current.summary?.status !== "loading" && summaryKey(current) !== current.summary?.key) void loadSummary(project);
       const known = current.attempts.some((attempt) => attempt.id === current.attemptId);
       const latest = current.attempts[current.attempts.length - 1];
       if (latest && (selectLatest || !known)) selectAttempt(project, latest.id);
@@ -572,6 +589,32 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       stopDrawerPolling();
       fail(project, cause);
     }
+  }
+
+  const summaryKey = (drawer: Extract<DrawerState, { kind: "item" }>): string => drawer.attempts.map((attempt) => `${attempt.id}:${attempt.outcome ?? ""}`).join(",");
+
+  async function loadSummary(project: BoardProject): Promise<void> {
+    const drawer = itemDrawer();
+    if (!drawer) return;
+    const summary: SummaryState = (drawer.summary ??= emptySummary());
+    summary.generation += 1;
+    const generation = summary.generation;
+    summary.status = "loading";
+    summary.key = summaryKey(drawer);
+    render();
+    const stale = (): boolean => itemDrawer() !== drawer || summary.generation !== generation;
+    try {
+      const payload = await apiOf(project).get(`/api/summary?item=${drawer.itemNumber}`);
+      if (stale()) return;
+      summary.data = payload["result"] as SummaryResult;
+      summary.status = "ready";
+      summary.error = undefined;
+    } catch (cause) {
+      if (stale()) return;
+      summary.status = "error";
+      summary.error = messageOf(cause);
+    }
+    render();
   }
 
   const toggled = (paths: string[], path: string): string[] => (paths.includes(path) ? paths.filter((candidate) => candidate !== path) : [...paths, path]);
@@ -636,9 +679,19 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const changes = changesOf(drawer);
     const path = element.dataset["path"] ?? "";
     if (action === "drawer-tab") {
-      drawer.tab = element.dataset["tab"] === "changes" ? "changes" : "log";
+      const wanted = element.dataset["tab"];
+      drawer.tab = wanted === "changes" || wanted === "summary" ? wanted : "log";
       render();
       if (drawer.tab === "changes" && changes.status === "idle") void loadChanges(project);
+      if (drawer.tab === "summary") void loadSummary(project);
+      return true;
+    }
+    if (action === "summary-refresh") {
+      void loadSummary(project);
+      return true;
+    }
+    if (action === "summary-load-changes") {
+      void loadChanges(project);
       return true;
     }
     if (action === "changes-refresh") void loadChanges(project);

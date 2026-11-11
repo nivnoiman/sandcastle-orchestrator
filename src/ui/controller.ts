@@ -570,6 +570,13 @@ export class UiController {
     return this.slots.forAttempts(itemNumber)?.session.attempts?.list(itemNumber) ?? [];
   }
 
+  /** Issue or tracker body of an item, or of a parent; undefined when no run owns it. */
+  itemTask(number: number): string | undefined {
+    const model = this.slots.forAttempts(number)?.model;
+    if (!model) return undefined;
+    return model.parentNumber === number ? model.parentBody : model.items.find((item) => item.number === number)?.body;
+  }
+
   attemptLog(id: string, from = 0): AttemptChunk {
     const parsed = parseAttemptId(id);
     if (!parsed) throw new OperatorError(`${id} is not an attempt id (item-stage-attempt)`);
