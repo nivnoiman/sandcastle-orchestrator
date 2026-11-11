@@ -11,6 +11,7 @@ import { boardPage, mountBoardAssets, warmBoardAssets } from "./board/assets.js"
 import { mountPushRoutes, type PushRouteDeps } from "../push/routes.js";
 import { mountStagesRoutes, type StagesRouteDeps } from "./stagesRoutes.js";
 import { mountChangesRoutes } from "./changesRoutes.js";
+import { mountSummaryRoutes } from "./summaryRoutes.js";
 import type { ChangesSource } from "./changes/source.js";
 
 export const PAGE_FILE = join(import.meta.dirname, "page.html");
@@ -132,6 +133,12 @@ export function createUiApp(controller: UiController, instance?: InstanceInfo, p
   if (push) mountPushRoutes(app, push);
   if (stages) mountStagesRoutes(app, stages);
   if (changes) mountChangesRoutes(app, { source: changes, state: () => controller.state() });
+  mountSummaryRoutes(app, {
+    state: () => controller.state(),
+    attempts: (number) => controller.attempts(number),
+    read: (id, from) => controller.attemptLog(id, from),
+    task: (number) => controller.itemTask(number),
+  });
 
   app.get("/", (_request, response) => {
     response.type("html").set("cache-control", "no-cache").send(boardPage());
