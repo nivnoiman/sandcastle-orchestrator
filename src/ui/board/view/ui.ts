@@ -29,7 +29,6 @@ export type DrawerState =
       attemptId: string | undefined;
       raw: boolean;
       loaded: boolean;
-      /** Recap, agent log (default when unset) or the diff of the item branch. */
       tab?: "summary" | "log" | "changes";
       changes?: ChangesState;
       summary?: SummaryState;

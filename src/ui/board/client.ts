@@ -544,7 +544,6 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     drawerTimer = setInterval(() => void loadAttempts(project, false), DRAWER_POLL_MS);
   }
 
-  /** Finished or stuck work opens on the recap; work still moving opens on the live log. */
   function defaultTab(project: BoardProject, number: number): "summary" | "log" {
     const item = findItem(project, number)?.item;
     if (item) return item.phase === "running" || item.phase === "awaiting" ? "log" : "summary";

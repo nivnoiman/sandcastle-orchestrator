@@ -10,11 +10,9 @@ import { prLabel } from "./run.js";
 /** State of the drawer's Summary tab; fetched on demand, never part of the polled state. */
 export interface SummaryState {
   status: "idle" | "loading" | "ready" | "error";
-  /** Attempt ids and outcomes the data was loaded for; a change means the recap is stale. */
   key: string;
   data: SummaryResult | undefined;
   error: string | undefined;
-  /** Bumped per load; responses from an older load are dropped. */
   generation: number;
 }
 
@@ -37,11 +35,9 @@ export type SummarySubject = { kind: "item"; item: UiItem; run: UiRun | undefine
 export interface SummaryView {
   subject: SummarySubject;
   attempts: SummaryAttempt[];
-  /** Attempts were fetched (an empty list is then final). */
   attemptsLoaded: boolean;
   summary: SummaryState;
   changes: ChangesState | undefined;
-  /** Dashboard chain: queued, every configured stage, merged. */
   stages: string[];
   nowMs: number;
 }

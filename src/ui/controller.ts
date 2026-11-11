@@ -570,7 +570,6 @@ export class UiController {
     return this.slots.forAttempts(itemNumber)?.session.attempts?.list(itemNumber) ?? [];
   }
 
-  /** Issue or tracker body of an item, or of a parent; undefined when no run owns it. */
   itemTask(number: number): string | undefined {
     const model = this.slots.forAttempts(number)?.model;
     if (!model) return undefined;

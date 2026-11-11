@@ -8,7 +8,6 @@ export class SummaryError extends Error {}
 
 export interface SummaryRouteDeps {
   state(): UiState;
-  /** Attempt records of an item, or of a parent for its lifecycle steps. */
   attempts(number: number): AttemptRecord[];
   read(id: string, from: number): AttemptChunk;
   task(number: number): string | undefined;

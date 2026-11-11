@@ -7,14 +7,11 @@ export const TASK_CAP = 2500;
 
 export interface AttemptTail {
   id: string;
-  /** Last agent message of the attempt; undefined when the log has none. */
   message: string | undefined;
-  /** The message was cut to the cap. */
   clipped: boolean;
 }
 
 export interface SummaryResult {
-  /** Issue or tracker item body; undefined when the server has none. */
   task: string | undefined;
   taskClipped: boolean;
   attempts: AttemptTail[];
