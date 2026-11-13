@@ -179,6 +179,12 @@ describe("a stage section appended twice under the same sentinel", () => {
     expect(needsReworkStory(twice("None", "NEEDS-REWORK: new story"), 2)).toBe("new story");
   });
 
+  it("returns one rework brief per round, from the latest section", () => {
+    const brief = (story: string) => reworkBriefSection({ round: 1, source: "review", story }, 3);
+    const body = `## What changed\n${brief("old")}\n${brief("new")}`;
+    expect(reworkBriefsIn(body)).toEqual([{ round: 1, source: "review", story: "new" }]);
+  });
+
   it("still reports the section as present", () => {
     expect(hasPrSection(twice("a", "b"), "review", 2)).toBe(true);
   });

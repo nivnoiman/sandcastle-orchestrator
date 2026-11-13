@@ -94,16 +94,17 @@ export function reworkBriefSection(brief: ReworkBrief, limit: number): string {
 }
 
 export function reworkBriefsIn(body: string): ReworkBrief[] {
-  const briefs: ReworkBrief[] = [];
+  const briefs = new Map<number, ReworkBrief>();
   for (const match of body.matchAll(REWORK_BRIEF_SENTINEL)) {
     const round = Number(match[1]);
+    if (briefs.has(round)) continue;
     const text = latestSectionAfter(body, match[0]) ?? "";
     const [heading = "", ...storyLines] = text.replace(/^\r?\n/, "").split(/\r?\n/);
     const source = REWORK_BRIEF_HEADING.exec(heading.trim())?.[1];
     if (!source) continue;
-    briefs.push({ round, source, story: storyLines.join("\n").trim() });
+    briefs.set(round, { round, source, story: storyLines.join("\n").trim() });
   }
-  return briefs.sort((a, b) => a.round - b.round);
+  return [...briefs.values()].sort((a, b) => a.round - b.round);
 }
 
 export function taggedCommitSubjects(subjects: readonly string[], stage: StageName): string[] {
