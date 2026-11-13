@@ -161,3 +161,30 @@ describe("rework rounds on the pull request", () => {
     expect(hasTestFirstCommit(["feat: x", "tests: nope"])).toBe(false);
   });
 });
+
+describe("a stage section appended twice under the same sentinel", () => {
+  const section = (round: number, text: string) => `${prSectionMarker("review", round)}\n\n${text}\n`;
+  const twice = (first: string, last: string) => `## What changed\n\n${section(2, first)}\n${section(2, last)}`;
+
+  it("reads UNFIXABLE from the latest section, not a stale first one", () => {
+    expect(unfixableReason(twice("UNFIXABLE: platform field missing", "None - blocker resolved"), "review", 2)).toBeUndefined();
+  });
+
+  it("reads UNFIXABLE from the latest section when only the last declares it", () => {
+    expect(unfixableReason(twice("None", "UNFIXABLE: platform field missing"), "review", 2)).toBe("platform field missing");
+  });
+
+  it("reads NEEDS-REWORK from the latest section, not a stale first one", () => {
+    expect(needsReworkStory(twice("NEEDS-REWORK: old story", "None - fixed"), 2)).toBeUndefined();
+    expect(needsReworkStory(twice("None", "NEEDS-REWORK: new story"), 2)).toBe("new story");
+  });
+
+  it("still reports the section as present", () => {
+    expect(hasPrSection(twice("a", "b"), "review", 2)).toBe(true);
+  });
+
+  it("stops the latest section at the next sentinel", () => {
+    const body = `${twice("None", "None")}\n${prSectionMarker("simplify", 2)}\n\nUNFIXABLE: other stage\n`;
+    expect(unfixableReason(body, "review", 2)).toBeUndefined();
+  });
+});

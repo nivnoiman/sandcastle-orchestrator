@@ -50,8 +50,8 @@ export function prSectionMarker(stage: StageName, round = 0): string {
   return `${prSectionSentinel(stage, round)}\n${prSectionHeading(stage, round)}`;
 }
 
-function sectionAfter(body: string, sentinel: string): string | undefined {
-  const start = body.indexOf(sentinel);
+function latestSectionAfter(body: string, sentinel: string): string | undefined {
+  const start = body.lastIndexOf(sentinel);
   if (start < 0) return undefined;
   const rest = body.slice(start + sentinel.length);
   const nextSection = rest.indexOf(SENTINEL_PREFIX);
@@ -59,7 +59,7 @@ function sectionAfter(body: string, sentinel: string): string | undefined {
 }
 
 function prSectionText(body: string, stage: StageName, round: number): string | undefined {
-  return sectionAfter(body, prSectionSentinel(stage, round));
+  return latestSectionAfter(body, prSectionSentinel(stage, round));
 }
 
 export function hasPrSection(body: string, stage: StageName, round = 0): boolean {
@@ -97,7 +97,7 @@ export function reworkBriefsIn(body: string): ReworkBrief[] {
   const briefs: ReworkBrief[] = [];
   for (const match of body.matchAll(REWORK_BRIEF_SENTINEL)) {
     const round = Number(match[1]);
-    const text = sectionAfter(body, match[0]) ?? "";
+    const text = latestSectionAfter(body, match[0]) ?? "";
     const [heading = "", ...storyLines] = text.replace(/^\r?\n/, "").split(/\r?\n/);
     const source = REWORK_BRIEF_HEADING.exec(heading.trim())?.[1];
     if (!source) continue;
