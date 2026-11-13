@@ -6,6 +6,8 @@ import type { UiRun } from "../../state.js";
 import type { StagesView } from "../../../project/stagesEditor.js";
 import type { StagePromptView } from "../../stagePrompt.js";
 import type { StagesDraft } from "../stagesDraft.js";
+import type { ChangesState } from "./changes.js";
+import type { SummaryState } from "./summary.js";
 
 export type Theme = "auto" | "light" | "dark";
 export type BoardScope = "project" | "dashboard";
@@ -23,10 +25,13 @@ export type DrawerState =
       kind: "item";
       projectId: string;
       itemNumber: number;
-      attempts: { id: string; stage: string; attempt: number; outcome: string | undefined; live: boolean; bytes: number; startedAt: string }[];
+      attempts: { id: string; stage: string; attempt: number; outcome: string | undefined; live: boolean; bytes: number; startedAt: string; endedAt?: string | undefined }[];
       attemptId: string | undefined;
       raw: boolean;
       loaded: boolean;
+      tab?: "summary" | "log" | "changes";
+      changes?: ChangesState;
+      summary?: SummaryState;
     }
   | { kind: "reset"; projectId: string; parent: number | undefined; reset: ResetLine }
   | { kind: "stages"; projectId: string; view: StagesView | undefined; draft: StagesDraft; busy: boolean; error: string | undefined; notice: string | undefined; editing: string | undefined; dragKey: string | undefined; promptView?: StagePromptShown }

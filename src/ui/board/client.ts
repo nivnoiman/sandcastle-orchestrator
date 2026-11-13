@@ -14,7 +14,12 @@ import { addBuiltin, addStage, draftChecks, draftEdits, draftOf, missingBuiltins
 import type { StagesView } from "../../project/stagesEditor.js";
 import type { StagePromptView } from "../stagePrompt.js";
 import { ICON_SPRITE } from "./view/icons.js";
-import { renderDrawer } from "./view/drawer.js";
+import { findFeature, findItem, renderDrawer } from "./view/drawer.js";
+import { emptyChanges, fileId, type ChangesState } from "./view/changes.js";
+import { emptySummary, type SummaryState } from "./view/summary.js";
+import type { SummaryResult } from "../summary.js";
+import type { ChangesResult } from "../changesRoutes.js";
+import type { FileText } from "../changes/source.js";
 import { renderMain, renderSide } from "./view/main.js";
 import { renderRail } from "./view/rail.js";
 import { renderDialog, renderSwitcher, renderToasts, switchTargets } from "./view/chrome.js";
@@ -303,8 +308,13 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     patch(zones.dAtt, parts.attempts);
     zones.dAtt.hidden = parts.attempts === "";
     if (drawer.kind === "item") {
-      zones.dBody.className = "log";
-      patchLog(zones.dBody, parts.body);
+      if (drawer.tab === "summary" || drawer.tab === "changes") {
+        zones.dBody.className = `d-scroll ${drawer.tab}`;
+        patch(zones.dBody, parts.body);
+      } else {
+        zones.dBody.className = "log";
+        patchLog(zones.dBody, parts.body);
+      }
     } else {
       zones.dBody.className = "d-scroll";
       patch(zones.dBody, parts.body);
@@ -526,11 +536,20 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     logState.attempt = undefined;
     logState.offset = 0;
     logState.text = "";
-    ui.drawer = { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: false };
+    ui.drawer = { kind: "item", projectId: project.id, itemNumber, attempts: [], attemptId: undefined, raw: false, loaded: false, tab: defaultTab(project, itemNumber) };
     render();
     focusDrawer();
+    if (ui.drawer.tab === "summary") void loadSummary(project);
     void loadAttempts(project, true);
     drawerTimer = setInterval(() => void loadAttempts(project, false), DRAWER_POLL_MS);
+  }
+
+  function defaultTab(project: BoardProject, number: number): "summary" | "log" {
+    const item = findItem(project, number)?.item;
+    if (item) return item.phase === "running" || item.phase === "awaiting" ? "log" : "summary";
+    const run = findFeature(project, number);
+    const live = run?.lifecycle.some((step) => step.phase === "running") ?? false;
+    return live ? "log" : "summary";
   }
 
   function itemDrawer(): Extract<DrawerState, { kind: "item" }> | undefined {
@@ -553,8 +572,10 @@ export function mountBoard(options: BoardOptions): BoardHandle {
         live: record.endedAt === undefined || record.endedAt === null,
         bytes: record.bytes,
         startedAt: record.startedAt,
+        endedAt: record.endedAt ?? undefined,
       }));
       current.loaded = true;
+      if (current.tab === "summary" && current.summary?.status !== "loading" && summaryKey(current) !== current.summary?.key) void loadSummary(project);
       const known = current.attempts.some((attempt) => attempt.id === current.attemptId);
       const latest = current.attempts[current.attempts.length - 1];
       if (latest && (selectLatest || !known)) selectAttempt(project, latest.id);
@@ -564,6 +585,128 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       stopDrawerPolling();
       fail(project, cause);
     }
+  }
+
+  const summaryKey = (drawer: Extract<DrawerState, { kind: "item" }>): string => drawer.attempts.map((attempt) => `${attempt.id}:${attempt.outcome ?? ""}`).join(",");
+
+  async function loadSummary(project: BoardProject): Promise<void> {
+    const drawer = itemDrawer();
+    if (!drawer) return;
+    const summary: SummaryState = (drawer.summary ??= emptySummary());
+    summary.generation += 1;
+    const generation = summary.generation;
+    summary.status = "loading";
+    summary.key = summaryKey(drawer);
+    render();
+    const stale = (): boolean => itemDrawer() !== drawer || summary.generation !== generation;
+    try {
+      const payload = await apiOf(project).get(`/api/summary?item=${drawer.itemNumber}`);
+      if (stale()) return;
+      summary.data = payload["result"] as SummaryResult;
+      summary.status = "ready";
+      summary.error = undefined;
+    } catch (cause) {
+      if (stale()) return;
+      summary.status = "error";
+      summary.error = messageOf(cause);
+    }
+    render();
+  }
+
+  const toggled = (paths: string[], path: string): string[] => (paths.includes(path) ? paths.filter((candidate) => candidate !== path) : [...paths, path]);
+
+  function changesOf(drawer: Extract<DrawerState, { kind: "item" }>): ChangesState {
+    drawer.changes ??= emptyChanges();
+    return drawer.changes;
+  }
+
+  async function loadChanges(project: BoardProject): Promise<void> {
+    const drawer = itemDrawer();
+    if (!drawer) return;
+    const changes = changesOf(drawer);
+    changes.generation += 1;
+    const generation = changes.generation;
+    changes.status = "loading";
+    render();
+    const stale = (): boolean => itemDrawer() !== drawer || changes.generation !== generation;
+    try {
+      const payload = await apiOf(project).get(`/api/changes?item=${drawer.itemNumber}${changes.showGenerated ? "&generated=1" : ""}`);
+      if (stale()) return;
+      changes.data = payload["result"] as ChangesResult;
+      changes.status = "ready";
+      changes.error = undefined;
+      changes.previews = {};
+      const paths = new Set(changes.data.files.map((file) => file.path));
+      changes.previewing = changes.previewing.filter((path) => paths.has(path));
+      for (const path of changes.previewing) void loadPreview(project, path);
+    } catch (cause) {
+      if (stale()) return;
+      changes.status = "error";
+      changes.error = messageOf(cause);
+    }
+    render();
+  }
+
+  async function loadPreview(project: BoardProject, path: string): Promise<void> {
+    const drawer = itemDrawer();
+    if (!drawer) return;
+    const changes = changesOf(drawer);
+    const generation = changes.generation;
+    changes.previews[path] = { status: "loading", text: "", note: "" };
+    render();
+    const stale = (): boolean => itemDrawer() !== drawer || changes.generation !== generation;
+    try {
+      const payload = await apiOf(project).get(`/api/changes/file?item=${drawer.itemNumber}&path=${encodeURIComponent(path)}`);
+      const file = payload["result"] as FileText;
+      if (stale()) return;
+      changes.previews[path] = file.binary
+        ? { status: "error", text: "", note: "Binary file, no preview." }
+        : { status: "ready", text: file.text, note: file.clipped ? "Preview cut at 512 KB." : "" };
+    } catch (cause) {
+      if (stale()) return;
+      changes.previews[path] = { status: "error", text: "", note: messageOf(cause) };
+    }
+    render();
+  }
+
+  function changesClick(project: BoardProject, action: string, element: HTMLElement): boolean {
+    const drawer = itemDrawer();
+    if (!drawer) return false;
+    const changes = changesOf(drawer);
+    const path = element.dataset["path"] ?? "";
+    if (action === "drawer-tab") {
+      const wanted = element.dataset["tab"];
+      drawer.tab = wanted === "changes" || wanted === "summary" ? wanted : "log";
+      render();
+      if (drawer.tab === "changes" && changes.status === "idle") void loadChanges(project);
+      if (drawer.tab === "summary") void loadSummary(project);
+      return true;
+    }
+    if (action === "summary-refresh") {
+      void loadSummary(project);
+      return true;
+    }
+    if (action === "summary-load-changes") {
+      void loadChanges(project);
+      return true;
+    }
+    if (action === "changes-refresh") void loadChanges(project);
+    else if (action === "changes-layout") {
+      changes.layout = element.dataset["layout"] === "split" ? "split" : "unified";
+      render();
+    } else if (action === "changes-fold") {
+      changes.collapsed = toggled(changes.collapsed, path);
+      render();
+    } else if (action === "changes-jump") {
+      changes.collapsed = changes.collapsed.filter((candidate) => candidate !== path);
+      render();
+      setTimeout(() => zones.dBody.querySelector<HTMLElement>(`#${fileId(path)}`)?.scrollIntoView({ block: "start" }), 0);
+    } else if (action === "changes-preview") {
+      changes.previewing = toggled(changes.previewing, path);
+      if (changes.previewing.includes(path) && changes.previews[path]?.status !== "ready" && changes.previews[path]?.status !== "loading") void loadPreview(project, path);
+      render();
+    } else return false;
+    return true;
   }
 
   function selectAttempt(project: BoardProject, id: string): void {
@@ -1222,6 +1365,7 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     if (ui.drawer?.kind === "stages" && action.startsWith("stage-")) return void stageClick(action, element);
     if (action === "reset-apply") return void applyReset(project);
     if (action === "add-submit-btn") return void submitAdd(project);
+    if (changesClick(project, action, element)) return;
     if (action === "select-attempt") {
       const id = element.dataset["attempt"];
       if (id) selectAttempt(project, id);
@@ -1269,6 +1413,14 @@ export function mountBoard(options: BoardOptions): BoardHandle {
       if (name) addBuiltin(ui.drawer.draft, name);
       return render();
     }
+    if (action === "changes-generated") {
+      const drawer = itemDrawer();
+      if (drawer) {
+        changesOf(drawer).showGenerated = (element as HTMLInputElement).checked;
+        void loadChanges(project);
+      }
+      return;
+    }
     if (action === "raw-toggle") {
       const drawer = itemDrawer();
       if (drawer) drawer.raw = (element as HTMLInputElement).checked;
@@ -1296,7 +1448,11 @@ export function mountBoard(options: BoardOptions): BoardHandle {
     const action = element?.dataset["act"];
     if (!element || !action) return;
     const value = (element as HTMLInputElement).value;
-    if (action === "parent-filter") {
+    if (action === "changes-filter") {
+      const drawer = itemDrawer();
+      if (drawer) changesOf(drawer).filter = value;
+      render();
+    } else if (action === "parent-filter") {
       ui.parentQuery = value;
       render();
     } else if (action === "start-cap") {
