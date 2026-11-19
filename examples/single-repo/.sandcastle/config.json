@@ -10,6 +10,7 @@
   },
   "verify": {
     "strategy": "command",
-    "commands": { "app": "pnpm typecheck && pnpm test && pnpm build" }
+    "commands": { "app": "pnpm typecheck && pnpm test && pnpm build" },
+    "recheck": { "app": "pnpm typecheck && pnpm exec vitest run --changed=$SANDCASTLE_RECHECK_BASE" }
   }
 }

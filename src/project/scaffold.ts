@@ -53,6 +53,43 @@ export function guessRepoCommands(
   };
 }
 
+const RECHECK_BASE = "$SANDCASTLE_RECHECK_BASE";
+const JEST_SCRIPT = /^jest(\s|$)/;
+const VITEST_SCRIPT = /^vitest(\s+run)?(\s|$)/;
+
+function execPrefix(manager: PackageManager): string {
+  if (manager === "pnpm") return "pnpm exec";
+  if (manager === "yarn") return "yarn";
+  return "npx";
+}
+
+function changedTestsCommand(manager: PackageManager, testScript: string): string | undefined {
+  const script = testScript.trim();
+  if (JEST_SCRIPT.test(script)) return `${execPrefix(manager)} ${script} --changedSince=${RECHECK_BASE}`;
+  if (VITEST_SCRIPT.test(script)) {
+    const rest = script.replace(VITEST_SCRIPT, " ").trim();
+    return [execPrefix(manager), "vitest run", rest, `--changed=${RECHECK_BASE}`].filter((part) => part.length > 0).join(" ");
+  }
+  return undefined;
+}
+
+export function suggestRecheck(manager: PackageManager | undefined, scripts: Readonly<Record<string, unknown>>): string | undefined {
+  const testScript = scripts["test"];
+  if (manager === undefined || typeof testScript !== "string") return undefined;
+  const changedTests = changedTestsCommand(manager, testScript);
+  if (changedTests === undefined) return undefined;
+  const typecheck = Object.hasOwn(scripts, "typecheck") ? [runScript(manager, "typecheck")] : [];
+  return [...typecheck, changedTests].join(" && ");
+}
+
+export function recheckSuggestionLines(repoName: string, suggestion: string | undefined): string[] {
+  const example = suggestion ?? `<a cheaper command, e.g. your tests limited to files changed since ${RECHECK_BASE}>`;
+  return [
+    `  optional: add verify.recheck to ${CONFIG_HINT} so a Feature Verify re-run after a fix round only checks what changed:`,
+    `    "verify": { "strategy": "command", "recheck": { ${JSON.stringify(repoName)}: ${JSON.stringify(example)} } }`,
+  ];
+}
+
 /** `owner/name` from a GitHub remote URL (https or ssh), or undefined for anything else. */
 export function hubFromRemote(url: string): string | undefined {
   const match = GITHUB_REMOTE.exec(url.trim());

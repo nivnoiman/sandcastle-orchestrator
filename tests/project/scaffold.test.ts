@@ -7,7 +7,9 @@ import {
   guessRepoCommands,
   hubFromRemote,
   NO_CHECKS,
+  recheckSuggestionLines,
   repoNameFrom,
+  suggestRecheck,
   STATE_GITIGNORE,
 } from "../../src/project/scaffold.js";
 
@@ -32,6 +34,27 @@ describe("sandcastle init scaffolding", () => {
     expect(guessRepoCommands("yarn", { test: "jest" }, true).bootstrap).toBe("yarn install --immutable");
     expect(guessRepoCommands("npm", { lint: "eslint" })).toEqual({ bootstrap: "npm ci", checks: NO_CHECKS });
     expect(guessRepoCommands(undefined, ALL_SCRIPTS)).toEqual({ bootstrap: "", checks: NO_CHECKS });
+  });
+
+  it("suggests a recheck that limits jest or vitest to files changed since the recheck base", () => {
+    expect(suggestRecheck("npm", { typecheck: "tsc", test: "jest --config jest.config.js" })).toBe(
+      "npm run typecheck && npx jest --config jest.config.js --changedSince=$SANDCASTLE_RECHECK_BASE",
+    );
+    expect(suggestRecheck("pnpm", { test: "vitest run --passWithNoTests" })).toBe(
+      "pnpm exec vitest run --passWithNoTests --changed=$SANDCASTLE_RECHECK_BASE",
+    );
+    expect(suggestRecheck("yarn", { test: "vitest" })).toBe("yarn vitest run --changed=$SANDCASTLE_RECHECK_BASE");
+    expect(suggestRecheck("npm", { test: "mocha" })).toBeUndefined();
+    expect(suggestRecheck("npm", { build: "tsc" })).toBeUndefined();
+    expect(suggestRecheck(undefined, { test: "jest" })).toBeUndefined();
+  });
+
+  it("prints the recheck as an opt-in config line the parser accepts", () => {
+    const [, line] = recheckSuggestionLines("app", "npx jest --changedSince=$SANDCASTLE_RECHECK_BASE");
+    const verify = JSON.parse(`{${line}}`).verify;
+    const project = parseProjectConfig({ hubRepo: "acme/app", repos: { app: { github: "acme/app", checks: "npm test" } }, verify }, "/work/app/.sandcastle/config.json");
+    expect(project.verify).toMatchObject({ recheck: { app: "npx jest --changedSince=$SANDCASTLE_RECHECK_BASE" } });
+    expect(recheckSuggestionLines("app", undefined)[1]).toContain("<a cheaper command");
   });
 
   it("reads owner/name from github remotes", () => {

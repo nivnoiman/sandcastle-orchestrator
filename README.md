@@ -73,7 +73,7 @@ sandcastle init                       # asks where issues live; or: sandcastle i
 `init` asks which [Tracker](#local-tracker) the project uses (`--tracker=local|github` skips the question; without a terminal it picks `github`) and writes `docs/agents/issue-tracker.md` naming it. For `github` it detects the hub repo (`gh repo view`, then the `origin` remote). With `local` there is no hub repo, no `gh` and no `GH_TOKEN`. It also detects the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
 
 3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator` (not needed with the [local Tracker](#local-tracker)), and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
-4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`.
+4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`. `init` also prints an opt-in `verify.recheck` line (for a `jest` or `vitest` test script: your tests limited to files changed since `$SANDCASTLE_RECHECK_BASE`). Add it to make Feature Verify re-runs after a fix round cheaper, see [Recheck](#feature-verify-strategies).
 5. Start the dashboard: `sandcastle dashboard --detach`
 6. Publish an Orchestration Issue (see [Publish contract](#publish-contract)), then ask your agent: **"run sandcastle on #N"**. The `sandcastle-run` skill (the Orchestrator Agent) starts the dashboard, validates, preflights, launches, opens the Board View, watches and reports.
 
