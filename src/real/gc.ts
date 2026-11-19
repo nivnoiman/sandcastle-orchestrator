@@ -19,7 +19,7 @@ import type { FileSystemPort } from "./fileSystem.js";
 import { removeWorktreeTree } from "./gitOps.js";
 import { pruneDependencyCaches } from "./dependencyCache.js";
 import { repoRoot, toDockerPath, type SandcastleLayout } from "./paths.js";
-import { messageOf } from "../messageOf.js";
+import { shortMessageOf } from "../messageOf.js";
 
 export interface GcDeps {
   runner: CommandRunner;
@@ -52,10 +52,6 @@ interface FailureSink {
 
 function comparablePath(path: string): string {
   return toDockerPath(path).toLowerCase();
-}
-
-function shortMessageOf(cause: unknown): string {
-  return messageOf(cause).slice(0, 200);
 }
 
 function orphanContainers(deps: GcDeps, sink: FailureSink): string[] {

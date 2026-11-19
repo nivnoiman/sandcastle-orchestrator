@@ -5,22 +5,17 @@ import type { CommandRunner } from "./commandRunner.js";
 import { containerPrefix, execAsRoot, listVolumesByPrefix, nonEmptyLines, removeVolume, type VolumeMount } from "./docker.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { CONTAINER_HOME } from "./paths.js";
-import { messageOf } from "../messageOf.js";
+import { messageOf, shortMessageOf } from "../messageOf.js";
 
-export const DEPENDENCY_CACHE_KEEP = 2;
-export const DEPENDENCY_CACHE_ROOT = `${CONTAINER_HOME}/dependency-cache`;
-export const CACHED_DIRECTORY = "node_modules";
-export const CACHE_COMPLETE_MARKER = ".sandcastle-complete";
-export const CACHEABLE_INSTALL = "npm ci";
-export const NPM_LOCKFILES = ["npm-shrinkwrap.json", "package-lock.json"] as const;
-export const ROOT_INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "prepare"] as const;
+const DEPENDENCY_CACHE_KEEP = 2;
+const DEPENDENCY_CACHE_ROOT = `${CONTAINER_HOME}/dependency-cache`;
+const CACHED_DIRECTORY = "node_modules";
+const CACHE_COMPLETE_MARKER = ".sandcastle-complete";
+const CACHEABLE_INSTALL = "npm ci";
+const NPM_LOCKFILES = ["npm-shrinkwrap.json", "package-lock.json"] as const;
+const ROOT_INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "prepare"] as const;
 const MANIFEST_DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "overrides"] as const;
 const KEY_LENGTH = 12;
-
-export interface BootstrapSplit {
-  install: string;
-  remainder: string;
-}
 
 export interface DependencyCacheKeyInput {
   imageId: string;
@@ -55,10 +50,10 @@ export interface CachedVolume {
 
 type Manifest = Record<string, unknown>;
 
-export function splitInstallStep(bootstrap: string): BootstrapSplit | undefined {
+export function bootstrapAfterInstall(bootstrap: string): string | undefined {
   const [first, ...rest] = bootstrap.split("&&");
   if (first?.trim() !== CACHEABLE_INSTALL) return undefined;
-  return { install: CACHEABLE_INSTALL, remainder: rest.join("&&").trim() };
+  return rest.join("&&").trim();
 }
 
 export function dependencyCacheKey(input: DependencyCacheKeyInput): string {
@@ -68,15 +63,15 @@ export function dependencyCacheKey(input: DependencyCacheKeyInput): string {
     .slice(0, KEY_LENGTH);
 }
 
-export function dependencyCachePrefix(): string {
+function dependencyCachePrefix(): string {
   return `${containerPrefix()}deps-`;
 }
 
-export function dependencyCacheVolumeName(repo: TargetRepo, key: string): string {
+function dependencyCacheVolumeName(repo: TargetRepo, key: string): string {
   return `${dependencyCachePrefix()}${repo}-${key}`;
 }
 
-export function dependencyCacheRepo(name: string): TargetRepo | undefined {
+function dependencyCacheRepo(name: string): TargetRepo | undefined {
   const match = new RegExp(`^${dependencyCachePrefix()}([a-z0-9][a-z0-9-]*)-[0-9a-f]{${KEY_LENGTH}}$`).exec(name);
   return match?.[1];
 }
@@ -116,8 +111,8 @@ function readLockfile(fs: FileSystemPort, worktree: string): string | undefined 
 
 export function planDependencyCache(input: PlanInput): DependencyCacheDecision {
   if (input.setting === false) return skip("cacheDependencies is false");
-  const split = splitInstallStep(input.bootstrap);
-  if (!split) return skip(`bootstrap does not start with exactly "${CACHEABLE_INSTALL}"`);
+  const remainder = bootstrapAfterInstall(input.bootstrap);
+  if (remainder === undefined) return skip(`bootstrap does not start with exactly "${CACHEABLE_INSTALL}"`);
   if (input.imageId.length === 0) return skip("the image id is unknown");
   const manifest = readManifest(input.fs, input.worktree);
   if (!manifest) return skip("no readable package.json");
@@ -130,7 +125,7 @@ export function planDependencyCache(input: PlanInput): DependencyCacheDecision {
   if (lockfile === undefined) return skip(`no ${NPM_LOCKFILES.join(" or ")}`);
   const key = dependencyCacheKey({
     imageId: input.imageId,
-    install: split.install,
+    install: CACHEABLE_INSTALL,
     manifestDependencies: manifestDependencies(manifest),
     lockfile,
   });
@@ -141,16 +136,16 @@ export function planDependencyCache(input: PlanInput): DependencyCacheDecision {
       key,
       volume: dependencyCacheVolumeName(input.repo, key),
       mountPath: `${DEPENDENCY_CACHE_ROOT}/${input.repo}`,
-      remainder: split.remainder,
+      remainder,
     },
   };
 }
 
-export function restoreCommand(plan: DependencyCachePlan, sourcePath: string): string {
+function restoreCommand(plan: DependencyCachePlan, sourcePath: string): string {
   return `rm -rf ${sourcePath}/${CACHED_DIRECTORY} && cp -a ${plan.mountPath}/${CACHED_DIRECTORY} ${sourcePath}/${CACHED_DIRECTORY}`;
 }
 
-export function saveCommand(plan: DependencyCachePlan, sourcePath: string): string {
+function saveCommand(plan: DependencyCachePlan, sourcePath: string): string {
   const cache = plan.mountPath;
   const staging = `${cache}/.staging-$(hostname)`;
   return [
@@ -163,16 +158,16 @@ export function saveCommand(plan: DependencyCachePlan, sourcePath: string): stri
   ].join(" && ");
 }
 
-export function claimCacheMountsCommand(plans: readonly DependencyCachePlan[]): string {
+function claimCacheMountsCommand(plans: readonly DependencyCachePlan[]): string {
   const paths = plans.map((plan) => plan.mountPath).join(" ");
   return `mkdir -p ${paths} && chown agent:agent ${paths}`;
 }
 
-export function imageIdOf(runner: CommandRunner, image: string): string {
+function imageIdOf(runner: CommandRunner, image: string): string {
   return runner.run({ command: "docker", args: ["image", "inspect", "--format", "{{.Id}}", image] }).stdout.trim();
 }
 
-export function cacheIsComplete(runner: CommandRunner, container: string, plan: DependencyCachePlan): boolean {
+function cacheIsComplete(runner: CommandRunner, container: string, plan: DependencyCachePlan): boolean {
   try {
     runner.run({ command: "docker", args: ["exec", container, "test", "-f", `${plan.mountPath}/${CACHE_COMPLETE_MARKER}`] });
     return true;
@@ -191,10 +186,12 @@ export function staleDependencyCaches(volumes: readonly CachedVolume[], keep = D
   for (const volume of volumes) {
     const repo = dependencyCacheRepo(volume.name);
     if (repo === undefined) continue;
-    byRepo.set(repo, [...(byRepo.get(repo) ?? []), volume]);
+    const entries = byRepo.get(repo) ?? [];
+    entries.push(volume);
+    byRepo.set(repo, entries);
   }
   return [...byRepo.values()].flatMap((entries) =>
-    [...entries]
+    entries
       .sort((left, right) => createdAtMillis(right) - createdAtMillis(left))
       .slice(keep)
       .map((entry) => entry.name),
@@ -225,7 +222,7 @@ export function pruneDependencyCaches(runner: CommandRunner, log: (message: stri
     const names = listVolumesByPrefix(runner, dependencyCachePrefix()).filter((name) => dependencyCacheRepo(name) !== undefined);
     stale = staleDependencyCaches(inspectCreatedAt(runner, names), keep);
   } catch (cause) {
-    report.failures.push(`listing dependency caches failed: ${messageOf(cause).slice(0, 200)}`);
+    report.failures.push(`listing dependency caches failed: ${shortMessageOf(cause)}`);
     return report;
   }
   for (const name of stale) {
@@ -234,7 +231,7 @@ export function pruneDependencyCaches(runner: CommandRunner, log: (message: stri
       removeVolume(runner, name);
       report.removed.push(name);
     } catch (cause) {
-      report.failures.push(`docker volume rm ${name} failed: ${messageOf(cause).slice(0, 200)}`);
+      report.failures.push(`docker volume rm ${name} failed: ${shortMessageOf(cause)}`);
     }
   }
   return report;

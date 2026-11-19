@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { CommandFailure } from "../../src/real/commandRunner.js";
 import { RecordingCommandRunner } from "../../src/real/fakeCommandRunner.js";
 import {
+  bootstrapAfterInstall,
   dependencyCacheKey,
   DependencyCaches,
   planDependencyCache,
   pruneDependencyCaches,
-  splitInstallStep,
   staleDependencyCaches,
   type DependencyCachePlan,
 } from "../../src/real/dependencyCache.js";
@@ -71,15 +71,12 @@ describe("dependency cache key", () => {
 
 describe("dependency cache plan", () => {
   it("splits only an exact leading npm ci and keeps the rest of the bootstrap", () => {
-    expect(splitInstallStep("npm ci")).toEqual({ install: "npm ci", remainder: "" });
-    expect(splitInstallStep(" npm ci && npm run build && npx prisma generate")).toEqual({
-      install: "npm ci",
-      remainder: "npm run build && npx prisma generate",
-    });
-    expect(splitInstallStep("npm ci --ignore-scripts")).toBeUndefined();
-    expect(splitInstallStep("npm install")).toBeUndefined();
-    expect(splitInstallStep("pnpm install --frozen-lockfile")).toBeUndefined();
-    expect(splitInstallStep("npm ci; npm run build")).toBeUndefined();
+    expect(bootstrapAfterInstall("npm ci")).toBe("");
+    expect(bootstrapAfterInstall(" npm ci && npm run build && npx prisma generate")).toBe("npm run build && npx prisma generate");
+    expect(bootstrapAfterInstall("npm ci --ignore-scripts")).toBeUndefined();
+    expect(bootstrapAfterInstall("npm install")).toBeUndefined();
+    expect(bootstrapAfterInstall("pnpm install --frozen-lockfile")).toBeUndefined();
+    expect(bootstrapAfterInstall("npm ci; npm run build")).toBeUndefined();
   });
 
   it("caches a plain npm ci repo and carries the remainder", () => {
