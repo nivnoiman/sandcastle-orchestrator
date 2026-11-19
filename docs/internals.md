@@ -675,8 +675,47 @@ chosen by `verify.strategy` in the config.
   integration branch. It runs each repo's `bootstrap`, then `verify.commands[<repo>]`
   (default: that repo's `checks`), then the verify agent against the result. With
   `verify.agent: false` no agent runs and the green commands are the report.
+  Each repo's `npm ci` goes through the [Dependency Cache](#dependency-cache).
 - **`compose`**: a throwaway docker network with one served build per repo, an optional
   local mongo, and the verify agent driving the live services. Described below.
+
+### Dependency Cache
+
+`src/real/dependencyCache.ts`. Every `command` attempt (first run and every re-verify
+after a fix round) gets a fresh container, so without a cache each one paid a full
+`npm ci`. Now each repo's installed `node_modules` is kept in a named docker volume
+`sc-<project>-deps-<repo>-<key>`, where `<key>` is the first 12 hex of a sha256 over the
+image id (`docker image inspect`), the install command, the dependency fields of
+`package.json` (`dependencies`, `devDependencies`, `optionalDependencies`,
+`peerDependencies`, `overrides`), the lockfile (`npm-shrinkwrap.json`, else
+`package-lock.json`) and the repo's `.npmrc` (if any). The key is read from the host worktree before the container
+starts, so the volume is mounted at `/home/agent/dependency-cache/<repo>` from the start.
+
+- **When it applies**: `bootstrap` starts with exactly `npm ci` (as its own `&&` step), the
+  repo has a lockfile, no npm `workspaces` (only the root `node_modules` is cached) and, unless
+  `repos.<name>.cacheDependencies` is `true`, no root `preinstall`/`install`/`postinstall`/`prepare`
+  script (a hit would skip it). `cacheDependencies: false` turns it off. Anything else runs
+  the bootstrap exactly as before and logs why the cache is off.
+- **Hit** (the volume holds `.sandcastle-complete`): `cp -a` the cached `node_modules` into
+  the copied source, skip `npm ci`, then run the rest of the bootstrap (`npm ci && X` still
+  runs `X`). A failed restore falls back to the full bootstrap.
+  Log: `[feature-verify] platform dependencies cache hit 1a2b3c4d5e6f`.
+- **Miss**: the full bootstrap runs, then `node_modules` is copied into a per-container
+  staging dir in the volume, moved into place, and the marker is written last, so a run
+  killed mid-save leaves no marker and the next attempt treats it as a miss. A second run
+  that finds the marker already written (before or after its staging copy) skips its save.
+  A failed save, or a failed mount prep (`mkdir`/`chown`), only warns.
+- **GC**: after each save and in the startup GC (`collectOrphans`), only the newest
+  `DEPENDENCY_CACHE_KEEP` (2) caches per project + repo, by volume creation time, are
+  kept. A cache mounted by a live container cannot be removed; docker refuses, and that is
+  reported as a GC warning, never forced. `sandcastle reset` reaches the same GC.
+- **Not covered**: the `compose` strategy builds in a bind-mounted worktree with the
+  service's own `build` command, and per-item stage containers (develop, review, the verify
+  gate) bootstrap through `DockerSandboxRunner.bootstrap` with `node_modules` on anonymous
+  volumes or in a clean copy. Both could reuse `DependencyCaches` (plan before
+  `startContainer`, add `volumes()`, route bootstrap through it), but the stage path runs in
+  bind and copy modes with agents that may change the lockfile mid-stage, so it is left to a
+  separate change.
 
 ### The compose environment
 

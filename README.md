@@ -132,6 +132,7 @@ A multi-repo example with a compose verify environment is in [`examples/demo/.sa
 | `repos.<name>.github` | required | `owner/name`. `<name>` is what the `repo:<name>` label says. |
 | `repos.<name>.path` | `.` for the hub repo, else `../<name>` | Local checkout, relative to the project root |
 | `repos.<name>.bootstrap` | none | Runs in every agent container before work (`npm ci`, `pnpm install ...`) |
+| `repos.<name>.cacheDependencies` | auto | Dependency Cache for Feature Verify (`command` strategy). Auto: on when `bootstrap` starts with exactly `npm ci` and the repo has a `package-lock.json`, no npm workspaces and no root install scripts. `false` turns it off; `true` also allows root `preinstall`/`install`/`postinstall`/`prepare` scripts (they are skipped on a hit). See [Dependency Cache](docs/internals.md#dependency-cache) |
 | `repos.<name>.checks` | required | The per-item gate. Must be green before an item merges. Also the default for the verify gate's command list below. |
 | `repos.<name>.stageChecks` | none | Ordered commands per stage, run before that stage's work is pushed, see [Stage checks](#stage-checks) |
 | `verify` | `{ "strategy": "none" }` | Feature Verify strategy, see below |
@@ -225,7 +226,7 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 | `verify.strategy` | What runs once every item merged |
 |---|---|
 | `none` | Nothing. The report says only the per-item gates ran. The integration pull request still opens. |
-| `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red: fix rounds. Green: a fresh agent checks every acceptance criterion against the built code (Playwright and Chromium are in the image). `"agent": false` skips the agent; the green commands are the report. |
+| `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red: fix rounds. Green: a fresh agent checks every acceptance criterion against the built code (Playwright and Chromium are in the image). `"agent": false` skips the agent; the green commands are the report. Installed `node_modules` are reused across attempts and fix rounds through the Dependency Cache (`cacheDependencies`). |
 | `compose` | A throwaway Docker network with an optional fresh `mongo` (`"mongo": true` or an image) and every repo built and served (`services.<repo>`: `build`, `seed`, `serve`, `port`, `healthPath`, `env`). `env` values expand `{{port}}`, `{{mongoUri}}`, `{{mongoDb}}`, `{{url:<repo>}}`. The agent drives APIs over HTTP and UIs with Playwright. Scenarios that need a provider in `externalProviders` are marked `REQUIRES-STG` for a human. Every mongo URI in the env must point at the local container or verify refuses to start. |
 
 **Recheck (command strategy).** `verify.recheck.<repo>` is an optional cheaper command for a re-verify after a fix round. It runs with `SANDCASTLE_RECHECK_BASE` set to a commit holding the repo as it was at its last green verify, so the command can test only what the fix round changed:

@@ -13,6 +13,7 @@ import { runVerifyAgent } from "./verifyAgent.js";
 import { modeLabel, rawArchiveArgs, selectVerifyMode, seedRecheckHistoryCommand, withRecheckBase, type RecheckLedger, type VerifyCommandMode } from "./recheck.js";
 import { resolveAgent } from "../agents/index.js";
 import type { AttemptLogStore } from "../attemptLog.js";
+import { DependencyCaches } from "../dependencyCache.js";
 import {
   claimVerifyWorktree,
   COMPOSE_OUTPUT_TAIL,
@@ -98,6 +99,7 @@ export class CommandVerifyHarness implements VerifyHarness {
       sourcePath: `${SOURCE_MOUNT_ROOT}/${repo}`,
     }));
     const worktrees = services.map((service) => ({ service, repo: service.repo, path: this.claimWorktree(service.repo, service.ref) }));
+    const caches = this.dependencyCaches(worktrees);
 
     const container = stageContainerName("fvcheck", this.deps.parentNumber, this.stamp());
     const env: Record<string, string> = { SANDCASTLE_REPORT_PATH: CONTAINER_REPORT_PATH, JEST_MAX_WORKERS: this.deps.config.jestWorkers };
@@ -118,13 +120,15 @@ export class CommandVerifyHarness implements VerifyHarness {
               ...provider.homeMounts(this.deps.layout),
             ],
             envFile,
+            volumes: caches.volumes(),
           }),
         ),
       () => removeContainer(this.deps.runner, container),
     );
     this.container = container;
+    caches.claimMounts(container);
 
-    for (const entry of worktrees) await this.verifyRepo(entry.service, strategy, entry.path, scratch);
+    for (const entry of worktrees) await this.verifyRepo(entry.service, strategy, entry.path, scratch, caches, container);
 
     return {
       network: "",
@@ -158,10 +162,9 @@ export class CommandVerifyHarness implements VerifyHarness {
     tearDown(this.disposables, this.deps.log);
   }
 
-  private async verifyRepo(service: ComposeService, strategy: CommandVerify, worktree: string, scratch: string): Promise<void> {
+  private async verifyRepo(service: ComposeService, strategy: CommandVerify, worktree: string, scratch: string, caches: DependencyCaches, container: string): Promise<void> {
     const repo = service.repo;
     const fullCommand = strategy.commands[repo] ?? checkCommand(this.deps.config, repo);
-    const bootstrap = perRepoValue(this.deps.config.bootstrapCommands, repo, "bootstrap command").trim();
     const head = this.hostGit(worktree, ["rev-parse", "HEAD"])?.trim() || undefined;
     const selected = selectVerifyMode({
       recheck: strategy.recheck[repo],
@@ -172,7 +175,7 @@ export class CommandVerifyHarness implements VerifyHarness {
 
     await this.exec(copySourceCommand(repo), `${repo} copy integration branch`);
     const mode = await this.seedRecheckHistory(service, selected, worktree, scratch);
-    if (bootstrap) await this.exec(`cd ${service.sourcePath} && ${bootstrap}`, `${repo} bootstrap`);
+    await caches.bootstrap(container, repo, service.sourcePath, this.bootstrapOf(repo), (shell, step) => this.exec(shell, step));
 
     if (mode.kind === "skip") {
       this.deps.log(`[feature-verify] ${modeLabel(repo, mode)}`);
@@ -249,6 +252,22 @@ export class CommandVerifyHarness implements VerifyHarness {
       `${repo} has work items in this run but no ${this.deps.integrationBranch} on origin — feature verify refuses to ` +
         `check origin/${integrationBase()} and call the result the feature.`,
     );
+  }
+
+  private bootstrapOf(repo: TargetRepo): string {
+    return perRepoValue(this.deps.config.bootstrapCommands, repo, "bootstrap command").trim();
+  }
+
+  private dependencyCaches(worktrees: readonly { repo: TargetRepo; path: string }[]): DependencyCaches {
+    const caches = new DependencyCaches({
+      runner: this.deps.runner,
+      fs: this.deps.fs,
+      image: this.deps.config.imageTag,
+      settings: this.deps.config.cacheDependencies,
+      log: this.deps.log,
+    });
+    for (const entry of worktrees) caches.plan(entry.repo, entry.path, this.bootstrapOf(entry.repo));
+    return caches;
   }
 
   private claimWorktree(repo: TargetRepo, ref: string): string {
