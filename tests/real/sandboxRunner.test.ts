@@ -207,6 +207,13 @@ describe("container composition", () => {
     expect(command).toContain("--no-preserve=ownership");
   });
 
+  it("marks the container workspace trusted so claude -p honours settings and exits clean", () => {
+    const command = hydrateHomeCommand();
+    expect(command).toContain("hasTrustDialogAccepted:true");
+    expect(command).toContain("/home/agent/workspace");
+    expect(command.indexOf("hasTrustDialogAccepted")).toBeGreaterThan(command.indexOf("/home/agent/.claude-host.json"));
+  });
+
   it("copies only the entries an agent needs, so a 16 MB host home does not ride into every container", () => {
     const command = hydrateHomeCommand();
     expect([...HYDRATE_COPIED_ENTRIES]).toEqual([
