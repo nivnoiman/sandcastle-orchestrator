@@ -13,6 +13,7 @@ const CACHED_DIRECTORY = "node_modules";
 const CACHE_COMPLETE_MARKER = ".sandcastle-complete";
 const CACHEABLE_INSTALL = "npm ci";
 const NPM_LOCKFILES = ["npm-shrinkwrap.json", "package-lock.json"] as const;
+const NPM_PROJECT_CONFIG = ".npmrc";
 const ROOT_INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "prepare"] as const;
 const MANIFEST_DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "overrides"] as const;
 const KEY_LENGTH = 12;
@@ -22,6 +23,7 @@ export interface DependencyCacheKeyInput {
   install: string;
   manifestDependencies: string;
   lockfile: string;
+  npmConfig: string;
 }
 
 export interface DependencyCachePlan {
@@ -58,7 +60,7 @@ export function bootstrapAfterInstall(bootstrap: string): string | undefined {
 
 export function dependencyCacheKey(input: DependencyCacheKeyInput): string {
   return createHash("sha256")
-    .update(JSON.stringify([input.imageId, input.install, input.manifestDependencies, input.lockfile]))
+    .update(JSON.stringify([input.imageId, input.install, input.manifestDependencies, input.lockfile, input.npmConfig]))
     .digest("hex")
     .slice(0, KEY_LENGTH);
 }
@@ -71,8 +73,12 @@ function dependencyCacheVolumeName(repo: TargetRepo, key: string): string {
   return `${dependencyCachePrefix()}${repo}-${key}`;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function dependencyCacheRepo(name: string): TargetRepo | undefined {
-  const match = new RegExp(`^${dependencyCachePrefix()}([a-z0-9][a-z0-9-]*)-[0-9a-f]{${KEY_LENGTH}}$`).exec(name);
+  const match = new RegExp(`^${escapeRegExp(dependencyCachePrefix())}([a-z0-9][a-z0-9-]*)-[0-9a-f]{${KEY_LENGTH}}$`).exec(name);
   return match?.[1];
 }
 
@@ -128,6 +134,7 @@ export function planDependencyCache(input: PlanInput): DependencyCacheDecision {
     install: CACHEABLE_INSTALL,
     manifestDependencies: manifestDependencies(manifest),
     lockfile,
+    npmConfig: input.fs.readText(join(input.worktree, NPM_PROJECT_CONFIG)) ?? "",
   });
   return {
     kind: "cache",
@@ -148,10 +155,12 @@ function restoreCommand(plan: DependencyCachePlan, sourcePath: string): string {
 function saveCommand(plan: DependencyCachePlan, sourcePath: string): string {
   const cache = plan.mountPath;
   const staging = `${cache}/.staging-$(hostname)`;
+  const skipIfSaved = `if [ -f ${cache}/${CACHE_COMPLETE_MARKER} ]; then rm -rf ${staging}; exit 0; fi`;
   return [
-    `if [ -f ${cache}/${CACHE_COMPLETE_MARKER} ]; then exit 0; fi`,
+    skipIfSaved,
     `rm -rf ${staging}`,
     `cp -a ${sourcePath}/${CACHED_DIRECTORY} ${staging}`,
+    skipIfSaved,
     `rm -rf ${cache}/${CACHED_DIRECTORY}`,
     `mv ${staging} ${cache}/${CACHED_DIRECTORY}`,
     `touch ${cache}/${CACHE_COMPLETE_MARKER}`,
@@ -275,7 +284,12 @@ export class DependencyCaches {
 
   claimMounts(container: string): void {
     if (this.plans.size === 0) return;
-    execAsRoot(this.deps.runner, container, claimCacheMountsCommand([...this.plans.values()]));
+    try {
+      execAsRoot(this.deps.runner, container, claimCacheMountsCommand([...this.plans.values()]));
+    } catch (cause) {
+      this.deps.log(`[feature-verify][warn] dependency cache mounts could not be prepared, installing without the cache: ${messageOf(cause)}`);
+      this.plans.clear();
+    }
   }
 
   async bootstrap(container: string, repo: TargetRepo, sourcePath: string, bootstrap: string, exec: ExecStep): Promise<void> {

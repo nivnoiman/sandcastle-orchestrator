@@ -687,8 +687,8 @@ after a fix round) gets a fresh container, so without a cache each one paid a fu
 `sc-<project>-deps-<repo>-<key>`, where `<key>` is the first 12 hex of a sha256 over the
 image id (`docker image inspect`), the install command, the dependency fields of
 `package.json` (`dependencies`, `devDependencies`, `optionalDependencies`,
-`peerDependencies`, `overrides`) and the lockfile (`npm-shrinkwrap.json`, else
-`package-lock.json`). The key is read from the host worktree before the container
+`peerDependencies`, `overrides`), the lockfile (`npm-shrinkwrap.json`, else
+`package-lock.json`) and the repo's `.npmrc` (if any). The key is read from the host worktree before the container
 starts, so the volume is mounted at `/home/agent/dependency-cache/<repo>` from the start.
 
 - **When it applies**: `bootstrap` starts with exactly `npm ci` (as its own `&&` step), the
@@ -703,7 +703,8 @@ starts, so the volume is mounted at `/home/agent/dependency-cache/<repo>` from t
 - **Miss**: the full bootstrap runs, then `node_modules` is copied into a per-container
   staging dir in the volume, moved into place, and the marker is written last, so a run
   killed mid-save leaves no marker and the next attempt treats it as a miss. A second run
-  that finds the marker already written skips its save. A failed save only warns.
+  that finds the marker already written (before or after its staging copy) skips its save.
+  A failed save, or a failed mount prep (`mkdir`/`chown`), only warns.
 - **GC**: after each save and in the startup GC (`collectOrphans`), only the newest
   `DEPENDENCY_CACHE_KEEP` (2) caches per project + repo, by volume creation time, are
   kept. A cache mounted by a live container cannot be removed; docker refuses, and that is

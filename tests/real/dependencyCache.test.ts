@@ -19,7 +19,7 @@ import { FakeWorktrees, verifyWorktree } from "./featureVerify/support.js";
 const WORKTREE = join("W:", "wt", "api");
 const MANIFEST = JSON.stringify({ name: "api", dependencies: { express: "^5.0.0" } });
 const LOCKFILE = '{"lockfileVersion":3}';
-const KEY_INPUT = { imageId: "sha256:img", install: "npm ci", manifestDependencies: "[]", lockfile: LOCKFILE };
+const KEY_INPUT = { imageId: "sha256:img", install: "npm ci", manifestDependencies: "[]", lockfile: LOCKFILE, npmConfig: "" };
 
 function worktreeFs(files: Record<string, string> = {}) {
   return fsWith({ [join(WORKTREE, "package.json")]: MANIFEST, [join(WORKTREE, "package-lock.json")]: LOCKFILE, ...files });
@@ -49,17 +49,22 @@ describe("dependency cache key", () => {
     expect(dependencyCacheKey(KEY_INPUT)).toMatch(/^[0-9a-f]{12}$/);
   });
 
-  it("changes with the lockfile, the image, the install command or the manifest's dependencies", () => {
+  it("changes with the lockfile, the image, the install command, the manifest's dependencies or .npmrc", () => {
     const base = dependencyCacheKey(KEY_INPUT);
     expect(dependencyCacheKey({ ...KEY_INPUT, lockfile: '{"lockfileVersion":2}' })).not.toBe(base);
     expect(dependencyCacheKey({ ...KEY_INPUT, imageId: "sha256:other" })).not.toBe(base);
     expect(dependencyCacheKey({ ...KEY_INPUT, install: "npm install" })).not.toBe(base);
     expect(dependencyCacheKey({ ...KEY_INPUT, manifestDependencies: '[{"a":"1"}]' })).not.toBe(base);
+    expect(dependencyCacheKey({ ...KEY_INPUT, npmConfig: "legacy-peer-deps=true" })).not.toBe(base);
   });
 
   it("ignores manifest fields that cannot change node_modules", () => {
     const scripted = JSON.stringify({ name: "api", version: "9.9.9", scripts: { test: "jest" }, dependencies: { express: "^5.0.0" } });
     expect(cachedPlan({ fs: worktreeFs({ [join(WORKTREE, "package.json")]: scripted }) }).key).toBe(cachedPlan().key);
+  });
+
+  it("reads the repo's .npmrc into the key", () => {
+    expect(cachedPlan({ fs: worktreeFs({ [join(WORKTREE, ".npmrc")]: "omit=dev\n" }) }).key).not.toBe(cachedPlan().key);
   });
 
   it("names the volume per project, repo and key", () => {
@@ -171,6 +176,20 @@ describe("dependency cache bootstrap", () => {
 
     expect(executed).toContain("cd /src/api && npm ci && npm run build");
     expect(logs.some((line) => line.includes("restore failed, installing instead"))).toBe(true);
+  });
+
+  it("drops the cache and installs normally when the mounts cannot be prepared", async () => {
+    const runner = new RecordingCommandRunner();
+    runner.fail("chown agent:agent", new CommandFailure("docker", ["exec"], 1, "", "chown: denied"));
+    const logs: string[] = [];
+    const executed: string[] = [];
+    const subject = caches(runner, logs);
+
+    subject.claimMounts("box");
+    await subject.bootstrap("box", "api", "/src/api", "npm ci && npm run build", recordExec(executed));
+
+    expect(logs.some((line) => line.includes("mounts could not be prepared"))).toBe(true);
+    expect(executed).toEqual(["cd /src/api && npm ci && npm run build"]);
   });
 
   it("runs the bootstrap untouched for a repo without a plan", async () => {
