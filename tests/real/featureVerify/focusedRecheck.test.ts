@@ -53,6 +53,11 @@ describe("planRecheck", () => {
     expect(planRecheck("- PASS — a — ok", 1, undefined)).toBeUndefined();
   });
 
+  it("keeps hyphenated scenario names distinct when the verdict separator is a dash", () => {
+    const plan = planRecheck("- FAIL — signup - invalid email — 500\n- FAIL — signup - weak password — 500", 1, undefined);
+    expect(plan?.recheck.map((scenario) => scenario.key)).toEqual(["signup - invalid email", "signup - weak password"]);
+  });
+
   it("re-checks a scenario that appears twice when either line failed", () => {
     const plan = planRecheck("- PASS — a — ok\n- FAIL — a — broke", 1, undefined);
     expect(plan?.recheck.map((scenario) => scenario.key)).toEqual(["a"]);

@@ -20,7 +20,8 @@ export interface FeatureRecheck {
   fixSummary: string | undefined;
 }
 
-const NAME_END = /[ \t]+[—–|][ \t]+|[ \t]+-[ \t]+/;
+const NAME_END = /[ \t]+[—–|][ \t]+/;
+const HYPHEN_NAME_END = /[ \t]+-[ \t]+/;
 const DECORATION = /[*_`~]/g;
 const CARRIED_PREFIX = /^\[carried over\][ \t]*/i;
 
@@ -32,7 +33,7 @@ function scenarioKey(name: string): string {
 
 function priorScenario(scenario: ScenarioLine): PriorScenario | undefined {
   const body = scenario.text;
-  const end = NAME_END.exec(body);
+  const end = NAME_END.exec(body) ?? HYPHEN_NAME_END.exec(body);
   const name = (end ? body.slice(0, end.index) : body).trim();
   const key = scenarioKey(name);
   if (key.length === 0) return undefined;

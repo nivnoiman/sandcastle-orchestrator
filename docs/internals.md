@@ -844,8 +844,9 @@ report: every prior PASS / REQUIRES-STG the agent did not re-report, each marked
 and the next brief all read the merged report, so totals stay whole. The first Feature
 Verify of a run, a re-verify after a crash-resume (no report in memory), a previous
 report with no readable FAIL lines, and `SANDCASTLE_FEATURE_RECHECK=full` all run the full
-review. A focused report with no scenario lines is not merged, so it stays red. The chip reads "fixing · fix round N/L" while a
-round runs, and `sandcastle finish` refuses until it settles.
+review. A focused report with no scenario lines is not merged, so it stays red.
+
+The chip reads "fixing · fix round N/L" while a round runs, and `sandcastle finish` refuses until it settles.
 
 ## Polish
 
