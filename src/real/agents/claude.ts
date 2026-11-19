@@ -1,6 +1,6 @@
 import { MODEL_NAME } from "../../project/agentsConfig.js";
 import { classifyAgentOutput } from "../agentFailure.js";
-import type { Mount } from "../docker.js";
+import { SANDBOX_WORKDIR, type Mount } from "../docker.js";
 import { agentAuthEnv } from "../env.js";
 import { claudeJsonPath, CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
 import { containerSkillPath, REQUIRED_SKILLS, tarCopyCommand } from "../skills.js";
@@ -36,6 +36,16 @@ export function requiredSkillChecks(): string[] {
   return REQUIRED_SKILLS.map((skill) => `test -f ${containerSkillPath(skill)}`);
 }
 
+const TRUST_WORKSPACE_SCRIPT = [
+  `const fs=require("fs"),f=${JSON.stringify(`${CONTAINER_HOME}/.claude.json`)},c=JSON.parse(fs.readFileSync(f,"utf8"));`,
+  `const w=${JSON.stringify(SANDBOX_WORKDIR)};c.projects=c.projects||{};c.projects[w]={...c.projects[w],hasTrustDialogAccepted:true};`,
+  `fs.writeFileSync(f,JSON.stringify(c));`,
+].join("");
+
+export function trustWorkspaceCommand(): string {
+  return `node -e '${TRUST_WORKSPACE_SCRIPT}'`;
+}
+
 export function hydrateHomeCommand(): string {
   return [
     "set -o pipefail",
@@ -43,6 +53,7 @@ export function hydrateHomeCommand(): string {
     `mkdir -p ${CONTAINER_HOME}/.claude`,
     tarCopyCommand(HOST_CLAUDE_DIR, HYDRATE_COPIED_ENTRIES, `${CONTAINER_HOME}/.claude`),
     `cp -a --no-preserve=ownership ${HOST_CLAUDE_JSON} ${CONTAINER_HOME}/.claude.json`,
+    trustWorkspaceCommand(),
     `git config --global core.autocrlf ${CONTAINER_AUTOCRLF}`,
     ...requiredSkillChecks(),
   ].join(" && ");
