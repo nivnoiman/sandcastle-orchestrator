@@ -35,6 +35,8 @@ sandcastle enqueue | queue | pause | resume | stop <parent> | cap <N>
    | missing or outdated agent skill | `sandcastle skills install` |
    | stale agent home or dead agent credentials | `sandcastle sync-claude <source ~/.claude>`, or log in to Claude Code again |
 
+   Not a preflight failure, but worth one line to the Operator: with `verify.strategy: "command"` and no `verify.recheck` in `.sandcastle/config.json`, every Feature Verify re-run after a fix round runs the full verify command. Suggest a recheck (README, Recheck); never edit the config yourself.
+
 4. **Launch.** `sandcastle launch <parent> --cap=N`. Run Cap 2 is usual; 1 when the usage window is nearly spent. Idempotent: an in-flight Run is reported, not duplicated. Several parents: `launch <a> <b>` queues them; the next starts when the one before it has settled.
 5. **Open the Board View.** `sandcastle dashboard --open [--run=N]` from the project root. It opens the browser on this Project (and Run) once it is a Known Project. Tell the Operator it is open.
 6. **Watch, slowly.** Poll `sandcastle status` every few minutes, not seconds; a Run takes hours. Between polls, do nothing.

@@ -46,6 +46,7 @@ export interface NoVerify {
 export interface CommandVerify {
   strategy: "command";
   commands: Record<string, string>;
+  recheck: Record<string, string>;
   agent: boolean;
 }
 
@@ -209,20 +210,31 @@ function parseTracker(raw: unknown): TrackerKind {
   throw new Error(`tracker must be "github" or "local", got ${JSON.stringify(raw)}`);
 }
 
+function perRepoCommands(
+  raw: Json,
+  key: string,
+  repos: Record<string, RepoConfig>,
+  dropHint: (repo: string) => string,
+): Record<string, string> {
+  const commands = stringMap(raw[key], `verify.${key}`);
+  for (const [repo, command] of Object.entries(commands)) {
+    if (!repos[repo]) throw new Error(`verify.${key}.${repo} names a repo that is not under repos`);
+    if (command.trim().length === 0) throw new Error(`verify.${key}.${repo} is empty — drop it ${dropHint(repo)}`);
+  }
+  return commands;
+}
+
 function parseVerify(raw: unknown, repos: Record<string, RepoConfig>): VerifyStrategy {
   if (raw === undefined) return { strategy: "none" };
   if (!isObject(raw)) throw new Error("verify must be an object");
   const strategy = raw["strategy"];
   if (strategy === "none") return { strategy };
   if (strategy === "command") {
-    const commands = stringMap(raw["commands"], "verify.commands");
-    for (const [repo, command] of Object.entries(commands)) {
-      if (!repos[repo]) throw new Error(`verify.commands.${repo} names a repo that is not under repos`);
-      if (command.trim().length === 0) throw new Error(`verify.commands.${repo} is empty — drop it to fall back to repos.${repo}.checks`);
-    }
+    const commands = perRepoCommands(raw, "commands", repos, (repo) => `to fall back to repos.${repo}.checks`);
+    const recheck = perRepoCommands(raw, "recheck", repos, () => "to always run the full verify command");
     const agent = raw["agent"] ?? true;
     if (typeof agent !== "boolean") throw new Error("verify.agent must be true or false");
-    return { strategy, commands, agent };
+    return { strategy, commands, recheck, agent };
   }
   if (strategy === "compose") {
     const rawServices = raw["services"];

@@ -9,6 +9,7 @@ import { AttemptLogStore } from "./attemptLog.js";
 import type { AuthRecheck } from "./authHold.js";
 import { controlPlaneHost, type ControlPlaneHost, type ControlPlaneOptions } from "./controlPlane.js";
 import { createVerifyHarness } from "./featureVerify/verifyStrategy.js";
+import { RecheckLedger } from "./featureVerify/recheck.js";
 import type { FeatureFixBrief, FeatureRound } from "./featureVerify/featureBrief.js";
 import { FEATURE_FIX_STAGE, runFeatureFix, runFeatureVerifyLoop } from "./featureVerify/featureRework.js";
 import type { FeatureRecheck } from "./featureVerify/focusedRecheck.js";
@@ -181,6 +182,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       }
       verifyStatus = idleFeatureVerify("running");
       const verifyModel = context.runModel();
+      const recheckLedger = new RecheckLedger();
       const verifyRound = (round: FeatureRound, recheck: FeatureRecheck | undefined) =>
         runFeatureVerify({
           harness: createVerifyHarness({
@@ -195,6 +197,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
             integrationBranch: model.integrationBranch,
             involvedRepos: involvedRepos(verifyModel),
             log,
+            recheckLedger,
           }),
           gh: bundle.gh,
           model: verifyModel,

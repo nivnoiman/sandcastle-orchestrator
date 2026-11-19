@@ -13,6 +13,9 @@ import {
   firstFreePort,
   guessRepoCommands,
   hubFromRemote,
+  recheckSuggestionLines,
+  repoNameFrom,
+  suggestRecheck,
   STATE_GITIGNORE,
 } from "../project/scaffold.js";
 import { ORCHESTRATOR_ENV_FILE } from "../real/env.js";
@@ -152,7 +155,8 @@ const tracker = await chooseTracker();
 if (tracker === "local" && flag("hub") !== undefined) fail("--hub only applies to --tracker=github");
 const hubRepo = tracker === "github" ? detectHub(root) : undefined;
 const manager = detectPackageManager((name) => existsSync(join(root, name)));
-const commands = guessRepoCommands(manager, packageScripts(root), existsSync(join(root, ".yarnrc.yml")));
+const scripts = packageScripts(root);
+const commands = guessRepoCommands(manager, scripts, existsSync(join(root, ".yarnrc.yml")));
 const port = await choosePort();
 const config =
   hubRepo === undefined
@@ -187,6 +191,8 @@ console.log(
 );
 console.log(`  2. put SAFE dev values in ${join(folder, ".env.sandbox")} (an empty file is fine)`);
 console.log(`  3. review bootstrap + checks in ${CONFIG_HINT}${manager === undefined ? " — no lockfile found, checks is a placeholder that fails" : ""}`);
+const repoName = repoNameFrom(hubRepo ?? `local/${basename(root)}`);
+for (const line of recheckSuggestionLines(repoName, suggestRecheck(manager, scripts))) console.log(line);
 console.log(`  4. commit ${CONFIG_HINT}, ${PROJECT_FOLDER}/.gitignore and docs/agents/issue-tracker.md`);
 console.log(
   tracker === "local"

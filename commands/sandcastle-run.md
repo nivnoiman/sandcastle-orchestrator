@@ -11,7 +11,7 @@ Checklist, from the project root (the folder that holds `.sandcastle/`):
 
 1. `sandcastle dashboard --detach`
 2. `sandcastle validate <parent>`. Report held Items that block the rest.
-3. `sandcastle preflight <parent>` until green. Never launch on red.
+3. `sandcastle preflight <parent>` until green. Never launch on red. If `verify.strategy` is `command` with no `verify.recheck`, tell the Operator fix-round re-verifies will run the full verify command (README, Recheck).
 4. `sandcastle launch <parent> --cap=2`
 5. `sandcastle dashboard --open` so the Operator sees the Board View.
 6. Poll `sandcastle status` every few minutes. Between polls, do nothing.

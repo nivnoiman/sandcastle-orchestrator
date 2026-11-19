@@ -73,7 +73,7 @@ sandcastle init                       # asks where issues live; or: sandcastle i
 `init` asks which [Tracker](#local-tracker) the project uses (`--tracker=local|github` skips the question; without a terminal it picks `github`) and writes `docs/agents/issue-tracker.md` naming it. For `github` it detects the hub repo (`gh repo view`, then the `origin` remote). With `local` there is no hub repo, no `gh` and no `GH_TOKEN`. It also detects the package manager and the `typecheck`, `test` and `build` scripts. It picks the first free port from 7777.
 
 3. Tokens: put a fine-grained `GH_TOKEN` in `.sandcastle/.env.orchestrator` (not needed with the [local Tracker](#local-tracker)), and safe dev values in `.sandcastle/.env.sandbox` (an empty file is fine). Log in the agent CLI ([Agent login](#agent-login)).
-4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`.
+4. Review `bootstrap` and `checks` in `.sandcastle/config.json`, then commit it and `.sandcastle/.gitignore`. `init` also prints an opt-in `verify.recheck` line (for a `jest` or `vitest` test script: your tests limited to files changed since `$SANDCASTLE_RECHECK_BASE`). Add it to make Feature Verify re-runs after a fix round cheaper, see [Recheck](#feature-verify-strategies).
 5. Start the dashboard: `sandcastle dashboard --detach`
 6. Publish an Orchestration Issue (see [Publish contract](#publish-contract)), then ask your agent: **"run sandcastle on #N"**. The `sandcastle-run` skill (the Orchestrator Agent) starts the dashboard, validates, preflights, launches, opens the Board View, watches and reports.
 
@@ -227,6 +227,24 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 | `none` | Nothing. The report says only the per-item gates ran. The integration pull request still opens. |
 | `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red: fix rounds. Green: a fresh agent checks every acceptance criterion against the built code (Playwright and Chromium are in the image). `"agent": false` skips the agent; the green commands are the report. |
 | `compose` | A throwaway Docker network with an optional fresh `mongo` (`"mongo": true` or an image) and every repo built and served (`services.<repo>`: `build`, `seed`, `serve`, `port`, `healthPath`, `env`). `env` values expand `{{port}}`, `{{mongoUri}}`, `{{mongoDb}}`, `{{url:<repo>}}`. The agent drives APIs over HTTP and UIs with Playwright. Scenarios that need a provider in `externalProviders` are marked `REQUIRES-STG` for a human. Every mongo URI in the env must point at the local container or verify refuses to start. |
+
+**Recheck (command strategy).** `verify.recheck.<repo>` is an optional cheaper command for a re-verify after a fix round. It runs with `SANDCASTLE_RECHECK_BASE` set to a commit holding the repo as it was at its last green verify, so the command can test only what the fix round changed:
+
+```json
+"verify": {
+  "strategy": "command",
+  "recheck": {
+    "api": "npx tsc -p tsconfig.ci.json && npx jest --changedSince=$SANDCASTLE_RECHECK_BASE",
+    "web": "npx tsc -b && npx vitest run --changed $SANDCASTLE_RECHECK_BASE"
+  }
+}
+```
+
+- The first Feature Verify of a run always runs the full command (`verify.commands.<repo>` or `checks`).
+- A re-verify runs the recheck only for a repo whose command was green last round and whose last green commit is still an ancestor of the integration head. Otherwise it runs the full command.
+- A repo with a recheck that the fix round did not change skips its command. Bootstrap still runs so the verify agent sees the code.
+- The feed names the mode: `[feature-verify] api verify command (affected since <sha>)`, `(full: <reason>)` or `skipped (unchanged since <sha>, green last round)`.
+- The container copy has no git history of its own. sandcastle seeds a two-commit history (last green tree, then the integration head) so `--changedSince` style flags work. Files the bootstrap writes that are not gitignored count as changed.
 
 ## Files in `.sandcastle/`
 

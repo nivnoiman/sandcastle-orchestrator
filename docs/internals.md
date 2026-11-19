@@ -848,6 +848,36 @@ review. A focused report with no scenario lines is not merged, so it stays red.
 
 The chip reads "fixing · fix round N/L" while a round runs, and `sandcastle finish` refuses until it settles.
 
+### Recheck
+
+A re-verify after a fix round can run `verify.recheck[<repo>]` (command strategy only)
+instead of the full verify command. `startRealRun` creates one `RecheckLedger`
+(`src/real/featureVerify/recheck.ts`) per Feature Verify loop and hands it to every
+round's `CommandVerifyHarness`. The ledger maps each repo to the integration head sha it
+last verified and whether that command was green. A crash-resumed run starts with an
+empty ledger, so its first round is full.
+
+Per repo, `selectVerifyMode` picks:
+
+| Mode | When |
+|---|---|
+| `full` | no recheck configured, first round of the loop, red last round, head sha unknown, or the last green sha is not an ancestor of the head (`git merge-base --is-ancestor` in the host worktree) |
+| `skip` | head equals the last green sha, or `git diff --name-only` since it is empty |
+| `affected` | otherwise |
+
+For `affected`, the host writes `git archive` tarballs of the last green commit and the
+head into the scratch dir, with `core.autocrlf=false` and `core.eol=lf` so they hold the
+raw repo bytes whatever the host's line-ending config (a Windows worktree under
+`autocrlf=true` is CRLF, which a patch-based history cannot reconcile). In the container
+the copied source is replaced: `git init` (local `core.autocrlf=false`), extract the base
+tar, `git add -A -f` (the tree holds only tracked files, so ignored-but-tracked files stay),
+commit "recheck base", empty the tree, extract the head tar, commit "recheck head". The
+recheck runs with `SANDCASTLE_RECHECK_BASE=$(git rev-parse HEAD~1)`, and the working tree is
+clean against HEAD. If seeding fails the copy is wiped,
+re-copied and the full command runs. A skipped repo still copies and bootstraps for the
+verify agent, and its `VerifyCommandRun` says it was skipped. A red command marks the repo
+red in the ledger, so its next round is full.
+
 ## Polish
 
 A green Feature Verify hands over to `src/real/polish/runPolish.ts`. For each open
