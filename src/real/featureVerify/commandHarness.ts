@@ -93,8 +93,7 @@ export class CommandVerifyHarness implements VerifyHarness {
       baseUrl: undefined,
       sourcePath: `${SOURCE_MOUNT_ROOT}/${repo}`,
     }));
-    const worktrees = services.map((service) => ({ repo: service.repo, path: this.claimWorktree(service.repo, service.ref) }));
-    const worktreeOf = new Map(worktrees.map((entry) => [entry.repo, entry.path]));
+    const worktrees = services.map((service) => ({ service, repo: service.repo, path: this.claimWorktree(service.repo, service.ref) }));
 
     const container = stageContainerName("fvcheck", this.deps.parentNumber, this.stamp());
     const env: Record<string, string> = { SANDCASTLE_REPORT_PATH: CONTAINER_REPORT_PATH, JEST_MAX_WORKERS: this.deps.config.jestWorkers };
@@ -121,7 +120,7 @@ export class CommandVerifyHarness implements VerifyHarness {
     );
     this.container = container;
 
-    for (const service of services) await this.verifyRepo(service, strategy, worktreeOf.get(service.repo)!);
+    for (const entry of worktrees) await this.verifyRepo(entry.service, strategy, entry.path, scratch);
 
     return {
       network: "",
@@ -155,7 +154,7 @@ export class CommandVerifyHarness implements VerifyHarness {
     tearDown(this.disposables, this.deps.log);
   }
 
-  private async verifyRepo(service: ComposeService, strategy: CommandVerify, worktree: string): Promise<void> {
+  private async verifyRepo(service: ComposeService, strategy: CommandVerify, worktree: string, scratch: string): Promise<void> {
     const repo = service.repo;
     const fullCommand = strategy.commands[repo] ?? checkCommand(this.deps.config, repo);
     const bootstrap = perRepoValue(this.deps.config.bootstrapCommands, repo, "bootstrap command").trim();
@@ -168,7 +167,7 @@ export class CommandVerifyHarness implements VerifyHarness {
     });
 
     await this.exec(copySourceCommand(repo), `${repo} copy integration branch`);
-    const mode = await this.seedRecheckHistory(service, selected);
+    const mode = await this.seedRecheckHistory(service, selected, scratch);
     if (bootstrap) await this.exec(`cd ${service.sourcePath} && ${bootstrap}`, `${repo} bootstrap`);
 
     if (mode.kind === "skip") {
@@ -190,10 +189,10 @@ export class CommandVerifyHarness implements VerifyHarness {
     }
   }
 
-  private async seedRecheckHistory(service: ComposeService, mode: VerifyCommandMode): Promise<VerifyCommandMode> {
+  private async seedRecheckHistory(service: ComposeService, mode: VerifyCommandMode, scratch: string): Promise<VerifyCommandMode> {
     if (mode.kind !== "affected") return mode;
     const patchFile = `recheck-${service.repo}.patch`;
-    this.deps.fs.writeText(join(this.scratchDir!, patchFile), mode.patch);
+    this.deps.fs.writeText(join(scratch, patchFile), mode.patch);
     try {
       await this.exec(seedRecheckHistoryCommand(service.sourcePath, `${SANDBOX_WORKDIR}/${patchFile}`), `${service.repo} seed recheck history`);
       return mode;

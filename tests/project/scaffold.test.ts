@@ -47,6 +47,9 @@ describe("sandcastle init scaffolding", () => {
     expect(suggestRecheck("npm", { test: "mocha" })).toBeUndefined();
     expect(suggestRecheck("npm", { build: "tsc" })).toBeUndefined();
     expect(suggestRecheck(undefined, { test: "jest" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "jest --watch" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "vitest watch" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "vitest bench" })).toBeUndefined();
   });
 
   it("prints the recheck as an opt-in config line the parser accepts", () => {
