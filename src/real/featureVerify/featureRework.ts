@@ -134,6 +134,7 @@ async function verifyThroughHolds(
       if (!isHoldingWait(cause)) throw cause;
       deps.onStatus({ ...idleFeatureVerify("waiting"), reason: cause.message, rework: reverify });
       await deps.awaitHold(cause, FEATURE_VERIFY_STAGE);
+      deps.onStatus({ ...idleFeatureVerify("running"), rework: reverify });
     }
   }
 }

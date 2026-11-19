@@ -153,6 +153,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
     };
 
     const pollIntervalMs = options.pollIntervalSeconds * 1000;
+    let stopped = false;
 
     const runReader = createRunReader(activeProject(), config.hubRepo);
     const watch = new WatchLoop({
@@ -178,6 +179,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       poll: pollEngine,
       sleep,
       intervalMs: pollIntervalMs,
+      stopped: () => stopped,
       log,
     });
 
@@ -317,6 +319,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       .finally(() => lease.release());
 
     const stop = (): void => {
+      stopped = true;
       watch.stop();
       slots.detach();
     };

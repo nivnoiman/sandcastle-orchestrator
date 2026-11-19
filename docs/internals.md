@@ -229,7 +229,8 @@ Then the same attempt re-runs:
 - **polish**: the repo's polish re-runs; nothing is reverted or commented.
 
 Transient failures are not held here: they keep their old outcome (a red verify, a dropped
-fix or polish).
+fix or polish). Stopping the run while held ends the wait with a `HoldStoppedError`, so
+Feature Verify reads red and polish reads reverted instead of hanging until the Hold lifts.
 
 Everything else (red checks, conflicts, `UNFIXABLE`, unknown failures) still parks.
 Park comments carry the **last** stream event rather than the start of the `init` event,

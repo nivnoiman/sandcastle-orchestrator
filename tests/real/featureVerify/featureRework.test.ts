@@ -271,6 +271,7 @@ function holdLoop(verify: FeatureLoopDeps["verify"], harness: IntegrationHarness
     },
     sleep: async () => undefined,
     intervalMs: 0,
+    stopped: () => false,
     log: () => undefined,
   });
   const run = () =>
@@ -343,7 +344,7 @@ describe("Holds during Feature Verify", () => {
 
     expect(seen).toEqual([{ reason: "rate-limit", until: resumeAt }]);
     expect(rounds).toEqual([{ round: 1, limit: 3 }, { round: 1, limit: 3 }]);
-    expect(statuses.map((entry) => entry.phase)).toEqual(["running", "waiting"]);
+    expect(statuses.map((entry) => entry.phase)).toEqual(["running", "waiting", "running"]);
     expect(gh.labels).toEqual([]);
     expect(status.phase).toBe("green");
   });

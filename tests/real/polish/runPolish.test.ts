@@ -109,7 +109,7 @@ function boot() {
     holds.push(`${stage}: ${wait.reason}`);
     harness.agentFailure.clear();
   };
-  const deps ={ harness, gh, model: MODEL, hubRepo: "example-org/hub", awaitHold, log: () => undefined, warn: (_: number, message: string) => warnings.push(message) };
+  const deps = { harness, gh, model: MODEL, hubRepo: "example-org/hub", awaitHold, log: () => undefined, warn: (_: number, message: string) => warnings.push(message) };
   return { harness, gh, warnings, holds, run: () => runPolish(deps) };
 }
 
