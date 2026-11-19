@@ -54,7 +54,7 @@ describe("sandcastle init scaffolding", () => {
     });
     const project = parseProjectConfig(raw, "/work/app/.sandcastle/config.json");
     expect(project.ui.port).toBe(7781);
-    expect(project.verify).toEqual({ strategy: "command", commands: {}, agent: true });
+    expect(project.verify).toEqual({ strategy: "command", commands: {}, recheck: {}, agent: true });
     expect(buildInitConfig({ hubRepo: "acme/app", commands: { bootstrap: "", checks: "x" }, port: 7777 })).not.toHaveProperty("name");
   });
 

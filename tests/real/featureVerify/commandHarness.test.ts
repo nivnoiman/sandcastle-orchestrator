@@ -9,15 +9,15 @@ import { createVerifyHarness } from "../../../src/real/featureVerify/verifyStrat
 import type { OrchestratorConfig } from "../../../src/real/env.js";
 import { fsWith, SANDCASTLE_DIR, testConfig, testLayout } from "../support.js";
 import { FakeWorktrees, verifyWorktree } from "./support.js";
+import { RecheckLedger } from "../../../src/real/featureVerify/recheck.js";
 
 const SANDBOX_ENV = join(SANDCASTLE_DIR, ".env.sandbox");
 
-function commandConfig(agent = true): OrchestratorConfig {
-  return testConfig({ verify: { strategy: "command", commands: { api: "npm run verify" }, agent } });
+function commandConfig(agent = true, recheck: Record<string, string> = {}): OrchestratorConfig {
+  return testConfig({ verify: { strategy: "command", commands: { api: "npm run verify" }, recheck, agent } });
 }
 
-function harness(config = commandConfig()) {
-  const runner = new RecordingCommandRunner();
+function harness(config = commandConfig(), runner = new RecordingCommandRunner(), recheckLedger?: RecheckLedger) {
   const fs = fsWith({ [SANDBOX_ENV]: "NODE_ENV=development\n" });
   const git = new FakeWorktrees();
   const logs: string[] = [];
@@ -33,6 +33,7 @@ function harness(config = commandConfig()) {
     involvedRepos: ["api", "web"],
     log: (message: string) => logs.push(message),
     now: () => 1_700_000_000_000,
+    recheckLedger,
   };
   return { runner, fs, git, logs, deps, verify: new CommandVerifyHarness(deps) };
 }
@@ -116,5 +117,93 @@ describe("verify strategy", () => {
     const verdict = readVerdict(none.readReport());
     expect(verdict.verdict).toBe("green");
     expect(verdict.counts.pass).toBe(1);
+  });
+});
+
+describe("command verify recheck after a fix round", () => {
+  const SHA_A = "a".repeat(40);
+  const SHA_B = "b".repeat(40);
+  const recheckConfig = () => commandConfig(true, { api: "npm run affected" });
+
+  function round(ledger: RecheckLedger, head: string, script: (runner: RecordingCommandRunner) => void = () => undefined) {
+    const runner = new RecordingCommandRunner();
+    runner.respond(/^git rev-parse HEAD$/, `${head}\n`);
+    runner.respond(/^git diff --binary/, "diff --git a/src/x.ts b/src/x.ts\n");
+    script(runner);
+    return harness(recheckConfig(), runner, ledger);
+  }
+
+  it("runs the full command on the first verify of a run", async () => {
+    const { runner, logs, verify } = round(new RecheckLedger(), SHA_A);
+    await verify.up();
+    expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeDefined();
+    expect(runner.find("npm run affected")).toBeUndefined();
+    expect(logs).toContain("[feature-verify] api verify command (full: first verify of this run)");
+  });
+
+  it("runs the affected command since the last green commit on a re-verify", async () => {
+    const ledger = new RecheckLedger();
+    await round(ledger, SHA_A).verify.up();
+    const { runner, fs, logs, verify } = round(ledger, SHA_B);
+    const facts = await verify.up();
+
+    expect(runner.find(`git merge-base --is-ancestor ${SHA_A} HEAD`)).toBeDefined();
+    expect(runner.find("git init -q && git apply -R --whitespace=nowarn /home/agent/workspace/recheck-api.patch")).toBeDefined();
+    expect(runner.find('export SANDCASTLE_RECHECK_BASE="$(git rev-parse HEAD~1)" && npm run affected')).toBeDefined();
+    expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeUndefined();
+    expect([...fs.files.keys()].some((path) => path.endsWith("recheck-api.patch"))).toBe(true);
+    expect(logs).toContain(`[feature-verify] api verify command (affected since ${SHA_A.slice(0, 12)})`);
+    expect(logs).toContain("[feature-verify] web verify command (full: no verify.recheck for it)");
+    expect(facts.commands?.[0]).toMatchObject({ repo: "api", command: "npm run affected" });
+  });
+
+  it("skips the command of a repo the fix round did not change", async () => {
+    const ledger = new RecheckLedger();
+    await round(ledger, SHA_A).verify.up();
+    const { runner, logs, verify } = round(ledger, SHA_A);
+    const facts = await verify.up();
+
+    expect(runner.find("npm run verify")).toBeUndefined();
+    expect(runner.find("npm run affected")).toBeUndefined();
+    expect(runner.find("cd /home/agent/sources/api && npm ci")).toBeDefined();
+    expect(logs.some((line) => line.includes("api verify command skipped (unchanged since"))).toBe(true);
+    expect(facts.commands?.[0]?.outputTail).toMatch(/skipped: unchanged since/);
+  });
+
+  it("falls back to the full command when the last green commit is not reachable", async () => {
+    const ledger = new RecheckLedger();
+    await round(ledger, SHA_A).verify.up();
+    const { runner, logs, verify } = round(ledger, SHA_B, (scripted) =>
+      scripted.fail(/^git merge-base --is-ancestor/, new CommandFailure("git", ["merge-base"], 1, "", "")),
+    );
+    await verify.up();
+
+    expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeDefined();
+    expect(runner.find("npm run affected")).toBeUndefined();
+    expect(logs).toContain(`[feature-verify] api verify command (full: last verified ${SHA_A.slice(0, 12)} is not reachable)`);
+  });
+
+  it("runs the full command again for a repo that was red last round", async () => {
+    const ledger = new RecheckLedger();
+    const red = round(ledger, SHA_A, (scripted) => scripted.fail(/npm run verify/, new CommandFailure("docker", ["exec"], 1, "1 failed\n", "")));
+    await expect(red.verify.up()).rejects.toThrow(/1 failed/);
+    const { runner, logs, verify } = round(ledger, SHA_B);
+    await verify.up();
+
+    expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeDefined();
+    expect(logs).toContain("[feature-verify] api verify command (full: it was red last round)");
+  });
+
+  it("resets the copy and runs the full command when the recheck history cannot be seeded", async () => {
+    const ledger = new RecheckLedger();
+    await round(ledger, SHA_A).verify.up();
+    const { runner, logs, verify } = round(ledger, SHA_B, (scripted) =>
+      scripted.fail(/git init -q/, new CommandFailure("docker", ["exec"], 1, "patch does not apply\n", "")),
+    );
+    await verify.up();
+
+    expect(runner.find("rm -rf /home/agent/sources/api")).toBeDefined();
+    expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeDefined();
+    expect(logs).toContain("[feature-verify] api verify command (full: recheck history could not be seeded)");
   });
 });

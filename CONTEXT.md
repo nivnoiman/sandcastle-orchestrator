@@ -112,6 +112,10 @@ _Avoid_: Global cap (legacy name), machine cap
 Stop starting new Stages; agents already working finish their current Stage.
 _Avoid_: Stop, freeze
 
+**Recheck**:
+The cheaper per-repo command (`verify.recheck`) a Feature Verify re-run after a fix round uses instead of the full verify command, scoped to what changed since the repo last verified green.
+_Avoid_: Affected check, incremental verify
+
 **Operator**:
 The human who launches Runs and resolves Needs Attention.
 _Avoid_: User, admin

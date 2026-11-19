@@ -1,14 +1,16 @@
 import { join } from "node:path";
 import type { TargetRepo } from "../../model/runModel.js";
-import { integrationBase } from "../../project/projectConfig.js";
+import { integrationBase, type CommandVerify } from "../../project/projectConfig.js";
 import { runWithIdleTimeout, type CommandRunner } from "../commandRunner.js";
 import { execRequest, removeContainer, SANDBOX_WORKDIR, stageContainerName, startContainer, withContainerEnvFile } from "../docker.js";
 import { checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
+import { messageOf } from "../../messageOf.js";
 import type { VerifyWorktrees } from "../gitOps.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
 import { outputTail } from "../sandboxRunner.js";
 import { runVerifyAgent } from "./verifyAgent.js";
+import { modeLabel, selectVerifyMode, seedRecheckHistoryCommand, withRecheckBase, type RecheckLedger, type VerifyCommandMode } from "./recheck.js";
 import { resolveAgent } from "../agents/index.js";
 import type { AttemptLogStore } from "../attemptLog.js";
 import {
@@ -41,6 +43,7 @@ export interface CommandHarnessDeps {
   involvedRepos: readonly TargetRepo[];
   log: (message: string) => void;
   now?: () => number;
+  recheckLedger?: RecheckLedger | undefined;
 }
 
 export function copySourceCommand(repo: TargetRepo): string {
@@ -91,6 +94,7 @@ export class CommandVerifyHarness implements VerifyHarness {
       sourcePath: `${SOURCE_MOUNT_ROOT}/${repo}`,
     }));
     const worktrees = services.map((service) => ({ repo: service.repo, path: this.claimWorktree(service.repo, service.ref) }));
+    const worktreeOf = new Map(worktrees.map((entry) => [entry.repo, entry.path]));
 
     const container = stageContainerName("fvcheck", this.deps.parentNumber, this.stamp());
     const env: Record<string, string> = { SANDCASTLE_REPORT_PATH: CONTAINER_REPORT_PATH, JEST_MAX_WORKERS: this.deps.config.jestWorkers };
@@ -117,15 +121,7 @@ export class CommandVerifyHarness implements VerifyHarness {
     );
     this.container = container;
 
-    for (const service of services) {
-      const repo = service.repo;
-      const command = strategy.commands[repo] ?? checkCommand(this.deps.config, repo);
-      const bootstrap = perRepoValue(this.deps.config.bootstrapCommands, repo, "bootstrap command").trim();
-      await this.exec(copySourceCommand(repo), `${repo} copy integration branch`);
-      if (bootstrap) await this.exec(`cd ${service.sourcePath} && ${bootstrap}`, `${repo} bootstrap`);
-      const tail = await this.exec(`cd ${service.sourcePath} && ${command}`, `${repo} verify command`);
-      this.commands.push({ repo, command, outputTail: tail.slice(-COMMAND_PROMPT_TAIL) });
-    }
+    for (const service of services) await this.verifyRepo(service, strategy, worktreeOf.get(service.repo)!);
 
     return {
       network: "",
@@ -157,6 +153,71 @@ export class CommandVerifyHarness implements VerifyHarness {
 
   down(): void {
     tearDown(this.disposables, this.deps.log);
+  }
+
+  private async verifyRepo(service: ComposeService, strategy: CommandVerify, worktree: string): Promise<void> {
+    const repo = service.repo;
+    const fullCommand = strategy.commands[repo] ?? checkCommand(this.deps.config, repo);
+    const bootstrap = perRepoValue(this.deps.config.bootstrapCommands, repo, "bootstrap command").trim();
+    const head = this.hostGit(worktree, ["rev-parse", "HEAD"])?.trim() || undefined;
+    const selected = selectVerifyMode({
+      recheck: strategy.recheck[repo],
+      last: this.deps.recheckLedger?.last(repo),
+      head,
+      diffSince: (base) => this.diffSince(worktree, base),
+    });
+
+    await this.exec(copySourceCommand(repo), `${repo} copy integration branch`);
+    const mode = await this.seedRecheckHistory(service, selected);
+    if (bootstrap) await this.exec(`cd ${service.sourcePath} && ${bootstrap}`, `${repo} bootstrap`);
+
+    if (mode.kind === "skip") {
+      this.deps.log(`[feature-verify] ${modeLabel(repo, mode)}`);
+      this.deps.recheckLedger?.record(repo, head, true);
+      this.commands.push({ repo, command: fullCommand, outputTail: `skipped: unchanged since ${mode.base}, green last round` });
+      return;
+    }
+
+    const command = mode.kind === "affected" ? mode.command : fullCommand;
+    const shellCommand = mode.kind === "affected" ? withRecheckBase(command) : command;
+    try {
+      const tail = await this.exec(`cd ${service.sourcePath} && ${shellCommand}`, modeLabel(repo, mode));
+      this.deps.recheckLedger?.record(repo, head, true);
+      this.commands.push({ repo, command, outputTail: tail.slice(-COMMAND_PROMPT_TAIL) });
+    } catch (cause) {
+      this.deps.recheckLedger?.record(repo, head, false);
+      throw cause;
+    }
+  }
+
+  private async seedRecheckHistory(service: ComposeService, mode: VerifyCommandMode): Promise<VerifyCommandMode> {
+    if (mode.kind !== "affected") return mode;
+    const patchFile = `recheck-${service.repo}.patch`;
+    this.deps.fs.writeText(join(this.scratchDir!, patchFile), mode.patch);
+    try {
+      await this.exec(seedRecheckHistoryCommand(service.sourcePath, `${SANDBOX_WORKDIR}/${patchFile}`), `${service.repo} seed recheck history`);
+      return mode;
+    } catch (cause) {
+      const reason = `recheck history could not be seeded: ${messageOf(cause)}`;
+      this.deps.log(`[feature-verify] ${service.repo} ${reason}; resetting the copy for the full verify command`);
+      await this.exec(`rm -rf ${service.sourcePath}`, `${service.repo} discard recheck copy`);
+      await this.exec(copySourceCommand(service.repo), `${service.repo} copy integration branch`);
+      return { kind: "full", reason: "recheck history could not be seeded" };
+    }
+  }
+
+  private diffSince(worktree: string, base: string): string | undefined {
+    if (this.hostGit(worktree, ["merge-base", "--is-ancestor", base, "HEAD"]) === undefined) return undefined;
+    return this.hostGit(worktree, ["diff", "--binary", "--no-color", base, "HEAD"]);
+  }
+
+  private hostGit(cwd: string, args: readonly string[]): string | undefined {
+    try {
+      return this.deps.runner.run({ command: "git", args, cwd }).stdout;
+    } catch (cause) {
+      this.deps.log(`[feature-verify] git ${args.join(" ")} failed in ${cwd}: ${messageOf(cause)}`);
+      return undefined;
+    }
   }
 
   private ref(repo: TargetRepo): string {

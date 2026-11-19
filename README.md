@@ -228,6 +228,24 @@ Every agent stage runs one agent CLI. `agents.default` picks it for all stages, 
 | `command` | One throwaway container with a fresh copy of each involved repo's integration branch: `bootstrap`, then `verify.commands.<repo>` (default: its `checks`). Red: fix rounds. Green: a fresh agent checks every acceptance criterion against the built code (Playwright and Chromium are in the image). `"agent": false` skips the agent; the green commands are the report. |
 | `compose` | A throwaway Docker network with an optional fresh `mongo` (`"mongo": true` or an image) and every repo built and served (`services.<repo>`: `build`, `seed`, `serve`, `port`, `healthPath`, `env`). `env` values expand `{{port}}`, `{{mongoUri}}`, `{{mongoDb}}`, `{{url:<repo>}}`. The agent drives APIs over HTTP and UIs with Playwright. Scenarios that need a provider in `externalProviders` are marked `REQUIRES-STG` for a human. Every mongo URI in the env must point at the local container or verify refuses to start. |
 
+**Recheck (command strategy).** `verify.recheck.<repo>` is an optional cheaper command for a re-verify after a fix round. It runs with `SANDCASTLE_RECHECK_BASE` set to a commit holding the repo as it was at its last green verify, so the command can test only what the fix round changed:
+
+```json
+"verify": {
+  "strategy": "command",
+  "recheck": {
+    "api": "npx tsc -p tsconfig.ci.json && npx jest --changedSince=$SANDCASTLE_RECHECK_BASE",
+    "web": "npx tsc -b && npx vitest run --changed $SANDCASTLE_RECHECK_BASE"
+  }
+}
+```
+
+- The first Feature Verify of a run always runs the full command (`verify.commands.<repo>` or `checks`).
+- A re-verify runs the recheck only for a repo whose command was green last round and whose last green commit is still an ancestor of the integration head. Otherwise it runs the full command.
+- A repo with a recheck that the fix round did not change skips its command. Bootstrap still runs so the verify agent sees the code.
+- The feed names the mode: `[feature-verify] api verify command (affected since <sha>)`, `(full: <reason>)` or `skipped (unchanged since <sha>, green last round)`.
+- The container copy has no git history of its own. sandcastle seeds a two-commit history (last green tree, then the integration head) so `--changedSince` style flags work. Files the bootstrap writes that are not gitignored count as changed.
+
 ## Files in `.sandcastle/`
 
 | File | Committed | Purpose |
