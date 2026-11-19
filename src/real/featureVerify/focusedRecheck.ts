@@ -20,19 +20,18 @@ export interface FeatureRecheck {
   fixSummary: string | undefined;
 }
 
-const VERDICT_PREFIX = /^[ \t]*[-*+][ \t]+[*_`~]*[A-Za-z][A-Za-z0-9_-]*[*_`~]*[ \t]*(?:[—–:|,]|-(?=[ \t]|$))?[ \t]*/;
 const NAME_END = /[ \t]+[—–|][ \t]+|[ \t]+-[ \t]+/;
 const DECORATION = /[*_`~]/g;
 const CARRIED_PREFIX = /^\[carried over\][ \t]*/i;
 
 const TOKEN_FOR: Readonly<Record<ScenarioKind, string>> = { pass: "PASS", fail: "FAIL", requiresStg: "REQUIRES-STG" };
 
-export function scenarioKey(name: string): string {
+function scenarioKey(name: string): string {
   return name.replace(DECORATION, "").replace(/\s+/g, " ").replace(/[.;,]+$/, "").trim().toLowerCase();
 }
 
 function priorScenario(scenario: ScenarioLine): PriorScenario | undefined {
-  const body = scenario.line.replace(VERDICT_PREFIX, "");
+  const body = scenario.text;
   const end = NAME_END.exec(body);
   const name = (end ? body.slice(0, end.index) : body).trim();
   const key = scenarioKey(name);
