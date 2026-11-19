@@ -1,3 +1,4 @@
+import { RECHECK_BASE_ENV } from "../real/featureVerify/recheck.js";
 import { CONFIG_FILE, CONFIG_HINT, DEFAULT_UI_PORT } from "./projectConfig.js";
 
 /** `.sandcastle/.gitignore`: only the config is committed — env files, logs, lock and queue stay local. */
@@ -53,7 +54,7 @@ export function guessRepoCommands(
   };
 }
 
-const RECHECK_BASE = "$SANDCASTLE_RECHECK_BASE";
+const RECHECK_BASE = `$${RECHECK_BASE_ENV}`;
 const JEST_SCRIPT = /^jest(\s|$)/;
 const VITEST_SCRIPT = /^vitest(\s+run)?(\s|$)/;
 

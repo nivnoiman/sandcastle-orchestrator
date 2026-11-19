@@ -198,11 +198,11 @@ export class CommandVerifyHarness implements VerifyHarness {
       await this.exec(seedRecheckHistoryCommand(service.sourcePath, `${SANDBOX_WORKDIR}/${patchFile}`), `${service.repo} seed recheck history`);
       return mode;
     } catch (cause) {
-      const reason = `recheck history could not be seeded: ${messageOf(cause)}`;
-      this.deps.log(`[feature-verify] ${service.repo} ${reason}; resetting the copy for the full verify command`);
+      const reason = "recheck history could not be seeded";
+      this.deps.log(`[feature-verify] ${service.repo} ${reason}: ${messageOf(cause)}; resetting the copy for the full verify command`);
       await this.exec(`rm -rf ${service.sourcePath}`, `${service.repo} discard recheck copy`);
       await this.exec(copySourceCommand(service.repo), `${service.repo} copy integration branch`);
-      return { kind: "full", reason: "recheck history could not be seeded" };
+      return { kind: "full", reason };
     }
   }
 
