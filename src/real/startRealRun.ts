@@ -147,6 +147,13 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       engine.tick(Date.now());
     };
 
+    const pollEngine = (): void => {
+      tick();
+      plane.pollAuth();
+    };
+
+    const pollIntervalMs = options.pollIntervalSeconds * 1000;
+
     const runReader = createRunReader(activeProject(), config.hubRepo);
     const watch = new WatchLoop({
       fetchSnapshot: () => runReader.fetchRunSnapshot(model.parentNumber),
@@ -155,12 +162,11 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           context.update(next);
           bundle.gh.flushPendingLabels();
           engine.applySnapshot(next);
-          tick();
-          plane.pollAuth();
+          pollEngine();
           options.onSnapshotApplied?.(engine);
         },
       },
-      intervalMs: options.pollIntervalSeconds * 1000,
+      intervalMs: pollIntervalMs,
       stopWhen: () => engine.complete(),
       onInvalidSnapshot: (errors) =>
         warn(model.parentNumber, `parent issue no longer satisfies the publish contract, ignoring this poll: ${errors.join("; ")}`),
@@ -169,12 +175,9 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
 
     const awaitHold = createHoldGate({
       hold: plane.hold,
-      poll: () => {
-        tick();
-        plane.pollAuth();
-      },
-      sleep: (ms) => sleep(ms),
-      intervalMs: options.pollIntervalSeconds * 1000,
+      poll: pollEngine,
+      sleep,
+      intervalMs: pollIntervalMs,
       log,
     });
 

@@ -10,7 +10,7 @@ import { integrationBase } from "../project/projectConfig.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "./paths.js";
 import { describeAgent, snapshotCredential, syncBackCredential, type ResolvedAgent } from "./agents/index.js";
 import { ensureFreshLogin } from "./authProbe.js";
-import { agentWaitFrom } from "./agentFailure.js";
+import { rethrowAsAgentWait } from "./agentFailure.js";
 import { isHoldingWait, type AwaitHold, type HoldingWait } from "./holdGate.js";
 import {
   CHECK_OUTPUT_TAIL,
@@ -95,9 +95,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
     await this.inSandbox(workspace, "bind", agent, async (container, log) => {
       await this.assertCommands(container, log);
       this.deps.log(`[${this.deps.agent.stage}] ${workspace.repo}: agent starting (idle budget ${this.deps.config.idleTimeoutSeconds}s, model ${describeAgent(agent)})`);
-      await this.exec(container, agent.provider.command(agent.model), log, prompt).catch((cause: unknown) => {
-        throw agentWaitFrom(cause, agent.provider.classify) ?? cause;
-      });
+      await this.exec(container, agent.provider.command(agent.model), log, prompt).catch(rethrowAsAgentWait(agent.provider.classify));
     });
   }
 
