@@ -87,8 +87,12 @@ A Stage whose agent ended its turn with no commits and no evidence section. Re-r
 _Avoid_: Silent stage, no-op stage
 
 **Hold**:
-A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected.
+A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected. A Feature Verify, fix-round or polish agent that hits one raises it too and re-runs the same attempt once it lifts.
 _Avoid_: Block, freeze
+
+**Dependency Cache**:
+A repo's installed `node_modules` kept in a docker volume keyed by its lockfile and the image, reused by Feature Verify attempts instead of a fresh `npm ci` (`repos.<name>.cacheDependencies`).
+_Avoid_: node_modules cache, deps volume
 
 ### Operating
 
@@ -111,6 +115,10 @@ _Avoid_: Global cap (legacy name), machine cap
 **Pause**:
 Stop starting new Stages; agents already working finish their current Stage.
 _Avoid_: Stop, freeze
+
+**Recheck**:
+The cheaper per-repo command (`verify.recheck`) a Feature Verify re-run after a fix round uses instead of the full verify command, scoped to what changed since the repo last verified green.
+_Avoid_: Affected check, incremental verify
 
 **Operator**:
 The human who launches Runs and resolves Needs Attention.

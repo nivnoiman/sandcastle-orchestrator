@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { UiSink } from "../engine/adapters.js";
 import { Engine } from "../engine/engine.js";
 import { createRunReader, ensureLocalRemote, localIssueStore } from "../tracker/index.js";
@@ -9,8 +10,10 @@ import { AttemptLogStore } from "./attemptLog.js";
 import type { AuthRecheck } from "./authHold.js";
 import { controlPlaneHost, type ControlPlaneHost, type ControlPlaneOptions } from "./controlPlane.js";
 import { createVerifyHarness } from "./featureVerify/verifyStrategy.js";
+import { RecheckLedger } from "./featureVerify/recheck.js";
 import type { FeatureFixBrief, FeatureRound } from "./featureVerify/featureBrief.js";
 import { FEATURE_FIX_STAGE, runFeatureFix, runFeatureVerifyLoop } from "./featureVerify/featureRework.js";
+import type { FeatureRecheck } from "./featureVerify/focusedRecheck.js";
 import {
   idleFeatureVerify,
   involvedRepos,
@@ -21,6 +24,7 @@ import type { OrchestratorConfig } from "./env.js";
 import { resolveAgent } from "./agents/index.js";
 import { loadMemories } from "./memories.js";
 import { DockerIntegrationHarness } from "./integrationHarness.js";
+import { createHoldGate } from "./holdGate.js";
 import { idlePolish, POLISH_COMMAND_FILES, runPolish, type PolishStatus } from "./polish/runPolish.js";
 import { staleSkills } from "../skills/install.js";
 import { TOOL_DIR } from "./paths.js";
@@ -143,6 +147,14 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       engine.tick(Date.now());
     };
 
+    const pollEngine = (): void => {
+      tick();
+      plane.pollAuth();
+    };
+
+    const pollIntervalMs = options.pollIntervalSeconds * 1000;
+    let stopped = false;
+
     const runReader = createRunReader(activeProject(), config.hubRepo);
     const watch = new WatchLoop({
       fetchSnapshot: () => runReader.fetchRunSnapshot(model.parentNumber),
@@ -151,16 +163,24 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           context.update(next);
           bundle.gh.flushPendingLabels();
           engine.applySnapshot(next);
-          tick();
-          plane.pollAuth();
+          pollEngine();
           options.onSnapshotApplied?.(engine);
         },
       },
-      intervalMs: options.pollIntervalSeconds * 1000,
+      intervalMs: pollIntervalMs,
       stopWhen: () => engine.complete(),
       onInvalidSnapshot: (errors) =>
         warn(model.parentNumber, `parent issue no longer satisfies the publish contract, ignoring this poll: ${errors.join("; ")}`),
       onError: (error) => warn(model.parentNumber, `poll failed: ${error.message}`),
+    });
+
+    const awaitHold = createHoldGate({
+      hold: plane.hold,
+      poll: pollEngine,
+      sleep,
+      intervalMs: pollIntervalMs,
+      stopped: () => stopped,
+      log,
     });
 
     let verifyStatus = idleFeatureVerify();
@@ -180,7 +200,8 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       }
       verifyStatus = idleFeatureVerify("running");
       const verifyModel = context.runModel();
-      const verifyRound = (round: FeatureRound) =>
+      const recheckLedger = new RecheckLedger();
+      const verifyRound = (round: FeatureRound, recheck: FeatureRecheck | undefined) =>
         runFeatureVerify({
           harness: createVerifyHarness({
             runner,
@@ -194,16 +215,18 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
             integrationBranch: model.integrationBranch,
             involvedRepos: involvedRepos(verifyModel),
             log,
+            recheckLedger,
           }),
           gh: bundle.gh,
           model: verifyModel,
           hubRepo: config.hubRepo,
           tracker: config.tracker,
           rework: round,
+          recheck,
           log,
           warn,
         });
-      const verify = (round: FeatureRound) => {
+      const verify = (round: FeatureRound, recheck: FeatureRecheck | undefined) => {
         const rework = verifyStatus.rework;
         if (verifyMutex.busy()) {
           verifyStatus = { ...idleFeatureVerify("waiting"), rework };
@@ -211,7 +234,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
         }
         return verifyMutex.runExclusive(() => {
           verifyStatus = { ...idleFeatureVerify("running"), rework };
-          return verifyRound(round);
+          return verifyRound(round, recheck);
         });
       };
       const fix = (briefs: readonly FeatureFixBrief[], round: FeatureRound) =>
@@ -232,6 +255,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           hubRepo: config.hubRepo,
           briefs,
           round,
+          awaitHold,
           warn,
         });
       try {
@@ -239,8 +263,10 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           gh: bundle.gh,
           model: verifyModel,
           limit: config.featureReworkLimit,
+          recheckMode: config.featureRecheck,
           verify,
           fix,
+          awaitHold,
           onStatus: (status) => {
             verifyStatus = status;
           },
@@ -277,7 +303,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
         logs,
       });
       try {
-        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, tracker: config.tracker, log, warn });
+        polishStatus = await runPolish({ harness, gh: bundle.gh, model: context.runModel(), hubRepo: config.hubRepo, tracker: config.tracker, awaitHold, log, warn });
       } catch (cause) {
         const reason = messageOf(cause);
         polishStatus = idlePolish("reverted", reason);
@@ -293,6 +319,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       .finally(() => lease.release());
 
     const stop = (): void => {
+      stopped = true;
       watch.stop();
       slots.detach();
     };

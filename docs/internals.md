@@ -208,6 +208,30 @@ The ui shows the countdown on the card and a header chip for as long as the whol
 held. `retry` on a waiting item resumes it **and releases the hold for every other item**,
 and the feed says so when it happens.
 
+### Feature Verify, fix rounds and polish under a Hold
+
+The lifecycle agents after the Items (Feature Verify, `fvfix`, polish) run once the watch
+loop has stopped, so they cannot wait in a Phase. `DockerIntegrationHarness.runAgent` and
+`runVerifyAgent` classify a failed agent with the provider's `classify` (the same
+`classifyAgentOutput` item stages use; `Not logged in · Please run /login` is an auth
+failure). An auth or rate-limit `AgentWaitError` then goes to the `AwaitHold` gate
+(`src/real/holdGate.ts`, built in `startRealRun`): it raises the shared `RunHold` (so the
+auth Hold banner, `recheck-auth` and the probe all see it) and, every poll interval, ticks
+the engine (reopens a rate-limit window) and polls the auth probe until the Hold lifts.
+Then the same attempt re-runs:
+
+- **fix round**: `landAgentWork` drops the worktree, waits, and re-runs that repo's agent
+  from a fresh checkout. `runFeatureFix` returns only once every repo settled, so the round
+  is not spent and no `feature-fix` comment is posted for the dead attempt. A round whose
+  agents ran fine and landed nothing still parks.
+- **Feature Verify**: the round's environment is torn down, the chip reads `waiting` with
+  the Hold message, and the same round (same recheck) runs again. No report comment, no park.
+- **polish**: the repo's polish re-runs; nothing is reverted or commented.
+
+Transient failures are not held here: they keep their old outcome (a red verify, a dropped
+fix or polish). Stopping the run while held ends the wait with a `HoldStoppedError`, so
+Feature Verify reads red and polish reads reverted instead of hanging until the Hold lifts.
+
 Everything else (red checks, conflicts, `UNFIXABLE`, unknown failures) still parks.
 Park comments carry the **last** stream event rather than the start of the `init` event,
 so a park reads as its actual cause instead of "init then exit 1".
@@ -675,8 +699,47 @@ chosen by `verify.strategy` in the config.
   integration branch. It runs each repo's `bootstrap`, then `verify.commands[<repo>]`
   (default: that repo's `checks`), then the verify agent against the result. With
   `verify.agent: false` no agent runs and the green commands are the report.
+  Each repo's `npm ci` goes through the [Dependency Cache](#dependency-cache).
 - **`compose`**: a throwaway docker network with one served build per repo, an optional
   local mongo, and the verify agent driving the live services. Described below.
+
+### Dependency Cache
+
+`src/real/dependencyCache.ts`. Every `command` attempt (first run and every re-verify
+after a fix round) gets a fresh container, so without a cache each one paid a full
+`npm ci`. Now each repo's installed `node_modules` is kept in a named docker volume
+`sc-<project>-deps-<repo>-<key>`, where `<key>` is the first 12 hex of a sha256 over the
+image id (`docker image inspect`), the install command, the dependency fields of
+`package.json` (`dependencies`, `devDependencies`, `optionalDependencies`,
+`peerDependencies`, `overrides`), the lockfile (`npm-shrinkwrap.json`, else
+`package-lock.json`) and the repo's `.npmrc` (if any). The key is read from the host worktree before the container
+starts, so the volume is mounted at `/home/agent/dependency-cache/<repo>` from the start.
+
+- **When it applies**: `bootstrap` starts with exactly `npm ci` (as its own `&&` step), the
+  repo has a lockfile, no npm `workspaces` (only the root `node_modules` is cached) and, unless
+  `repos.<name>.cacheDependencies` is `true`, no root `preinstall`/`install`/`postinstall`/`prepare`
+  script (a hit would skip it). `cacheDependencies: false` turns it off. Anything else runs
+  the bootstrap exactly as before and logs why the cache is off.
+- **Hit** (the volume holds `.sandcastle-complete`): `cp -a` the cached `node_modules` into
+  the copied source, skip `npm ci`, then run the rest of the bootstrap (`npm ci && X` still
+  runs `X`). A failed restore falls back to the full bootstrap.
+  Log: `[feature-verify] platform dependencies cache hit 1a2b3c4d5e6f`.
+- **Miss**: the full bootstrap runs, then `node_modules` is copied into a per-container
+  staging dir in the volume, moved into place, and the marker is written last, so a run
+  killed mid-save leaves no marker and the next attempt treats it as a miss. A second run
+  that finds the marker already written (before or after its staging copy) skips its save.
+  A failed save, or a failed mount prep (`mkdir`/`chown`), only warns.
+- **GC**: after each save and in the startup GC (`collectOrphans`), only the newest
+  `DEPENDENCY_CACHE_KEEP` (2) caches per project + repo, by volume creation time, are
+  kept. A cache mounted by a live container cannot be removed; docker refuses, and that is
+  reported as a GC warning, never forced. `sandcastle reset` reaches the same GC.
+- **Not covered**: the `compose` strategy builds in a bind-mounted worktree with the
+  service's own `build` command, and per-item stage containers (develop, review, the verify
+  gate) bootstrap through `DockerSandboxRunner.bootstrap` with `node_modules` on anonymous
+  volumes or in a clean copy. Both could reuse `DependencyCaches` (plan before
+  `startContainer`, add `volumes()`, route bootstrap through it), but the stage path runs in
+  bind and copy modes with agents that may change the lockfile mid-stage, so it is left to a
+  separate change.
 
 ### The compose environment
 
@@ -829,8 +892,57 @@ any red that is not FAIL scenarios (REQUIRES-STG only, no report, broken environ
 Park comments carry `<!-- sandcastle:feature-parked -->`; on start the loop counts the
 briefs posted since the last park, so a crashed run continues its count and a human
 re-run of a parked parent starts a fresh budget; a parent whose comments cannot be read
-parks rather than restart the count. The chip reads "fixing · fix round N/L" while a
-round runs, and `sandcastle finish` refuses until it settles.
+parks rather than restart the count.
+
+A fix agent that dies on rejected credentials or a rejected usage window does not spend the
+round: see "Feature Verify, fix rounds and polish under a Hold" above.
+
+The Feature Verify after a fix round is a **focused re-check**
+(`focusedRecheck.ts`, `SANDCASTLE_FEATURE_RECHECK=focused`, the default). The loop keeps
+the previous report in memory and hands the verify agent only its FAIL scenarios (an
+unrecognised verdict counts as FAIL), the fix round's result lines and the names of the
+PASS / REQUIRES-STG scenarios. The agent re-runs the failures under their exact names
+plus any carried-over scenario whose code the fix touched (a regression scan of the fix).
+sandcastle then appends a `## Carried over from the previous Feature Verify` section to the
+report: every prior PASS / REQUIRES-STG the agent did not re-report, each marked
+`[carried over]`, and every prior FAIL it skipped, still FAIL. Scenarios match by name
+(case, decoration and spacing ignored). Counts, the verdict, the requires-STG checklist
+and the next brief all read the merged report, so totals stay whole. The first Feature
+Verify of a run, a re-verify after a crash-resume (no report in memory), a previous
+report with no readable FAIL lines, and `SANDCASTLE_FEATURE_RECHECK=full` all run the full
+review. A focused report with no scenario lines is not merged, so it stays red.
+
+The chip reads "fixing · fix round N/L" while a round runs, and `sandcastle finish` refuses until it settles.
+
+### Recheck
+
+A re-verify after a fix round can run `verify.recheck[<repo>]` (command strategy only)
+instead of the full verify command. `startRealRun` creates one `RecheckLedger`
+(`src/real/featureVerify/recheck.ts`) per Feature Verify loop and hands it to every
+round's `CommandVerifyHarness`. The ledger maps each repo to the integration head sha it
+last verified and whether that command was green. A crash-resumed run starts with an
+empty ledger, so its first round is full.
+
+Per repo, `selectVerifyMode` picks:
+
+| Mode | When |
+|---|---|
+| `full` | no recheck configured, first round of the loop, red last round, head sha unknown, or the last green sha is not an ancestor of the head (`git merge-base --is-ancestor` in the host worktree) |
+| `skip` | head equals the last green sha, or `git diff --name-only` since it is empty |
+| `affected` | otherwise |
+
+For `affected`, the host writes `git archive` tarballs of the last green commit and the
+head into the scratch dir, with `core.autocrlf=false` and `core.eol=lf` so they hold the
+raw repo bytes whatever the host's line-ending config (a Windows worktree under
+`autocrlf=true` is CRLF, which a patch-based history cannot reconcile). In the container
+the copied source is replaced: `git init` (local `core.autocrlf=false`), extract the base
+tar, `git add -A -f` (the tree holds only tracked files, so ignored-but-tracked files stay),
+commit "recheck base", empty the tree, extract the head tar, commit "recheck head". The
+recheck runs with `SANDCASTLE_RECHECK_BASE=$(git rev-parse HEAD~1)`, and the working tree is
+clean against HEAD. If seeding fails the copy is wiped,
+re-copied and the full command runs. A skipped repo still copies and bootstraps for the
+verify agent, and its `VerifyCommandRun` says it was skipped. A red command marks the repo
+red in the ledger, so its next round is full.
 
 ## Polish
 

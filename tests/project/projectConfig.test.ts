@@ -60,7 +60,7 @@ describe("parseProjectConfig", () => {
     expect(project.imageTag).toBe("sandcastle:latest");
     expect(project.projectRoot).toBe(PROJECT_ROOT);
     expect(project.repos["myapp"]?.path).toBe(PROJECT_ROOT);
-    expect(project.verify).toEqual({ strategy: "command", commands: { myapp: "pnpm test && pnpm zip" }, agent: true });
+    expect(project.verify).toEqual({ strategy: "command", commands: { myapp: "pnpm test && pnpm zip" }, recheck: {}, agent: true });
   });
 
   it("puts a separate service repo next to the hub checkout unless a path is given", () => {
@@ -87,6 +87,12 @@ describe("parseProjectConfig", () => {
     expect(() => parseProjectConfig({ ...SINGLE_REPO, verify: { strategy: "magic" } }, CONFIG_PATH)).toThrow(/verify.strategy/);
     expect(() => parseProjectConfig({ ...SINGLE_REPO, verify: { strategy: "command", commands: { myapp: " " } } }, CONFIG_PATH)).toThrow(
       /verify.commands.myapp is empty/,
+    );
+    expect(() => parseProjectConfig({ ...SINGLE_REPO, verify: { strategy: "command", recheck: { other: "x" } } }, CONFIG_PATH)).toThrow(
+      /verify.recheck.other names a repo that is not under repos/,
+    );
+    expect(() => parseProjectConfig({ ...SINGLE_REPO, verify: { strategy: "command", recheck: { myapp: " " } } }, CONFIG_PATH)).toThrow(
+      /verify.recheck.myapp is empty/,
     );
     expect(() => parseProjectConfig({ hubRepo: "acme/My.App", repos: SINGLE_REPO.repos }, CONFIG_PATH)).toThrow(/set "name"/);
   });
@@ -189,5 +195,21 @@ describe("configPathFrom", () => {
     );
     expect(() => configPathFrom(["--config", "x.json"], {})).toThrow(/needs a value/);
     expect(() => configPathFrom(["--config="], {})).toThrow(/empty/);
+  });
+});
+
+describe("repos.<name>.cacheDependencies", () => {
+  function withCache(value: unknown) {
+    return { ...SINGLE_REPO, repos: { myapp: { ...SINGLE_REPO.repos.myapp, cacheDependencies: value } } };
+  }
+
+  it("is auto (undefined) by default and accepts true or false", () => {
+    expect(parseProjectConfig(SINGLE_REPO, CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBeUndefined();
+    expect(parseProjectConfig(withCache(false), CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBe(false);
+    expect(parseProjectConfig(withCache(true), CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBe(true);
+  });
+
+  it("rejects anything but a boolean", () => {
+    expect(() => parseProjectConfig(withCache("yes"), CONFIG_PATH)).toThrow(/repos\.myapp\.cacheDependencies must be true or false/);
   });
 });

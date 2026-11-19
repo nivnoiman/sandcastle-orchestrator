@@ -6,6 +6,7 @@ import { FEATURE_PARKED_SENTINEL, type FeatureRound } from "../../../src/real/fe
 import { PR_BODY_REPORT_LIMIT } from "../../../src/real/featureVerify/verdict.js";
 import type { CreateDraftPrInput, PullRequestRef } from "../../../src/real/ghClient.js";
 import { testRunModel, testWorkItem } from "../support.js";
+import { CARRIED_OVER_MARK, planRecheck, type FeatureRecheck } from "../../../src/real/featureVerify/focusedRecheck.js";
 
 const FACTS: ComposeFacts = {
   network: "sc-demo-net-16-a",
@@ -93,7 +94,7 @@ class FakeGh implements FeatureVerifyGh {
   }
 }
 
-function harness(options: { repos?: TargetRepo[]; rework?: FeatureRound } = {}) {
+function harness(options: { repos?: TargetRepo[]; rework?: FeatureRound; recheck?: FeatureRecheck } = {}) {
   const repos = options.repos ?? ["api", "web"];
   const model = testRunModel(
     repos.map((repo, index) => testWorkItem({ number: 17 + index, repo, title: `toy: ${repo} slice` })),
@@ -114,6 +115,7 @@ function harness(options: { repos?: TargetRepo[]; rework?: FeatureRound } = {}) 
         model,
         hubRepo: "example-org/hub",
         rework: options.rework,
+        recheck: options.recheck,
         log: (message) => logs.push(message),
         warn: (itemNumber, message) => warnings.push(`#${itemNumber} ${message}`),
       }),
@@ -373,5 +375,31 @@ describe("teardown and prompt", () => {
     expect(prompt).toContain("http://api:5000");
     expect(prompt).toContain("http://web:4173");
     expect(prompt).toContain("/home/agent/workspace/report.md");
+  });
+});
+
+describe("focused re-check", () => {
+  const prior = ["- PASS — login works — 200 with a token", "- FAIL — import leads — 500", "- REQUIRES-STG — sms send — gateway"].join("\n");
+
+  it("asks only for the failed scenarios and reports full counts with carried-over verdicts marked", async () => {
+    const recheck = planRecheck(prior, 1, "- `api`: pushed 1 commit(s)")!;
+    const { harness: verifyHarness, gh, run } = harness({ rework: { round: 2, limit: 3 }, recheck });
+    verifyHarness.report = "## Results\n- PASS — import leads — 201";
+    const status = await run();
+
+    expect(verifyHarness.prompts[0]).toContain("Focused re-check after fix round 1");
+    expect(verifyHarness.prompts[0]).toContain("- import leads — 500");
+    expect(verifyHarness.prompts[0]).not.toContain("Derive a test plan");
+    expect(status.phase).toBe("green");
+    expect(status.counts).toEqual({ pass: 2, fail: 0, requiresStg: 1 });
+    expect(gh.comments[0]?.body).toContain(`- PASS — login works — ${CARRIED_OVER_MARK}`);
+    expect(gh.created[0]?.body).toContain("- [ ] REQUIRES-STG — sms send");
+  });
+
+  it("keeps the first Feature Verify a full review", async () => {
+    const { harness: verifyHarness, run } = harness();
+    await run();
+    expect(verifyHarness.prompts[0]).toContain("Derive a test plan");
+    expect(verifyHarness.prompts[0]).not.toContain("Focused re-check");
   });
 });

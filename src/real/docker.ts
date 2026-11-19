@@ -169,7 +169,7 @@ export function removeVolume(runner: CommandRunner, name: string): void {
   runner.run({ command: "docker", args: ["volume", "rm", "-f", name] });
 }
 
-function nonEmptyLines(stdout: string): string[] {
+export function nonEmptyLines(stdout: string): string[] {
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())

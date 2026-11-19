@@ -166,6 +166,7 @@ try {
       jestWorkers: DEFAULT_JEST_WORKERS,
       reworkLimit: REWORK_LIMIT_DEFAULT,
       featureReworkLimit: REWORK_LIMIT_DEFAULT,
+      featureRecheck: "focused",
       emptyStageRetries: 0,
       verify: project.verify,
       verifyServices: {},

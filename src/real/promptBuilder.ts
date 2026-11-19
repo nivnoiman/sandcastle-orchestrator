@@ -649,6 +649,14 @@ export interface FeatureVerifyPromptContext {
   commands?: readonly VerifyCommandContext[] | undefined;
   externalProviders?: readonly string[] | undefined;
   reportPath: string;
+  recheck?: FeatureRecheckPromptContext | undefined;
+}
+
+export interface FeatureRecheckPromptContext {
+  fixRound: number;
+  recheckLines: readonly string[];
+  carriedNames: readonly string[];
+  fixSummary: string | undefined;
 }
 
 type SpecContext = Pick<FeatureVerifyPromptContext, "hubRepo" | "parentNumber" | "parentTitle" | "parentBody" | "items">;
@@ -722,6 +730,32 @@ function exerciseSteps(context: FeatureVerifyPromptContext): string[] {
   ];
 }
 
+function recheckLines(context: FeatureVerifyPromptContext): string[] {
+  const recheck = context.recheck;
+  if (!recheck) return [];
+  return [
+    "",
+    `## Focused re-check after fix round ${recheck.fixRound}`,
+    "An earlier Feature Verify run on this feature went red and a fix round has landed on the integration branch since. This run is a focused re-check, not a full review.",
+    "",
+    "### Re-check these (they FAILED last time)",
+    ...recheck.recheckLines.map((line) => `- ${line}`),
+    "",
+    "### What the fix round changed",
+    recheck.fixSummary?.trim() || "_no fix summary was recorded_",
+    "",
+    "### Carried over unless the fix touched them (PASS or REQUIRES-STG last time)",
+    ...(recheck.carriedNames.length > 0 ? recheck.carriedNames.map((name) => `- ${name}`) : ["_none_"]),
+  ];
+}
+
+function planStep(context: FeatureVerifyPromptContext): string {
+  if (!context.recheck) {
+    return "**1. Derive a test plan.** Read the parent spec and EVERY sub-issue's acceptance criteria above, then read the code that implements them under the source mounts. Write one scenario per acceptance criterion — user-visible behaviour, not unit tests. Name the criterion each scenario covers.";
+  }
+  return "**1. Scope the re-check.** Your test plan is every scenario under \"Re-check these\", under its exact scenario name. Then do a brief regression scan: read the code the fix round changed under the source mounts, and add any carried-over scenario whose code it touched, again under its exact name. Do not re-derive or re-run anything else: sandcastle appends the carried-over verdicts to your report, and a scenario you report replaces its carried-over verdict.";
+}
+
 export function buildFeatureVerifyPrompt(context: FeatureVerifyPromptContext): string {
   return [
     `Feature Verify for the "${context.feature}" run (parent ${context.hubRepo}#${context.parentNumber}). Every Work Item has merged into \`${context.integrationBranch}\`; you are the once-per-feature check on the assembled result. You are a fresh agent — you wrote none of this code, and that is the point.`,
@@ -738,10 +772,11 @@ export function buildFeatureVerifyPrompt(context: FeatureVerifyPromptContext): s
     "- `curl`, `node` and `npm` are available. There is no `gh` token here: you cannot push, comment, or open pull requests, and you must not try.",
     "- `/home/agent/workspace` is your scratch directory. Everything you write outside it is thrown away.",
     ...commandLines(context),
+    ...recheckLines(context),
     "",
     "## Contract (do these in order — non-negotiable)",
     "",
-    "**1. Derive a test plan.** Read the parent spec and EVERY sub-issue's acceptance criteria above, then read the code that implements them under the source mounts. Write one scenario per acceptance criterion — user-visible behaviour, not unit tests. Name the criterion each scenario covers.",
+    planStep(context),
     "",
     ...exerciseSteps(context),
     "",

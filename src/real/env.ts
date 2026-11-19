@@ -13,6 +13,7 @@ import type { AgentsConfig } from "../project/agentsConfig.js";
 import type { StageSpec } from "../project/stagesConfig.js";
 import { commandsForStage, type StageChecks } from "../project/stageChecks.js";
 import type { FileSystemPort } from "./fileSystem.js";
+import { FEATURE_RECHECK_DEFAULT, type FeatureRecheckMode } from "./featureVerify/focusedRecheck.js";
 import { defaultLayout, sandcastleDirFrom, TOOL_DIR, type SandcastleLayout } from "./paths.js";
 
 export const IDLE_TIMEOUT_DEFAULT = 1200;
@@ -49,11 +50,13 @@ export interface OrchestratorConfig {
   checkCommands: Record<TargetRepo, string>;
   /** Per repo, per stage: ordered commands run before that stage's work is pushed. */
   stageChecks: Record<TargetRepo, StageChecks>;
+  cacheDependencies?: Record<TargetRepo, boolean | undefined> | undefined;
   /** Fix attempts the stage agent gets after its stage checks go red, before the item is sent back to develop. */
   stageCheckFixLimit: number;
   jestWorkers: string;
   reworkLimit: number;
   featureReworkLimit: number;
+  featureRecheck: FeatureRecheckMode;
   /** Re-runs of a stage that ended its turn with no commits and no evidence section, before it parks. */
   emptyStageRetries: number;
   verify: VerifyStrategy;
@@ -172,6 +175,13 @@ export function reworkLimit(values: Record<string, string>, key = "SANDCASTLE_RE
   return Number(raw);
 }
 
+export function featureRecheckMode(values: Record<string, string>): FeatureRecheckMode {
+  const raw = values["SANDCASTLE_FEATURE_RECHECK"]?.trim();
+  if (!raw) return FEATURE_RECHECK_DEFAULT;
+  if (raw === "focused" || raw === "full") return raw;
+  throw new Error(`SANDCASTLE_FEATURE_RECHECK="${raw}" must be "focused" or "full" — fix it in .env.orchestrator`);
+}
+
 export function jestWorkers(values: Record<string, string>): string {
   const raw = values["SANDCASTLE_JEST_WORKERS"]?.trim();
   if (!raw) return DEFAULT_JEST_WORKERS;
@@ -245,10 +255,12 @@ export function loadOrchestratorConfig(
     bootstrapCommands: perRepo(values, "SANDCASTLE_BOOTSTRAP_", (repo) => project.repos[repo]!.bootstrap),
     checkCommands: perRepo(values, "SANDCASTLE_CHECKS_", (repo) => project.repos[repo]!.checks),
     stageChecks: Object.fromEntries(knownRepos().map((repo) => [repo, project.repos[repo]!.stageChecks])),
+    cacheDependencies: Object.fromEntries(knownRepos().map((repo) => [repo, project.repos[repo]!.cacheDependencies])),
     stageCheckFixLimit: reworkLimit(values, "SANDCASTLE_STAGE_CHECK_FIX_LIMIT", STAGE_CHECK_FIX_LIMIT_DEFAULT),
     jestWorkers: jestWorkers(values),
     reworkLimit: reworkLimit(values),
     featureReworkLimit: reworkLimit(values, "SANDCASTLE_FEATURE_REWORK_LIMIT"),
+    featureRecheck: featureRecheckMode(values),
     emptyStageRetries: reworkLimit(values, "SANDCASTLE_EMPTY_RETRY_LIMIT", EMPTY_STAGE_RETRIES_DEFAULT),
     verify: project.verify,
     verifyServices: verifyServices(values, project.verify),

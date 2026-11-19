@@ -7,6 +7,7 @@ import { landAgentWork, type IntegrationHarness } from "../integrationHarness.js
 import { buildPolishPrompt } from "../promptBuilder.js";
 import { messageOf } from "../../messageOf.js";
 import { POLISH_STAGE } from "../featureVerify/stages.js";
+import type { AwaitHold } from "../holdGate.js";
 
 export type PolishPhase = "idle" | "running" | "green" | "reverted" | "skipped";
 
@@ -36,6 +37,7 @@ export interface PolishDeps {
   model: RunModel;
   hubRepo: string;
   tracker?: TrackerKind | undefined;
+  awaitHold: AwaitHold;
   log: (message: string) => void;
   warn: (itemNumber: number, message: string) => void;
 }
@@ -127,6 +129,7 @@ async function polishTarget(deps: PolishDeps, target: PolishTarget): Promise<Pol
     collect: (workspace) => {
       notes = deps.harness.takeFile(workspace, POLISH_NOTES_FILE);
     },
+    awaitHold: deps.awaitHold,
     onLeftovers: (leftovers) =>
       deps.warn(deps.model.parentNumber, `polish ${target.repo}: discarded uncommitted leftovers before the checks — ${leftovers.join(", ")}`),
   });

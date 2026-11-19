@@ -11,7 +11,9 @@ import {
   type FeatureVerifyStatus,
 } from "./runFeatureVerify.js";
 import { messageOf } from "../../messageOf.js";
-import { FEATURE_FIX_STAGE } from "./stages.js";
+import { FEATURE_FIX_STAGE, FEATURE_VERIFY_STAGE } from "./stages.js";
+import { planRecheck, type FeatureRecheck, type FeatureRecheckMode } from "./focusedRecheck.js";
+import { isHoldingWait, type AwaitHold } from "../holdGate.js";
 
 export { FEATURE_FIX_STAGE };
 
@@ -26,6 +28,7 @@ export interface FeatureFixDeps {
   hubRepo: string;
   briefs: readonly FeatureFixBrief[];
   round: FeatureRound;
+  awaitHold: AwaitHold;
   warn: (itemNumber: number, message: string) => void;
 }
 
@@ -54,6 +57,7 @@ export async function runFeatureFix(deps: FeatureFixDeps): Promise<FeatureFixRes
             limit: deps.round.limit,
             briefs: deps.briefs,
           }),
+        awaitHold: deps.awaitHold,
         onLeftovers: (leftovers) =>
           deps.warn(deps.model.parentNumber, `feature-verify fix ${repo}: discarded uncommitted leftovers before the checks — ${leftovers.join(", ")}`),
       }),
@@ -82,9 +86,11 @@ export interface FeatureLoopDeps {
   gh: FeatureLoopGh;
   model: RunModel;
   limit: number;
-  verify: (round: FeatureRound) => Promise<FeatureVerifyRun>;
+  recheckMode: FeatureRecheckMode;
+  verify: (round: FeatureRound, recheck: FeatureRecheck | undefined) => Promise<FeatureVerifyRun>;
   fix: (briefs: readonly FeatureFixBrief[], round: FeatureRound) => Promise<FeatureFixResult[]>;
   onStatus: (status: FeatureVerifyStatus) => void;
+  awaitHold: AwaitHold;
   log: (message: string) => void;
   warn: (itemNumber: number, message: string) => void;
 }
@@ -108,6 +114,31 @@ function recordFix(deps: FeatureLoopDeps, round: FeatureRound, lines: readonly s
   }
 }
 
+function nextRecheck(deps: FeatureLoopDeps, report: string | undefined, brief: FeatureFixBrief): FeatureRecheck | undefined {
+  if (deps.recheckMode === "full") return undefined;
+  const recheck = planRecheck(report, brief.round, brief.fix);
+  if (!recheck) deps.log("[feature-verify] the last report has no readable FAIL scenarios to focus on — the next Feature Verify is a full review");
+  return recheck;
+}
+
+async function verifyThroughHolds(
+  deps: FeatureLoopDeps,
+  round: FeatureRound,
+  recheck: FeatureRecheck | undefined,
+  reverify: FeatureRound | undefined,
+): Promise<FeatureVerifyRun> {
+  for (;;) {
+    try {
+      return await deps.verify(round, recheck);
+    } catch (cause) {
+      if (!isHoldingWait(cause)) throw cause;
+      deps.onStatus({ ...idleFeatureVerify("waiting"), reason: cause.message, rework: reverify });
+      await deps.awaitHold(cause, FEATURE_VERIFY_STAGE);
+      deps.onStatus({ ...idleFeatureVerify("running"), rework: reverify });
+    }
+  }
+}
+
 export async function runFeatureVerifyLoop(deps: FeatureLoopDeps): Promise<FeatureVerifyStatus> {
   const briefs = recordedBriefs(deps);
   if (typeof briefs === "string") {
@@ -115,11 +146,12 @@ export async function runFeatureVerifyLoop(deps: FeatureLoopDeps): Promise<Featu
     return { ...idleFeatureVerify("red"), reason: briefs };
   }
   if (briefs.length > 0) deps.log(`[feature-verify] ${briefs.length} fix round(s) already on the parent — continuing from there`);
+  let recheck: FeatureRecheck | undefined;
   for (;;) {
     const round: FeatureRound = { round: briefs.length + 1, limit: deps.limit };
     const reverify = briefs.length > 0 ? { round: briefs.length, limit: deps.limit } : undefined;
     deps.onStatus({ ...idleFeatureVerify("running"), rework: reverify });
-    const { story, ...status } = await deps.verify(round);
+    const { story, report, ...status } = await verifyThroughHolds(deps, round, recheck, reverify);
     if (status.phase !== "fixing" || story === undefined) return status;
 
     const brief: FeatureFixBrief = { round: round.round, story, fix: undefined };
@@ -136,5 +168,6 @@ export async function runFeatureVerifyLoop(deps: FeatureLoopDeps): Promise<Featu
       parkParent(deps, deps.model.parentNumber, reason);
       return { ...status, phase: "red", reason, rework: { round: round.round + 1, limit: round.limit } };
     }
+    recheck = nextRecheck(deps, report, brief);
   }
 }

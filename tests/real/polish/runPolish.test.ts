@@ -4,6 +4,8 @@ import type { PullRequestRef } from "../../../src/real/ghClient.js";
 import type { IntegrationHarness, IntegrationWorkspace } from "../../../src/real/integrationHarness.js";
 import { POLISH_SENTINEL, runPolish, type PolishGh } from "../../../src/real/polish/runPolish.js";
 import { CheckFailure } from "../../../src/real/sandboxRunner.js";
+import { AgentWaitError } from "../../../src/real/agentFailure.js";
+import type { AwaitHold } from "../../../src/real/holdGate.js";
 import { testRunModel, testWorkItem } from "../support.js";
 
 const MODEL = testRunModel([testWorkItem({ number: 17, repo: "api" }), testWorkItem({ number: 18, repo: "web" })]);
@@ -102,8 +104,13 @@ function boot() {
   const harness = new FakeHarness();
   const gh = new FakeGh();
   const warnings: string[] = [];
-  const deps = { harness, gh, model: MODEL, hubRepo: "example-org/hub", log: () => undefined, warn: (_: number, message: string) => warnings.push(message) };
-  return { harness, gh, warnings, run: () => runPolish(deps) };
+  const holds: string[] = [];
+  const awaitHold: AwaitHold = async (wait, stage) => {
+    holds.push(`${stage}: ${wait.reason}`);
+    harness.agentFailure.clear();
+  };
+  const deps = { harness, gh, model: MODEL, hubRepo: "example-org/hub", awaitHold, log: () => undefined, warn: (_: number, message: string) => warnings.push(message) };
+  return { harness, gh, warnings, holds, run: () => runPolish(deps) };
 }
 
 function sectionFor(gh: FakeGh, repo: TargetRepo): string {
@@ -113,6 +120,17 @@ function sectionFor(gh: FakeGh, repo: TargetRepo): string {
 }
 
 describe("runPolish", () => {
+  it("waits out a Hold when the polish agent's credentials are rejected, then polishes instead of reverting", async () => {
+    const { harness, gh, holds, run } = boot();
+    harness.agentFailure.set("api", new AgentWaitError("auth", undefined, "Not logged in · Please run /login"));
+    const status = await run();
+    expect(holds).toEqual(["polish api: auth"]);
+    expect(harness.prompts.filter((entry) => entry.repo === "api")).toHaveLength(2);
+    expect(harness.pushed).toEqual(["api"]);
+    expect(gh.comments).toEqual([]);
+    expect(status.phase).toBe("green");
+  });
+
   it("looks up each involved repo's integration → dev pull request", async () => {
     const { gh, run } = boot();
     await run();

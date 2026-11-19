@@ -7,7 +7,9 @@ import {
   guessRepoCommands,
   hubFromRemote,
   NO_CHECKS,
+  recheckSuggestionLines,
   repoNameFrom,
+  suggestRecheck,
   STATE_GITIGNORE,
 } from "../../src/project/scaffold.js";
 
@@ -34,6 +36,30 @@ describe("sandcastle init scaffolding", () => {
     expect(guessRepoCommands(undefined, ALL_SCRIPTS)).toEqual({ bootstrap: "", checks: NO_CHECKS });
   });
 
+  it("suggests a recheck that limits jest or vitest to files changed since the recheck base", () => {
+    expect(suggestRecheck("npm", { typecheck: "tsc", test: "jest --config jest.config.js" })).toBe(
+      "npm run typecheck && npx jest --config jest.config.js --changedSince=$SANDCASTLE_RECHECK_BASE",
+    );
+    expect(suggestRecheck("pnpm", { test: "vitest run --passWithNoTests" })).toBe(
+      "pnpm exec vitest run --passWithNoTests --changed=$SANDCASTLE_RECHECK_BASE",
+    );
+    expect(suggestRecheck("yarn", { test: "vitest" })).toBe("yarn vitest run --changed=$SANDCASTLE_RECHECK_BASE");
+    expect(suggestRecheck("npm", { test: "mocha" })).toBeUndefined();
+    expect(suggestRecheck("npm", { build: "tsc" })).toBeUndefined();
+    expect(suggestRecheck(undefined, { test: "jest" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "jest --watch" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "vitest watch" })).toBeUndefined();
+    expect(suggestRecheck("npm", { test: "vitest bench" })).toBeUndefined();
+  });
+
+  it("prints the recheck as an opt-in config line the parser accepts", () => {
+    const [, line] = recheckSuggestionLines("app", "npx jest --changedSince=$SANDCASTLE_RECHECK_BASE");
+    const verify = JSON.parse(`{${line}}`).verify;
+    const project = parseProjectConfig({ hubRepo: "acme/app", repos: { app: { github: "acme/app", checks: "npm test" } }, verify }, "/work/app/.sandcastle/config.json");
+    expect(project.verify).toMatchObject({ recheck: { app: "npx jest --changedSince=$SANDCASTLE_RECHECK_BASE" } });
+    expect(recheckSuggestionLines("app", undefined)[1]).toContain("<a cheaper command");
+  });
+
   it("reads owner/name from github remotes", () => {
     expect(hubFromRemote("git@github.com:acme/my-app.git")).toBe("acme/my-app");
     expect(hubFromRemote("https://github.com/acme/my-app.git\n")).toBe("acme/my-app");
@@ -54,7 +80,7 @@ describe("sandcastle init scaffolding", () => {
     });
     const project = parseProjectConfig(raw, "/work/app/.sandcastle/config.json");
     expect(project.ui.port).toBe(7781);
-    expect(project.verify).toEqual({ strategy: "command", commands: {}, agent: true });
+    expect(project.verify).toEqual({ strategy: "command", commands: {}, recheck: {}, agent: true });
     expect(buildInitConfig({ hubRepo: "acme/app", commands: { bootstrap: "", checks: "x" }, port: 7777 })).not.toHaveProperty("name");
   });
 

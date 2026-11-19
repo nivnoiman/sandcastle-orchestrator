@@ -133,6 +133,12 @@ export function agentWaitFrom(cause: unknown, classify: AgentOutputClassifier = 
   return classify(cause.stdout, cause.stderr);
 }
 
+export function rethrowAsAgentWait(classify: AgentOutputClassifier): (cause: unknown) => never {
+  return (cause) => {
+    throw agentWaitFrom(cause, classify) ?? cause;
+  };
+}
+
 export function transientWaitFrom(cause: unknown): AgentWaitError | undefined {
   if (!(cause instanceof CommandFailure)) return undefined;
   const scanned = tail(`${cause.stdout}\n${cause.stderr}`, TRANSIENT_SCAN_LIMIT);
