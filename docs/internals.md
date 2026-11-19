@@ -829,7 +829,22 @@ any red that is not FAIL scenarios (REQUIRES-STG only, no report, broken environ
 Park comments carry `<!-- sandcastle:feature-parked -->`; on start the loop counts the
 briefs posted since the last park, so a crashed run continues its count and a human
 re-run of a parked parent starts a fresh budget; a parent whose comments cannot be read
-parks rather than restart the count. The chip reads "fixing · fix round N/L" while a
+parks rather than restart the count.
+
+The Feature Verify after a fix round is a **focused re-check**
+(`focusedRecheck.ts`, `SANDCASTLE_FEATURE_RECHECK=focused`, the default). The loop keeps
+the previous report in memory and hands the verify agent only its FAIL scenarios (an
+unrecognised verdict counts as FAIL), the fix round's result lines and the names of the
+PASS / REQUIRES-STG scenarios. The agent re-runs the failures under their exact names
+plus any carried-over scenario whose code the fix touched (a regression scan of the fix).
+sandcastle then appends a `## Carried over from the previous Feature Verify` section to the
+report: every prior PASS / REQUIRES-STG the agent did not re-report, each marked
+`[carried over]`, and every prior FAIL it skipped, still FAIL. Scenarios match by name
+(case, decoration and spacing ignored). Counts, the verdict, the requires-STG checklist
+and the next brief all read the merged report, so totals stay whole. The first Feature
+Verify of a run, a re-verify after a crash-resume (no report in memory), a previous
+report with no readable FAIL lines, and `SANDCASTLE_FEATURE_RECHECK=full` all run the full
+review. A focused report with no scenario lines is not merged, so it stays red. The chip reads "fixing · fix round N/L" while a
 round runs, and `sandcastle finish` refuses until it settles.
 
 ## Polish

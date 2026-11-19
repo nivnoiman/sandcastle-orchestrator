@@ -1,7 +1,7 @@
 import { fencedBlock } from "../../markdown.js";
 import type { RunModel, TargetRepo } from "../../model/runModel.js";
 import { hubIssueUrl, type FeatureVerifyPullRequests, type PullRequestRef } from "../ghClient.js";
-import { buildFeatureVerifyPrompt } from "../promptBuilder.js";
+import { buildFeatureVerifyPrompt, type FeatureRecheckPromptContext } from "../promptBuilder.js";
 import { integrationBase, type TrackerKind } from "../../project/projectConfig.js";
 import type { ComposeFacts, ComposeService, VerifyHarness } from "./composeHarness.js";
 import { FEATURE_PARKED_SENTINEL, featureReworkSection, featureReworkStory, type FeatureRound } from "./featureBrief.js";
@@ -15,6 +15,7 @@ import {
   type VerifyOutcome,
 } from "./verdict.js";
 import { messageOf } from "../../messageOf.js";
+import { mergeRecheckReport, type FeatureRecheck } from "./focusedRecheck.js";
 
 export type FeatureVerifyPhase = "idle" | "waiting" | "running" | "fixing" | "green" | "red" | "skipped";
 
@@ -31,6 +32,7 @@ export interface FeatureVerifyStatus {
 
 export interface FeatureVerifyRun extends FeatureVerifyStatus {
   story?: string | undefined;
+  report?: string | undefined;
 }
 
 export interface FeatureVerifyIssueOps {
@@ -48,6 +50,7 @@ export interface FeatureVerifyDeps {
   hubRepo: string;
   tracker?: TrackerKind | undefined;
   rework?: FeatureRound | undefined;
+  recheck?: FeatureRecheck | undefined;
   log: (message: string) => void;
   warn: (itemNumber: number, message: string) => void;
 }
@@ -240,7 +243,29 @@ function prompt(deps: FeatureVerifyDeps, facts: ComposeFacts): string {
     commands: facts.commands,
     externalProviders: facts.externalProviders,
     reportPath: facts.reportPath,
+    recheck: recheckPromptContext(deps.recheck),
   });
+}
+
+function recheckPromptContext(recheck: FeatureRecheck | undefined): FeatureRecheckPromptContext | undefined {
+  if (!recheck) return undefined;
+  return {
+    fixRound: recheck.fixRound,
+    recheckLines: recheck.recheck.map((scenario) => (scenario.detail ? `${scenario.name} — ${scenario.detail}` : scenario.name)),
+    carriedNames: recheck.carried.map((scenario) => scenario.name),
+    fixSummary: recheck.fixSummary,
+  };
+}
+
+function scopeLine(recheck: FeatureRecheck | undefined): string {
+  if (!recheck) return "full review";
+  return `focused re-check after fix round ${recheck.fixRound}: ${recheck.recheck.length} failed scenario(s) re-checked, ${recheck.carried.length} verdict(s) eligible to carry over`;
+}
+
+async function collectScopedReport(deps: FeatureVerifyDeps): Promise<VerifyRun> {
+  const run = await collectReport(deps);
+  if (!deps.recheck) return run;
+  return { ...run, report: mergeRecheckReport(run.report, deps.recheck) };
 }
 
 function openIntegrationPullRequest(
@@ -293,8 +318,8 @@ function sendBackRound(deps: FeatureVerifyDeps, outcome: VerifyOutcome, failure:
 
 export async function runFeatureVerify(deps: FeatureVerifyDeps): Promise<FeatureVerifyRun> {
   const { model } = deps;
-  deps.log(`[feature-verify] bringing up a throwaway environment for ${model.integrationBranch}`);
-  const { report, environment, failure, services } = await collectReport(deps);
+  deps.log(`[feature-verify] bringing up a throwaway environment for ${model.integrationBranch} (${scopeLine(deps.recheck)})`);
+  const { report, environment, failure, services } = await collectScopedReport(deps);
 
   const outcome: VerifyOutcome = failure
     ? { verdict: "red", counts: readVerdict(report).counts, reason: failure }
@@ -330,7 +355,7 @@ export async function runFeatureVerify(deps: FeatureVerifyDeps): Promise<Feature
 
   if (sendBack) {
     deps.log(`[feature-verify] RED — ${countsLine(outcome.counts)}; sending it back for fix round ${sendBack.round.round}/${sendBack.round.limit}`);
-    return { phase: "fixing", counts: outcome.counts, reason: outcome.reason, pullRequests, rework: sendBack.round, story: sendBack.story };
+    return { phase: "fixing", counts: outcome.counts, reason: outcome.reason, pullRequests, rework: sendBack.round, story: sendBack.story, report };
   }
 
   settleLabels(deps, outcome);
