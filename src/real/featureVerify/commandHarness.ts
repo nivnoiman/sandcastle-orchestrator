@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { TargetRepo } from "../../model/runModel.js";
 import { integrationBase, type CommandVerify } from "../../project/projectConfig.js";
-import { runWithIdleTimeout, type CommandRunner } from "../commandRunner.js";
+import { CommandFailure, runWithIdleTimeout, type CommandRunner } from "../commandRunner.js";
 import { execRequest, removeContainer, SANDBOX_WORKDIR, stageContainerName, startContainer, withContainerEnvFile } from "../docker.js";
 import { checkCommand, parseEnvFile, perRepoValue, resolveSandboxEnvFile, type OrchestratorConfig } from "../env.js";
 import type { FileSystemPort } from "../fileSystem.js";
@@ -10,7 +10,7 @@ import type { VerifyWorktrees } from "../gitOps.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "../paths.js";
 import { outputTail } from "../sandboxRunner.js";
 import { runVerifyAgent } from "./verifyAgent.js";
-import { modeLabel, selectVerifyMode, seedRecheckHistoryCommand, withRecheckBase, type RecheckLedger, type VerifyCommandMode } from "./recheck.js";
+import { modeLabel, rawArchiveArgs, selectVerifyMode, seedRecheckHistoryCommand, withRecheckBase, type RecheckLedger, type VerifyCommandMode } from "./recheck.js";
 import { resolveAgent } from "../agents/index.js";
 import type { AttemptLogStore } from "../attemptLog.js";
 import {
@@ -44,6 +44,10 @@ export interface CommandHarnessDeps {
   log: (message: string) => void;
   now?: () => number;
   recheckLedger?: RecheckLedger | undefined;
+}
+
+function isNotAncestorExit(cause: unknown): boolean {
+  return cause instanceof CommandFailure && cause.exitCode === 1;
 }
 
 export function copySourceCommand(repo: TargetRepo): string {
@@ -163,11 +167,11 @@ export class CommandVerifyHarness implements VerifyHarness {
       recheck: strategy.recheck[repo],
       last: this.deps.recheckLedger?.last(repo),
       head,
-      diffSince: (base) => this.diffSince(worktree, base),
+      changedSince: (base) => this.changedSince(worktree, base),
     });
 
     await this.exec(copySourceCommand(repo), `${repo} copy integration branch`);
-    const mode = await this.seedRecheckHistory(service, selected, scratch);
+    const mode = await this.seedRecheckHistory(service, selected, worktree, scratch);
     if (bootstrap) await this.exec(`cd ${service.sourcePath} && ${bootstrap}`, `${repo} bootstrap`);
 
     if (mode.kind === "skip") {
@@ -189,12 +193,22 @@ export class CommandVerifyHarness implements VerifyHarness {
     }
   }
 
-  private async seedRecheckHistory(service: ComposeService, mode: VerifyCommandMode, scratch: string): Promise<VerifyCommandMode> {
+  private async seedRecheckHistory(
+    service: ComposeService,
+    mode: VerifyCommandMode,
+    worktree: string,
+    scratch: string,
+  ): Promise<VerifyCommandMode> {
     if (mode.kind !== "affected") return mode;
-    const patchFile = `recheck-${service.repo}.patch`;
-    this.deps.fs.writeText(join(scratch, patchFile), mode.patch);
+    const baseArchive = `recheck-${service.repo}-base.tar`;
+    const headArchive = `recheck-${service.repo}-head.tar`;
     try {
-      await this.exec(seedRecheckHistoryCommand(service.sourcePath, `${SANDBOX_WORKDIR}/${patchFile}`), `${service.repo} seed recheck history`);
+      this.deps.runner.run({ command: "git", args: rawArchiveArgs(mode.base, join(scratch, baseArchive)), cwd: worktree });
+      this.deps.runner.run({ command: "git", args: rawArchiveArgs(mode.head, join(scratch, headArchive)), cwd: worktree });
+      await this.exec(
+        seedRecheckHistoryCommand(service.sourcePath, `${SANDBOX_WORKDIR}/${baseArchive}`, `${SANDBOX_WORKDIR}/${headArchive}`),
+        `${service.repo} seed recheck history`,
+      );
       return mode;
     } catch (cause) {
       const reason = "recheck history could not be seeded";
@@ -205,9 +219,19 @@ export class CommandVerifyHarness implements VerifyHarness {
     }
   }
 
-  private diffSince(worktree: string, base: string): string | undefined {
-    if (this.hostGit(worktree, ["merge-base", "--is-ancestor", base, "HEAD"]) === undefined) return undefined;
-    return this.hostGit(worktree, ["diff", "--binary", "--no-color", base, "HEAD"]);
+  private changedSince(worktree: string, base: string): string | undefined {
+    if (!this.isAncestor(worktree, base)) return undefined;
+    return this.hostGit(worktree, ["diff", "--name-only", base, "HEAD"]);
+  }
+
+  private isAncestor(worktree: string, base: string): boolean {
+    try {
+      this.deps.runner.run({ command: "git", args: ["merge-base", "--is-ancestor", base, "HEAD"], cwd: worktree });
+      return true;
+    } catch (cause) {
+      if (!isNotAncestorExit(cause)) this.deps.log(`[feature-verify] git merge-base --is-ancestor failed in ${worktree}: ${messageOf(cause)}`);
+      return false;
+    }
   }
 
   private hostGit(cwd: string, args: readonly string[]): string | undefined {

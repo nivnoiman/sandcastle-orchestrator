@@ -128,7 +128,7 @@ describe("command verify recheck after a fix round", () => {
   function round(ledger: RecheckLedger, head: string, script: (runner: RecordingCommandRunner) => void = () => undefined) {
     const runner = new RecordingCommandRunner();
     runner.respond(/^git rev-parse HEAD$/, `${head}\n`);
-    runner.respond(/^git diff --binary/, "diff --git a/src/x.ts b/src/x.ts\n");
+    runner.respond(/^git diff --name-only/, "src/x.ts\n");
     script(runner);
     return harness(recheckConfig(), runner, ledger);
   }
@@ -144,14 +144,15 @@ describe("command verify recheck after a fix round", () => {
   it("runs the affected command since the last green commit on a re-verify", async () => {
     const ledger = new RecheckLedger();
     await round(ledger, SHA_A).verify.up();
-    const { runner, fs, logs, verify } = round(ledger, SHA_B);
+    const { runner, logs, verify } = round(ledger, SHA_B);
     const facts = await verify.up();
 
     expect(runner.find(`git merge-base --is-ancestor ${SHA_A} HEAD`)).toBeDefined();
-    expect(runner.find("git init -q && git apply -R --whitespace=nowarn /home/agent/workspace/recheck-api.patch")).toBeDefined();
+    expect(runner.find(/^git -c core\.autocrlf=false -c core\.eol=lf archive --format=tar -o \S+recheck-api-base\.tar a{40}$/)).toBeDefined();
+    expect(runner.find(/^git -c core\.autocrlf=false -c core\.eol=lf archive --format=tar -o \S+recheck-api-head\.tar b{40}$/)).toBeDefined();
+    expect(runner.find("tar -xf /home/agent/workspace/recheck-api-base.tar")).toBeDefined();
     expect(runner.find('export SANDCASTLE_RECHECK_BASE="$(git rev-parse HEAD~1)" && npm run affected')).toBeDefined();
     expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeUndefined();
-    expect([...fs.files.keys()].some((path) => path.endsWith("recheck-api.patch"))).toBe(true);
     expect(logs).toContain(`[feature-verify] api verify command (affected since ${SHA_A.slice(0, 12)})`);
     expect(logs).toContain("[feature-verify] web verify command (full: no verify.recheck for it)");
     expect(facts.commands?.[0]).toMatchObject({ repo: "api", command: "npm run affected" });
@@ -181,6 +182,7 @@ describe("command verify recheck after a fix round", () => {
     expect(runner.find("cd /home/agent/sources/api && npm run verify")).toBeDefined();
     expect(runner.find("npm run affected")).toBeUndefined();
     expect(logs).toContain(`[feature-verify] api verify command (full: last verified ${SHA_A.slice(0, 12)} is not reachable)`);
+    expect(logs.some((line) => line.includes("merge-base --is-ancestor failed"))).toBe(false);
   });
 
   it("runs the full command again for a repo that was red last round", async () => {

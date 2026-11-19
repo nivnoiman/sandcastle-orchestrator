@@ -862,13 +862,18 @@ Per repo, `selectVerifyMode` picks:
 | Mode | When |
 |---|---|
 | `full` | no recheck configured, first round of the loop, red last round, head sha unknown, or the last green sha is not an ancestor of the head (`git merge-base --is-ancestor` in the host worktree) |
-| `skip` | head equals the last green sha, or `git diff` since it is empty |
-| `affected` | otherwise; carries `git diff --binary <last green> HEAD` |
+| `skip` | head equals the last green sha, or `git diff --name-only` since it is empty |
+| `affected` | otherwise |
 
-For `affected`, the patch is written to the scratch dir and the copied source (which has
-no `.git`) gets a synthetic history: `git init`, reverse-apply the patch, commit
-"recheck base", apply it, commit "recheck head". The recheck runs with
-`SANDCASTLE_RECHECK_BASE=$(git rev-parse HEAD~1)`. If seeding fails the copy is wiped,
+For `affected`, the host writes `git archive` tarballs of the last green commit and the
+head into the scratch dir, with `core.autocrlf=false` and `core.eol=lf` so they hold the
+raw repo bytes whatever the host's line-ending config (a Windows worktree under
+`autocrlf=true` is CRLF, which a patch-based history cannot reconcile). In the container
+the copied source is replaced: `git init` (local `core.autocrlf=false`), extract the base
+tar, `git add -A -f` (the tree holds only tracked files, so ignored-but-tracked files stay),
+commit "recheck base", empty the tree, extract the head tar, commit "recheck head". The
+recheck runs with `SANDCASTLE_RECHECK_BASE=$(git rev-parse HEAD~1)`, and the working tree is
+clean against HEAD. If seeding fails the copy is wiped,
 re-copied and the full command runs. A skipped repo still copies and bootstraps for the
 verify agent, and its `VerifyCommandRun` says it was skipped. A red command marks the repo
 red in the ledger, so its next round is full.

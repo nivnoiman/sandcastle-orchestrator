@@ -27,14 +27,14 @@ export class RecheckLedger {
 
 export type VerifyCommandMode =
   | { kind: "full"; reason: string }
-  | { kind: "affected"; base: string; patch: string; command: string }
+  | { kind: "affected"; base: string; head: string; command: string }
   | { kind: "skip"; base: string };
 
 export interface VerifyModeInputs {
   recheck: string | undefined;
   last: VerifiedCommit | undefined;
   head: string | undefined;
-  diffSince: (base: string) => string | undefined;
+  changedSince: (base: string) => string | undefined;
 }
 
 export function selectVerifyMode(inputs: VerifyModeInputs): VerifyCommandMode {
@@ -44,10 +44,10 @@ export function selectVerifyMode(inputs: VerifyModeInputs): VerifyCommandMode {
   if (!last.passed) return { kind: "full", reason: "it was red last round" };
   if (!head) return { kind: "full", reason: "its integration head is unknown" };
   if (head === last.sha) return { kind: "skip", base: last.sha };
-  const patch = inputs.diffSince(last.sha);
-  if (patch === undefined) return { kind: "full", reason: `last verified ${shortSha(last.sha)} is not reachable` };
-  if (patch.trim().length === 0) return { kind: "skip", base: last.sha };
-  return { kind: "affected", base: last.sha, patch, command: recheck };
+  const changed = inputs.changedSince(last.sha);
+  if (changed === undefined) return { kind: "full", reason: `last verified ${shortSha(last.sha)} is not reachable` };
+  if (changed.trim().length === 0) return { kind: "skip", base: last.sha };
+  return { kind: "affected", base: last.sha, head, command: recheck };
 }
 
 export function shortSha(sha: string): string {
@@ -60,16 +60,28 @@ export function modeLabel(repo: TargetRepo, mode: VerifyCommandMode): string {
   return `${repo} verify command (full: ${mode.reason})`;
 }
 
-export function seedRecheckHistoryCommand(sourcePath: string, patchPath: string): string {
+export function rawArchiveArgs(rev: string, outputPath: string): string[] {
+  return ["-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", "-o", outputPath, rev];
+}
+
+function commitTree(archivePath: string, message: string): string[] {
   return [
+    "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
+    `tar -xf ${archivePath}`,
+    "git add -A -f",
+    `${RECHECK_GIT} commit -q --no-verify --allow-empty -m "${message}"`,
+  ];
+}
+
+export function seedRecheckHistoryCommand(sourcePath: string, baseArchive: string, headArchive: string): string {
+  return [
+    `rm -rf ${sourcePath}`,
+    `mkdir -p ${sourcePath}`,
     `cd ${sourcePath}`,
     "git init -q",
-    `git apply -R --whitespace=nowarn ${patchPath}`,
-    "git add -A",
-    `${RECHECK_GIT} commit -q --no-verify --allow-empty -m "sandcastle recheck base"`,
-    `git apply --whitespace=nowarn ${patchPath}`,
-    "git add -A",
-    `${RECHECK_GIT} commit -q --no-verify --allow-empty -m "sandcastle recheck head"`,
+    "git config core.autocrlf false",
+    ...commitTree(baseArchive, "sandcastle recheck base"),
+    ...commitTree(headArchive, "sandcastle recheck head"),
   ].join(" && ");
 }
 
