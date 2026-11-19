@@ -90,6 +90,10 @@ _Avoid_: Silent stage, no-op stage
 A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected.
 _Avoid_: Block, freeze
 
+**Dependency Cache**:
+A repo's installed `node_modules` kept in a docker volume keyed by its lockfile and the image, reused by Feature Verify attempts instead of a fresh `npm ci` (`repos.<name>.cacheDependencies`).
+_Avoid_: node_modules cache, deps volume
+
 ### Operating
 
 **Needs Attention**:

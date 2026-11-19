@@ -197,3 +197,19 @@ describe("configPathFrom", () => {
     expect(() => configPathFrom(["--config="], {})).toThrow(/empty/);
   });
 });
+
+describe("repos.<name>.cacheDependencies", () => {
+  function withCache(value: unknown) {
+    return { ...SINGLE_REPO, repos: { myapp: { ...SINGLE_REPO.repos.myapp, cacheDependencies: value } } };
+  }
+
+  it("is auto (undefined) by default and accepts true or false", () => {
+    expect(parseProjectConfig(SINGLE_REPO, CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBeUndefined();
+    expect(parseProjectConfig(withCache(false), CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBe(false);
+    expect(parseProjectConfig(withCache(true), CONFIG_PATH).repos["myapp"]?.cacheDependencies).toBe(true);
+  });
+
+  it("rejects anything but a boolean", () => {
+    expect(() => parseProjectConfig(withCache("yes"), CONFIG_PATH)).toThrow(/repos\.myapp\.cacheDependencies must be true or false/);
+  });
+});

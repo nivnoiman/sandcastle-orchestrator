@@ -28,6 +28,7 @@ export interface RepoConfig {
   checks: string;
   /** Ordered commands per stage name, run in the stage container before the stage's work is pushed. */
   stageChecks: StageChecks;
+  cacheDependencies?: boolean | undefined;
 }
 
 export interface VerifyService {
@@ -98,6 +99,13 @@ function optionalString(raw: Json, key: string, where: string): string | undefin
   return value;
 }
 
+function optionalBoolean(raw: Json, key: string, where: string): boolean | undefined {
+  const value = raw[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${where}.${key} must be true or false`);
+  return value;
+}
+
 function requiredString(raw: Json, key: string, where: string): string {
   const value = optionalString(raw, key, where);
   if (value === undefined || value.trim().length === 0) throw new Error(`${where}.${key} is required`);
@@ -159,6 +167,7 @@ function parseRepo(name: string, raw: unknown, projectRoot: string, hubRepo: str
     bootstrap: optionalString(raw, "bootstrap", where) ?? "",
     checks: requiredString(raw, "checks", where),
     stageChecks: parseStageChecks(raw["stageChecks"], `${where}.stageChecks`),
+    cacheDependencies: optionalBoolean(raw, "cacheDependencies", where),
   };
 }
 

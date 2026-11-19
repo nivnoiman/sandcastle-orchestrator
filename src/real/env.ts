@@ -50,6 +50,7 @@ export interface OrchestratorConfig {
   checkCommands: Record<TargetRepo, string>;
   /** Per repo, per stage: ordered commands run before that stage's work is pushed. */
   stageChecks: Record<TargetRepo, StageChecks>;
+  cacheDependencies?: Record<TargetRepo, boolean | undefined> | undefined;
   /** Fix attempts the stage agent gets after its stage checks go red, before the item is sent back to develop. */
   stageCheckFixLimit: number;
   jestWorkers: string;
@@ -254,6 +255,7 @@ export function loadOrchestratorConfig(
     bootstrapCommands: perRepo(values, "SANDCASTLE_BOOTSTRAP_", (repo) => project.repos[repo]!.bootstrap),
     checkCommands: perRepo(values, "SANDCASTLE_CHECKS_", (repo) => project.repos[repo]!.checks),
     stageChecks: Object.fromEntries(knownRepos().map((repo) => [repo, project.repos[repo]!.stageChecks])),
+    cacheDependencies: Object.fromEntries(knownRepos().map((repo) => [repo, project.repos[repo]!.cacheDependencies])),
     stageCheckFixLimit: reworkLimit(values, "SANDCASTLE_STAGE_CHECK_FIX_LIMIT", STAGE_CHECK_FIX_LIMIT_DEFAULT),
     jestWorkers: jestWorkers(values),
     reworkLimit: reworkLimit(values),

@@ -17,6 +17,7 @@ import {
 } from "./docker.js";
 import type { FileSystemPort } from "./fileSystem.js";
 import { removeWorktreeTree } from "./gitOps.js";
+import { pruneDependencyCaches } from "./dependencyCache.js";
 import { repoRoot, toDockerPath, type SandcastleLayout } from "./paths.js";
 import { messageOf } from "../messageOf.js";
 
@@ -167,6 +168,10 @@ export function collectOrphans(deps: GcDeps): GcReport {
       report.failures.push(`docker volume rm ${name} failed: ${shortMessageOf(cause)}`);
     }
   }
+
+  const caches = pruneDependencyCaches(deps.runner, deps.log);
+  report.volumes.push(...caches.removed);
+  report.failures.push(...caches.failures);
 
   for (const repo of deps.repos ?? knownRepos()) {
     pruneWorktreeMetadata(deps, repo, report);
