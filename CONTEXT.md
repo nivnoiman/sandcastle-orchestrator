@@ -87,7 +87,7 @@ A Stage whose agent ended its turn with no commits and no evidence section. Re-r
 _Avoid_: Silent stage, no-op stage
 
 **Hold**:
-A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected.
+A Run-wide pause on starting Stages because the agent provider is rate-limited or credentials were rejected. A Feature Verify, fix-round or polish agent that hits one raises it too and re-runs the same attempt once it lifts.
 _Avoid_: Block, freeze
 
 **Dependency Cache**:

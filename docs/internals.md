@@ -208,6 +208,29 @@ The ui shows the countdown on the card and a header chip for as long as the whol
 held. `retry` on a waiting item resumes it **and releases the hold for every other item**,
 and the feed says so when it happens.
 
+### Feature Verify, fix rounds and polish under a Hold
+
+The lifecycle agents after the Items (Feature Verify, `fvfix`, polish) run once the watch
+loop has stopped, so they cannot wait in a Phase. `DockerIntegrationHarness.runAgent` and
+`runVerifyAgent` classify a failed agent with the provider's `classify` (the same
+`classifyAgentOutput` item stages use; `Not logged in · Please run /login` is an auth
+failure). An auth or rate-limit `AgentWaitError` then goes to the `AwaitHold` gate
+(`src/real/holdGate.ts`, built in `startRealRun`): it raises the shared `RunHold` (so the
+auth Hold banner, `recheck-auth` and the probe all see it) and, every poll interval, ticks
+the engine (reopens a rate-limit window) and polls the auth probe until the Hold lifts.
+Then the same attempt re-runs:
+
+- **fix round**: `landAgentWork` drops the worktree, waits, and re-runs that repo's agent
+  from a fresh checkout. `runFeatureFix` returns only once every repo settled, so the round
+  is not spent and no `feature-fix` comment is posted for the dead attempt. A round whose
+  agents ran fine and landed nothing still parks.
+- **Feature Verify**: the round's environment is torn down, the chip reads `waiting` with
+  the Hold message, and the same round (same recheck) runs again. No report comment, no park.
+- **polish**: the repo's polish re-runs; nothing is reverted or commented.
+
+Transient failures are not held here: they keep their old outcome (a red verify, a dropped
+fix or polish).
+
 Everything else (red checks, conflicts, `UNFIXABLE`, unknown failures) still parks.
 Park comments carry the **last** stream event rather than the start of the `init` event,
 so a park reads as its actual cause instead of "init then exit 1".
@@ -869,6 +892,9 @@ Park comments carry `<!-- sandcastle:feature-parked -->`; on start the loop coun
 briefs posted since the last park, so a crashed run continues its count and a human
 re-run of a parked parent starts a fresh budget; a parent whose comments cannot be read
 parks rather than restart the count.
+
+A fix agent that dies on rejected credentials or a rejected usage window does not spend the
+round: see "Feature Verify, fix rounds and polish under a Hold" above.
 
 The Feature Verify after a fix round is a **focused re-check**
 (`focusedRecheck.ts`, `SANDCASTLE_FEATURE_RECHECK=focused`, the default). The loop keeps

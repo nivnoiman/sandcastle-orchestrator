@@ -73,6 +73,13 @@ describe("DockerIntegrationHarness", () => {
     expect(runner.find("docker rm -f")).toBeDefined();
   });
 
+  it("turns a logged-out agent into an auth wait instead of a plain failure", async () => {
+    const { runner, polish } = boot();
+    const transcript = JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" });
+    runner.fail("claude -p", new CommandFailure("docker", ["exec"], 1, transcript, ""));
+    await expect(polish.runAgent(polish.checkout("api"), "polish it")).rejects.toMatchObject({ agentWait: true, reason: "auth" });
+  });
+
   it("lists the commits polish made since the baseline", () => {
     const { runner, polish } = boot();
     runner.respond("abc123..HEAD", "chore: remove comments\nrefactor: simplify toy\n");

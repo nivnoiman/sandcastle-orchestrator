@@ -206,6 +206,14 @@ describe("verify agent", () => {
     expect(logs.read("16-feature-verify-1").chunk).toContain("failed: idle timeout");
   });
 
+  it("turns a logged-out verify agent into an auth wait", async () => {
+    const { runner, compose } = harness();
+    await compose.up();
+    const transcript = JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" });
+    runner.fail("claude -p --model sonnet", new CommandFailure("docker", ["exec"], 1, transcript, ""));
+    await expect(compose.runAgent("PROMPT")).rejects.toMatchObject({ agentWait: true, reason: "auth" });
+  });
+
   it("refuses to run before the environment is up", async () => {
     const { compose } = harness();
     await expect(compose.runAgent("PROMPT")).rejects.toThrow(/before up\(\)/);
