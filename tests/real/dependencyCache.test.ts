@@ -264,7 +264,7 @@ describe("command verify with a dependency cache", () => {
       runner,
       fs,
       layout: testLayout(),
-      config: testConfig({ verify: { strategy: "command", commands: {}, agent: false } }),
+      config: testConfig({ verify: { strategy: "command", commands: {}, recheck: {}, agent: false } }),
       git: new FakeWorktrees(),
       parentNumber: 16,
       integrationBranch: "integration/toy-demo",
