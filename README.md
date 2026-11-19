@@ -31,7 +31,7 @@ all items done -> Feature Verify -> polish -> PR integration/<feature> -> dev
 | Park and hold | `ready-for-agent` admits an item; without it the item is held. Parked items get `ready-for-human`. Flipping the label back resumes from the failed stage. |
 | Crash-resume | `sc:*` labels and pull-request markers are the durable state. A restart resumes every item where it was. |
 | Sandbox | One container per stage, sanitized `.env`, read-only Claude home, idle timeout with a salvage pass, startup cleanup of orphans. |
-| Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds. |
+| Feature Verify | After every item merged, a fresh agent checks the assembled feature against every acceptance criterion. Red results get fix rounds; the re-verify after a fix round re-checks only the failures and carries the other verdicts over. |
 | Polish | A final simplify, review and comment-strip pass on each integration pull request. |
 | Control plane | Local Board View (Express + SSE): Needs Attention, a board per run with project stages, Phase Clock and Quiet, cap, pause, cancel, retry, comment, reset, a run queue, parallel parents. The original page stays at `/legacy`. |
 | Operator CLI | Run commands print one JSON object each, so an agent or a person can launch, watch and finish runs without the UI. |

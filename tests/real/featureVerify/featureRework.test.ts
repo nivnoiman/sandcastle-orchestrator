@@ -15,6 +15,7 @@ import { idleFeatureVerify, type FeatureVerifyRun, type FeatureVerifyStatus } fr
 import type { IntegrationHarness, IntegrationWorkspace } from "../../../src/real/integrationHarness.js";
 import type { TargetRepo } from "../../../src/model/runModel.js";
 import { testRunModel, testWorkItem } from "../support.js";
+import type { FeatureRecheck, FeatureRecheckMode } from "../../../src/real/featureVerify/focusedRecheck.js";
 
 const MODEL = testRunModel([testWorkItem({ number: 17, repo: "api" }), testWorkItem({ number: 18, repo: "web" })]);
 const COUNTS = { pass: 1, fail: 1, requiresStg: 0 };
@@ -50,9 +51,10 @@ function green(): FeatureVerifyRun {
 const PUSHED: FeatureFixResult[] = [{ repo: "api", outcome: { kind: "pushed", checks: "npm test", subjects: ["fix: lead import"] } }];
 const NOTHING: FeatureFixResult[] = [{ repo: "api", outcome: { kind: "unchanged" } }];
 
-function boot(verdicts: FeatureVerifyRun[], fixes: FeatureFixResult[][] = [PUSHED, PUSHED, PUSHED]) {
+function boot(verdicts: FeatureVerifyRun[], fixes: FeatureFixResult[][] = [PUSHED, PUSHED, PUSHED], recheckMode: FeatureRecheckMode = "focused") {
   const gh = new FakeGh();
   const rounds: FeatureRound[] = [];
+  const rechecks: (FeatureRecheck | undefined)[] = [];
   const fixCalls: { briefs: FeatureFixBrief[]; round: FeatureRound }[] = [];
   const statuses: FeatureVerifyStatus[] = [];
   const run = () =>
@@ -60,8 +62,10 @@ function boot(verdicts: FeatureVerifyRun[], fixes: FeatureFixResult[][] = [PUSHE
       gh,
       model: MODEL,
       limit: 3,
-      verify: async (round) => {
+      recheckMode,
+      verify: async (round, recheck) => {
         rounds.push(round);
+        rechecks.push(recheck);
         return verdicts.shift() ?? green();
       },
       fix: async (briefs, round) => {
@@ -72,10 +76,38 @@ function boot(verdicts: FeatureVerifyRun[], fixes: FeatureFixResult[][] = [PUSHE
       log: () => undefined,
       warn: () => undefined,
     });
-  return { gh, rounds, fixCalls, statuses, run };
+  return { gh, rounds, rechecks, fixCalls, statuses, run };
 }
 
+const RED_REPORT = ["## Results", "- PASS — login works — 200", "- FAIL — import leads — 500 on POST /leads"].join("\n");
+
 describe("runFeatureVerifyLoop", () => {
+  it("runs the first Feature Verify as a full review and focuses the re-verify on what failed", async () => {
+    const { rechecks, run } = boot([{ ...fixing({ round: 1, limit: 3 }), report: RED_REPORT }, green()]);
+    await run();
+    expect(rechecks[0]).toBeUndefined();
+    expect(rechecks[1]?.fixRound).toBe(1);
+    expect(rechecks[1]?.recheck.map((scenario) => scenario.name)).toEqual(["import leads"]);
+    expect(rechecks[1]?.carried.map((scenario) => scenario.name)).toEqual(["login works"]);
+    expect(rechecks[1]?.fixSummary).toContain("fix: lead import");
+  });
+
+  it("re-verifies with a full review when the mode is full or the last report is unreadable", async () => {
+    const full = boot([{ ...fixing({ round: 1, limit: 3 }), report: RED_REPORT }, green()], undefined, "full");
+    await full.run();
+    expect(full.rechecks[1]).toBeUndefined();
+
+    const unreadable = boot([{ ...fixing({ round: 1, limit: 3 }), report: "no scenario lines" }, green()]);
+    await unreadable.run();
+    expect(unreadable.rechecks[1]).toBeUndefined();
+  });
+
+  it("keeps the report out of the status it publishes", async () => {
+    const { statuses, run } = boot([{ ...fixing({ round: 1, limit: 3 }), report: RED_REPORT }, green()]);
+    await run();
+    expect(statuses.some((status) => "report" in status)).toBe(false);
+  });
+
   it("returns a first-pass green untouched", async () => {
     const { fixCalls, run } = boot([green()]);
     expect((await run()).phase).toBe("green");

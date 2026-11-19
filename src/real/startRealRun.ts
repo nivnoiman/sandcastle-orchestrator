@@ -11,6 +11,7 @@ import { controlPlaneHost, type ControlPlaneHost, type ControlPlaneOptions } fro
 import { createVerifyHarness } from "./featureVerify/verifyStrategy.js";
 import type { FeatureFixBrief, FeatureRound } from "./featureVerify/featureBrief.js";
 import { FEATURE_FIX_STAGE, runFeatureFix, runFeatureVerifyLoop } from "./featureVerify/featureRework.js";
+import type { FeatureRecheck } from "./featureVerify/focusedRecheck.js";
 import {
   idleFeatureVerify,
   involvedRepos,
@@ -180,7 +181,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
       }
       verifyStatus = idleFeatureVerify("running");
       const verifyModel = context.runModel();
-      const verifyRound = (round: FeatureRound) =>
+      const verifyRound = (round: FeatureRound, recheck: FeatureRecheck | undefined) =>
         runFeatureVerify({
           harness: createVerifyHarness({
             runner,
@@ -200,10 +201,11 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           hubRepo: config.hubRepo,
           tracker: config.tracker,
           rework: round,
+          recheck,
           log,
           warn,
         });
-      const verify = (round: FeatureRound) => {
+      const verify = (round: FeatureRound, recheck: FeatureRecheck | undefined) => {
         const rework = verifyStatus.rework;
         if (verifyMutex.busy()) {
           verifyStatus = { ...idleFeatureVerify("waiting"), rework };
@@ -211,7 +213,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
         }
         return verifyMutex.runExclusive(() => {
           verifyStatus = { ...idleFeatureVerify("running"), rework };
-          return verifyRound(round);
+          return verifyRound(round, recheck);
         });
       };
       const fix = (briefs: readonly FeatureFixBrief[], round: FeatureRound) =>
@@ -239,6 +241,7 @@ export async function startParentRun(host: ControlPlaneHost, options: ParentRunO
           gh: bundle.gh,
           model: verifyModel,
           limit: config.featureReworkLimit,
+          recheckMode: config.featureRecheck,
           verify,
           fix,
           onStatus: (status) => {

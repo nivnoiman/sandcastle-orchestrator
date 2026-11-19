@@ -15,6 +15,7 @@ export interface ScenarioLine {
   kind: ScenarioKind;
   token: string;
   recognized: boolean;
+  text: string;
 }
 
 export interface VerifyOutcome {
@@ -58,10 +59,11 @@ export function readScenarioLine(raw: string): ScenarioLine | undefined {
   if (tail.length > 0 && !SEPARATOR.test(tail)) return undefined;
 
   const normalized = normalizeToken(token);
+  const text = tail.replace(SEPARATOR, "").trimStart();
   const known = VERDICT_TOKENS[normalized];
-  if (known) return { line: raw, kind: known, token: normalized, recognized: true };
+  if (known) return { line: raw, kind: known, token: normalized, recognized: true, text };
   if (!SHOUTED.test(token)) return undefined;
-  return { line: raw, kind: "fail", token: normalized, recognized: false };
+  return { line: raw, kind: "fail", token: normalized, recognized: false, text };
 }
 
 export function scenarioLines(report: string): ScenarioLine[] {

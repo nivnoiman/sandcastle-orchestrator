@@ -110,6 +110,9 @@ describe("loadOrchestratorConfig", () => {
     expect(load("").featureReworkLimit).toBe(3);
     expect(load("SANDCASTLE_FEATURE_REWORK_LIMIT=1").featureReworkLimit).toBe(1);
     expect(() => load("SANDCASTLE_FEATURE_REWORK_LIMIT=-1")).toThrow(/SANDCASTLE_FEATURE_REWORK_LIMIT/);
+    expect(load("").featureRecheck).toBe("focused");
+    expect(load("SANDCASTLE_FEATURE_RECHECK=full").featureRecheck).toBe("full");
+    expect(() => load("SANDCASTLE_FEATURE_RECHECK=partial")).toThrow(/SANDCASTLE_FEATURE_RECHECK/);
   });
 
   it("honours per-repo bootstrap and check overrides", () => {
