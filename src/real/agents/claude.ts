@@ -37,7 +37,7 @@ export function requiredSkillChecks(): string[] {
 }
 
 const TRUST_WORKSPACE_SCRIPT = [
-  `const fs=require("fs"),f=process.env.HOME+"/.claude.json",c=JSON.parse(fs.readFileSync(f,"utf8"));`,
+  `const fs=require("fs"),f=${JSON.stringify(`${CONTAINER_HOME}/.claude.json`)},c=JSON.parse(fs.readFileSync(f,"utf8"));`,
   `const w=${JSON.stringify(SANDBOX_WORKDIR)};c.projects=c.projects||{};c.projects[w]={...c.projects[w],hasTrustDialogAccepted:true};`,
   `fs.writeFileSync(f,JSON.stringify(c));`,
 ].join("");
