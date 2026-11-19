@@ -1,4 +1,5 @@
 import { describeAgent, resolveAgent, snapshotCredential, syncBackCredential } from "../agents/index.js";
+import { rethrowAsAgentWait } from "../agentFailure.js";
 import { ensureFreshLogin, type AuthProbeDeps } from "../authProbe.js";
 import { runWithIdleTimeout } from "../commandRunner.js";
 import { execRequest } from "../docker.js";
@@ -27,7 +28,7 @@ export async function runVerifyAgent(
         deps.runner,
         execRequest(container, agent.provider.command(agent.model), { input: prompt, onOutput: (chunk) => writer?.write(chunk) }),
         idle,
-      );
+      ).catch(rethrowAsAgentWait(agent.provider.classify));
       outcome = "success";
     } finally {
       syncBackCredential(deps, container, login);

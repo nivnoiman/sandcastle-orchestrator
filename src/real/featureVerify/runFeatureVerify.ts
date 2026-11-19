@@ -16,6 +16,7 @@ import {
 } from "./verdict.js";
 import { messageOf } from "../../messageOf.js";
 import { mergeRecheckReport, type FeatureRecheck } from "./focusedRecheck.js";
+import { isHoldingWait } from "../holdGate.js";
 
 export type FeatureVerifyPhase = "idle" | "waiting" | "running" | "fixing" | "green" | "red" | "skipped";
 
@@ -219,6 +220,7 @@ async function collectReport(deps: FeatureVerifyDeps): Promise<VerifyRun> {
     await deps.harness.runAgent(prompt(deps, facts));
     return { report: deps.harness.readReport(), environment, failure: undefined, services };
   } catch (cause) {
+    if (isHoldingWait(cause)) throw cause;
     return { report: deps.harness.readReport(), environment, failure: messageOf(cause), services };
   } finally {
     deps.harness.down();

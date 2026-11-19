@@ -10,6 +10,8 @@ import { integrationBase } from "../project/projectConfig.js";
 import { CONTAINER_HOME, type SandcastleLayout } from "./paths.js";
 import { describeAgent, snapshotCredential, syncBackCredential, type ResolvedAgent } from "./agents/index.js";
 import { ensureFreshLogin } from "./authProbe.js";
+import { rethrowAsAgentWait } from "./agentFailure.js";
+import { isHoldingWait, type AwaitHold, type HoldingWait } from "./holdGate.js";
 import {
   CHECK_OUTPUT_TAIL,
   CheckFailure,
@@ -93,7 +95,7 @@ export class DockerIntegrationHarness implements IntegrationHarness {
     await this.inSandbox(workspace, "bind", agent, async (container, log) => {
       await this.assertCommands(container, log);
       this.deps.log(`[${this.deps.agent.stage}] ${workspace.repo}: agent starting (idle budget ${this.deps.config.idleTimeoutSeconds}s, model ${describeAgent(agent)})`);
-      await this.exec(container, agent.provider.command(agent.model), log, prompt);
+      await this.exec(container, agent.provider.command(agent.model), log, prompt).catch(rethrowAsAgentWait(agent.provider.classify));
     });
   }
 
@@ -234,14 +236,18 @@ export interface LandRequest {
   prompt: (workspace: IntegrationWorkspace) => string;
   collect?: (workspace: IntegrationWorkspace) => void;
   onLeftovers: (leftovers: readonly string[]) => void;
+  awaitHold: AwaitHold;
 }
 
-async function landInWorkspace(request: LandRequest, workspace: IntegrationWorkspace): Promise<LandOutcome> {
+type LandAttempt = LandOutcome | { kind: "held"; wait: HoldingWait };
+
+async function landInWorkspace(request: LandRequest, workspace: IntegrationWorkspace): Promise<LandAttempt> {
   const { harness, stage } = request;
   let agentFailure: string | undefined;
   try {
     await harness.runAgent(workspace, request.prompt(workspace));
   } catch (cause) {
+    if (isHoldingWait(cause)) return { kind: "held", wait: cause };
     agentFailure = messageOf(cause);
   }
   const subjects = harness.commitsSince(workspace);
@@ -265,6 +271,14 @@ async function landInWorkspace(request: LandRequest, workspace: IntegrationWorks
 }
 
 export async function landAgentWork(request: LandRequest): Promise<LandOutcome> {
+  for (;;) {
+    const attempt = await landOnce(request);
+    if (attempt.kind !== "held") return attempt;
+    await request.awaitHold(attempt.wait, `${request.stage} ${request.repo}`);
+  }
+}
+
+async function landOnce(request: LandRequest): Promise<LandAttempt> {
   let workspace: IntegrationWorkspace;
   try {
     workspace = request.harness.checkout(request.repo);
